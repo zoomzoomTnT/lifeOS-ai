@@ -2,13 +2,22 @@
 
 Minimal REST backend for WeChat Life OS.
 
-## Run
+## Docker (preferred)
+
+From the repo root:
 
 ```bash
-export LIFE_DB=~/.openclaw/workspace/data/life.db   # or any path
-export LIFE_API_PORT=8787
+docker compose up -d --build
+curl http://127.0.0.1:8787/api/health
+```
 
-cd app
+DB file: `../data/life.db` (compose volume `./data`).
+
+## Maven
+
+```bash
+export LIFE_DB=~/.openclaw/workspace/data/life.db
+export LIFE_API_PORT=8787
 mvn spring-boot:run
 ```
 

@@ -51,6 +51,7 @@
   </dependencies>
 
   <build>
+    <finalName>life-os-app</finalName>
     <plugins>
       <plugin>
         <groupId>org.springframework.boot</groupId>

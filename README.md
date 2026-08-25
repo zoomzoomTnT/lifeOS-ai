@@ -6,43 +6,66 @@ WeChat / OpenClaw Life OS: one SQLite file, a Spring Boot REST API, and a thin A
 
 Repo: [zoomzoomTnT/lifeOS-ai](https://github.com/zoomzoomTnT/lifeOS-ai)
 
+Image: `ghcr.io/zoomzoomtnt/lifeos-ai:latest`
+
 Covers 记账/小票, 冰箱, 备忘 (proactive pings), 持仓 (trial).
+
+## One-click: Docker Compose
+
+```bash
+git clone https://github.com/zoomzoomTnT/lifeOS-ai.git
+cd lifeOS-ai
+docker compose up -d --build
+```
+
+API: `http://127.0.0.1:8787/api/health`  
+SQLite file (backup this): `./data/life.db`
+
+```bash
+docker compose logs -f api
+docker compose down
+```
+
+Use a published image instead of building:
+
+```bash
+LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest docker compose up -d
+```
+
+Env overrides: `LIFE_API_PORT` (host port), `LIFE_DATA` (host folder for the db).
 
 ## Layout
 
 ```
 .
-├── schema/schema.sql       # single source of truth for tables
-├── docs/api.md             # REST contract
-├── app/                    # Spring Boot 3 + Java 21
-├── skill-updates/          # drop-in OpenClaw skill (HTTP, not life.py)
+├── Dockerfile
+├── docker-compose.yml
+├── schema/schema.sql
+├── docs/api.md
+├── app/                      # Spring Boot 3 + Java 21
+├── skill-updates/            # OpenClaw skill (HTTP)
 └── .github/workflows/ci.yml
 ```
 
 ## CI
 
-GitHub Actions on `main` and pull requests:
+On `main` and pull requests:
 
-1. `schema/schema.sql` and `app/src/main/resources/schema.sql` must be identical
-2. Apply schema to a fresh SQLite database
-3. Maven `verify` (Java 21) + unit tests
-4. On `main` push, upload the packaged jar as a workflow artifact
+1. Schema copies must match; apply to a fresh SQLite db
+2. Maven `verify` (Java 21) + unit tests; upload jar on `main`
+3. Docker build + `docker compose` smoke (`GET /api/health`)
+4. On `main` push, publish `ghcr.io/zoomzoomtnt/lifeos-ai` (`latest` + `sha-*`)
 
-## Quick start
+If the GHCR package is private on first publish: GitHub → Packages → `lifeos-ai` → Package settings → Change visibility → Public.
 
-1. Schema is applied by the app on first boot (or `sqlite3 life.db < schema/schema.sql`).
+## Maven (without Docker)
 
-2. Start the API:
-   ```bash
-   export LIFE_DB=~/.openclaw/workspace/data/life.db
-   cd app && mvn spring-boot:run
-   ```
+```bash
+export LIFE_DB=~/.openclaw/workspace/data/life.db
+cd app && mvn spring-boot:run
+```
 
-3. Point the skill at the API:
-   - Copy `skill-updates/` into `~/.openclaw/workspace/skills/life-os-skills`
-   - Set `LIFE_API_BASE=http://127.0.0.1:8787`
-
-4. OpenClaw heartbeat / cron call `GET /api/memos/due` (no Python exec).
+Point the OpenClaw skill at `LIFE_API_BASE=http://127.0.0.1:8787` and copy `skill-updates/` into `~/.openclaw/workspace/skills/life-os-skills`.
 
 ## Design (2026-08-26)
 

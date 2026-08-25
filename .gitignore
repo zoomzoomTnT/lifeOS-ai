@@ -9,11 +9,12 @@ app/target/
 .project
 .settings/
 
-# SQLite
+# SQLite + compose data dir (backup this folder)
 *.db
 *.db-wal
 *.db-shm
 life.db
+/data/
 
 # OS / editor
 .DS_Store

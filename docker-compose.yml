@@ -1,0 +1,21 @@
+services:
+  api:
+    image: ${LIFE_IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lifeos-api
+    ports:
+      - "${LIFE_API_PORT:-8787}:8787"
+    environment:
+      LIFE_DB: /data/life.db
+      LIFE_API_PORT: "8787"
+    volumes:
+      - ${LIFE_DATA:-./data}:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 25s

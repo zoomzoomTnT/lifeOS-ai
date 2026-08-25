@@ -1,0 +1,14 @@
+.git
+.github
+**/.git
+**/target
+**/*.class
+data
+*.db
+*.db-wal
+*.db-shm
+skill-updates
+docs
+*.md
+.idea
+.vscode
