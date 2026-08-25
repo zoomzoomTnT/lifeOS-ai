@@ -1,0 +1,26 @@
+# Java / Maven
+app/target/
+*.class
+*.jar
+*.war
+*.iml
+.idea/
+.classpath
+.project
+.settings/
+
+# SQLite
+*.db
+*.db-wal
+*.db-shm
+life.db
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
+
+# Env / secrets
+.env
+.env.*
+*.pem
