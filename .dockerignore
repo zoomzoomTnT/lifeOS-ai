@@ -7,8 +7,8 @@ data
 *.db
 *.db-wal
 *.db-shm
-skill-updates
 docs
 *.md
+!skills/**/*.md
 .idea
 .vscode

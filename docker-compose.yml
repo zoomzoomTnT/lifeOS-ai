@@ -29,3 +29,20 @@ services:
       timeout: 3s
       retries: 10
       start_period: 25s
+
+  # One-shot: copy skill from this image into the host OpenClaw workspace.
+  #   docker compose --profile sync run --rm skill-sync
+  skill-sync:
+    profiles: ["sync"]
+    image: ${LIFE_IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lifeos-skill-sync
+    entrypoint: ["/app/sync-skill.sh"]
+    environment:
+      OPENCLAW_SYNC_ROOT: /openclaw
+      LIFE_SKILL_SRC: /opt/life-os-skill
+    volumes:
+      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw
+    restart: "no"

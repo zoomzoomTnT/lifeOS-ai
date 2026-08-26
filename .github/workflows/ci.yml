@@ -145,6 +145,9 @@ jobs:
           echo "$META"
           echo "$META" | grep -q 'openclaw_session'
           echo "$META" | grep -qv '秘密对话'
+          docker compose --profile sync run --rm skill-sync
+          grep -q 'name: life-os' "$HOME/.openclaw/workspace/skills/life-os/SKILL.md"
+          test -f "$HOME/.openclaw/workspace/HEARTBEAT.md"
           docker compose down
 
       - name: Login to GHCR

@@ -57,10 +57,15 @@ If `people.handle` is still `owner`, the first real WeChat peer id will auto-cre
 
 ## Install (OpenClaw workspace)
 
+On the OpenClaw host (same compose file, skill is inside the image):
+
 ```bash
-cp -R skills/life-os ~/.openclaw/workspace/skills/life-os
-cp skills/life-os/HEARTBEAT.md ~/.openclaw/workspace/HEARTBEAT.md
+docker compose up -d
+docker compose --profile sync run --rm skill-sync
 ```
+
+That writes `$OPENCLAW_HOME/workspace/skills/life-os` and `HEARTBEAT.md`.
+
 
 1. Run the Spring Boot app so the API is listening (`docker compose up -d`).
 2. Merge `openclaw/openclaw.json` (`heartbeat.every=0m`, `hooks.enabled`). Set `OPENCLAW_HOOK_TOKEN`.

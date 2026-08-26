@@ -8,12 +8,12 @@
 
 Weixin / plugin credentials stay in your existing `~/.openclaw/openclaw.json` (or `openclaw.local.json`, gitignored). Merge the `agents.defaults.heartbeat` and `hooks` blocks into that file.
 
-Install the skill:
+Install the skill from the same image (no manual cp):
 
 ```bash
-cp -R skills/life-os ~/.openclaw/workspace/skills/life-os
-cp skills/life-os/HEARTBEAT.md ~/.openclaw/workspace/HEARTBEAT.md
+docker compose --profile sync run --rm skill-sync
 ```
+
 
 
 Generate a hook token and put it in the environment Spring Boot sees:

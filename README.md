@@ -50,15 +50,29 @@ cp env.example .env
 
 微信插件、模型 API key、Gateway bind 继续用你现有的。仓库这份 **不含密钥**。
 
-### 3. Skill
+### 3. Skill（Docker 同步，不必手抄）
+
+镜像里带了 `skills/life-os`。在 OpenClaw 同一台机器上：
 
 ```bash
-cp -R skills/life-os ~/.openclaw/workspace/skills/life-os
-cp skills/life-os/HEARTBEAT.md ~/.openclaw/workspace/HEARTBEAT.md
-# skill 调 API 时带:
-#   LIFE_API_BASE=http://127.0.0.1:8787
-#   X-Life-Handle: <你的微信 peer id>
+docker compose up -d --build
+docker compose --profile sync run --rm skill-sync
 ```
+
+会把 skill 写到 `$OPENCLAW_HOME/workspace/skills/life-os`（默认 `~/.openclaw/workspace/skills/life-os`），并覆盖 workspace 的 `HEARTBEAT.md`。
+
+之后每次 `main` 发布新镜像：
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose --profile sync run --rm skill-sync
+```
+
+GitHub Actions **不会** SSH 进你的机器；它只把 skill 打进 GHCR 镜像。你这台机 `compose pull` + `skill-sync` 才落到 OpenClaw。
+
+skill 调 API 时：`LIFE_API_BASE=http://127.0.0.1:8787`，`X-Life-Handle: <微信 peer id>`。
+
 
 把 `people.handle` 从占位 `owner` 改成真实微信 id（API `PUT /api/people/me` 或第一次带 header 会自动建 member）。时区默认 **Asia/Tokyo**；期权 cron 用 **America/New_York**。
 
@@ -92,7 +106,7 @@ Java 每 2 分钟扫描 `OPENCLAW_HOME`：
 
 - [ ] `.env` 里 `OPENCLAW_HOOK_TOKEN` 非空，且等于 OpenClaw `hooks.token`
 - [ ] heartbeat 已是 `0m`，workspace 没有 30m 模型心跳
-- [ ] skill 已拷到 `~/.openclaw/workspace/skills/life-os`
+- [ ] `docker compose --profile sync run --rm skill-sync` 后 `~/.openclaw/workspace/skills/life-os/SKILL.md` 存在
 - [ ] `curl /api/health` 且 `db=ok`
 - [ ] `POST /api/ops/proactive/run` 在没到期时 `wake=false`；到期时 Gateway 日志出现 `/hooks/agent`
 - [ ] `OPENCLAW_HOME` 挂载成功，`POST /api/ops/logs/ingest` 的 `session_rows` 会涨
@@ -159,7 +173,7 @@ export OPENCLAW_HOOK_TOKEN=...
 cd app && mvn spring-boot:run
 ```
 
-Skill: `cp -R skills/life-os ~/.openclaw/workspace/skills/life-os` and `LIFE_API_BASE=http://127.0.0.1:8787`.
+Skill: `docker compose --profile sync run --rm skill-sync`（把镜像里的 skill 同步到 `~/.openclaw/workspace`）。
 
 ## Design (2026-08-26)
 

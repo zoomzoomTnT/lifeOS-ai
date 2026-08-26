@@ -17,6 +17,9 @@ RUN apt-get update \
     && mkdir -p /data /app
 
 COPY --from=build /build/target/life-os-app.jar /app/app.jar
+COPY skills/life-os /opt/life-os-skill
+COPY docker/sync-skill.sh /app/sync-skill.sh
+RUN chmod +x /app/sync-skill.sh
 
 WORKDIR /app
 
