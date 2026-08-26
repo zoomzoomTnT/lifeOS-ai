@@ -17,8 +17,11 @@ services:
       OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN:-}
       LIFE_WEIXIN_CHANNEL: ${LIFE_WEIXIN_CHANNEL:-openclaw-weixin}
       LIFE_PROACTIVE_MODEL: ${LIFE_PROACTIVE_MODEL:-}
+      LIFE_OPENCLAW_HOME: /openclaw
+      LIFE_OPENCLAW_FILE_LOG: ${LIFE_OPENCLAW_FILE_LOG:-}
     volumes:
       - ${LIFE_DATA:-./data}:/data
+      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/api/health"]

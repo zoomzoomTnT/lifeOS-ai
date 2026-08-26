@@ -71,6 +71,27 @@ Do **not** send full prompts. `meta_json` may hold image_path, receipt_id, memo_
 
 Periodic OpenClaw heartbeats are **disabled** (`heartbeat.every=0m`). Due scanning is Spring cron every minute (`ProactiveCronService`); it reverse-calls `/hooks/agent` only when `should-wake` is true. Record `purpose=heartbeat` only if a model was actually invoked.
 
+## Two log tables (privacy)
+
+| Table | `source` examples | Has conversation? |
+|---|---|---|
+| `app_logs` | `app`, `scheduler`, `openclaw_gateway` | no |
+| `ai_session_logs` | `openclaw_session`, `trajectory`, `transcript` | **yes** — isolated on purpose |
+
+Both have `occurred_at` (from the jsonl timestamp) and `ingested_at`.
+
+OpenClaw files ingested every 2 minutes from `$OPENCLAW_HOME` (`agents/*/sessions/*.jsonl`, `transcripts/**/transcript.jsonl`, trajectory `events.jsonl`):
+
+```bash
+curl -s -X POST "$LIFE_API_BASE/api/ops/logs/ingest"
+curl -s "$LIFE_API_BASE/api/ops/logs/app"
+curl -s "$LIFE_API_BASE/api/ops/logs/sessions"                  # no content
+curl -s "$LIFE_API_BASE/api/ops/logs/sessions?include_content=true"  # private
+```
+
+`/ops` dashboard shows **counts only**, never transcript text.
+
+
 
 
 ## Dashboard

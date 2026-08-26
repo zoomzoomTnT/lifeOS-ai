@@ -142,6 +142,12 @@ public class OpsService {
         out.put("budget_exceeded", today > budget);
         out.put("by_model", byModel);
         out.put("daily", daily);
+        out.put("app_logs", jdbc.queryForMap(
+                "SELECT COUNT(*) AS rows FROM app_logs WHERE occurred_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)",
+                "-" + window));
+        out.put("ai_session_logs", jdbc.queryForMap(
+                "SELECT COUNT(*) AS rows FROM ai_session_logs WHERE occurred_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)",
+                "-" + window));
         return out;
     }
 
@@ -187,7 +193,18 @@ public class OpsService {
         int ai = jdbc.update(
                 "DELETE FROM ai_calls WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)",
                 "-" + days + " days");
-        return Map.of("deleted_http", http, "deleted_ai", ai, "older_than_days", days);
+        int appLogs = jdbc.update(
+                "DELETE FROM app_logs WHERE occurred_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)",
+                "-" + days + " days");
+        int sessions = jdbc.update(
+                "DELETE FROM ai_session_logs WHERE occurred_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)",
+                "-" + days + " days");
+        return Map.of(
+                "deleted_http", http,
+                "deleted_ai", ai,
+                "deleted_app_logs", appLogs,
+                "deleted_session_logs", sessions,
+                "older_than_days", days);
     }
 
     private Map<String, Object> lookupPrice(String provider, String model) {

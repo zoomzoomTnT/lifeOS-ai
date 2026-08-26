@@ -1,5 +1,6 @@
 package com.lifeos.web;
 
+import com.lifeos.ops.LogIngestService;
 import com.lifeos.ops.OpsService;
 import com.lifeos.ops.ProactiveCronService;
 import com.lifeos.ops.WakeService;
@@ -16,11 +17,15 @@ public class OpsController {
     private final WakeService wakeService;
     private final ProactiveCronService proactiveCronService;
 
+    private final LogIngestService logIngestService;
+
     public OpsController(OpsService opsService, WakeService wakeService,
-                         ProactiveCronService proactiveCronService) {
+                         ProactiveCronService proactiveCronService,
+                         LogIngestService logIngestService) {
         this.opsService = opsService;
         this.wakeService = wakeService;
         this.proactiveCronService = proactiveCronService;
+        this.logIngestService = logIngestService;
     }
 
     @PostMapping("/ai")
@@ -67,6 +72,23 @@ public class OpsController {
     public ResponseEntity<?> proactiveRun(@RequestBody(required = false) Map<String, Object> body) {
         boolean force = body != null && Boolean.TRUE.equals(body.get("force"));
         return ResponseEntity.ok(proactiveCronService.run(force));
+    }
+
+    @PostMapping("/logs/ingest")
+    public ResponseEntity<?> ingestLogs() {
+        return ResponseEntity.ok(logIngestService.run());
+    }
+
+    @GetMapping("/logs/app")
+    public ResponseEntity<?> appLogs(@RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(logIngestService.listApp(limit));
+    }
+
+    /** Metadata only unless include_content=true — conversation is private. */
+    @GetMapping("/logs/sessions")
+    public ResponseEntity<?> sessionLogs(@RequestParam(defaultValue = "50") int limit,
+                                         @RequestParam(name = "include_content", defaultValue = "false") boolean includeContent) {
+        return ResponseEntity.ok(logIngestService.listSessions(limit, includeContent));
     }
 
     @PostMapping("/purge")

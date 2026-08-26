@@ -28,7 +28,7 @@ jobs:
 
       - name: Required tables exist
         run: |
-          sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -E '^(people|receipts|fridge_items|memos|holdings|http_requests|ai_calls|model_prices|settings)$'
+          sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -E '^(people|receipts|fridge_items|memos|holdings|http_requests|ai_calls|model_prices|settings|app_logs|ai_session_logs)$'
           sqlite3 /tmp/life-ci.db "SELECT handle, role FROM people WHERE id = 1;"
           sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;" | grep -v '^0$'
           sqlite3 /tmp/life-ci.db "SELECT name FROM sqlite_master WHERE type='view' AND name='v_ai_daily';"
@@ -37,7 +37,8 @@ jobs:
         run: |
           sqlite3 /tmp/life-old.db "CREATE TABLE people (id INTEGER PRIMARY KEY, handle TEXT); INSERT INTO people VALUES (1,'owner');"
           sqlite3 /tmp/life-old.db < schema/migrations/0002_ops.sql
-          sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM ai_calls; SELECT COUNT(*) FROM http_requests;"
+          sqlite3 /tmp/life-old.db < schema/migrations/0003_logs.sql
+          sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM ai_session_logs; SELECT COUNT(*) FROM app_logs;"
 
   build:
     name: Maven test & package
@@ -109,6 +110,11 @@ jobs:
           export LIFE_IMAGE=lifeos-ai:ci
           export LIFE_OPENCLAW_WAKE=false
           mkdir -p data
+          mkdir -p "$HOME/.openclaw/agents/main/sessions"
+          printf '%s\n' \
+            '{"type":"session","timestamp":"2026-08-26T00:00:00Z","id":"ci-sess"}' \
+            '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
+            > "$HOME/.openclaw/agents/main/sessions/ci.jsonl"
           docker compose up -d --wait --wait-timeout 90
           curl -fsS http://127.0.0.1:8787/api/health
           echo
@@ -132,6 +138,13 @@ jobs:
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
           curl -fsS http://127.0.0.1:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
+          ING=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/logs/ingest)
+          echo "$ING"
+          echo "$ING" | grep -q 'session_rows'
+          META=$(curl -fsS 'http://127.0.0.1:8787/api/ops/logs/sessions?limit=5')
+          echo "$META"
+          echo "$META" | grep -q 'openclaw_session'
+          echo "$META" | grep -qv '秘密对话'
           docker compose down
 
       - name: Login to GHCR

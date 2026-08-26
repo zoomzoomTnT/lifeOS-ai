@@ -352,4 +352,56 @@ INSERT INTO model_prices (provider, model, input_usd_micros_per_mtok, output_usd
   ('openai', 'gpt-4o-mini',      150000,   600000, 'list price-ish'),
   ('anthropic', 'claude-sonnet-4', 3000000, 15000000, 'list price-ish');
 
-INSERT INTO schema_migrations (name) VALUES ('0001_base'), ('0002_ops');
+INSERT INTO schema_migrations (name) VALUES ('0001_base'), ('0002_ops'), ('0003_logs');
+
+-- ---------------------------------------------------------------------------
+-- Logs: app vs AI session (privacy). AI conversation NEVER lives in app_logs.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE app_logs (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  occurred_at  TEXT    NOT NULL,
+  ingested_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  source       TEXT    NOT NULL
+               CHECK (source IN ('app','scheduler','http','openclaw_gateway','docker','other')),
+  level        TEXT    NOT NULL DEFAULT 'INFO',
+  logger       TEXT,
+  message      TEXT,
+  meta_json    TEXT
+);
+
+CREATE INDEX idx_app_logs_ts     ON app_logs(occurred_at);
+CREATE INDEX idx_app_logs_source ON app_logs(source, occurred_at);
+
+CREATE TABLE ai_session_logs (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  occurred_at  TEXT    NOT NULL,
+  ingested_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  source       TEXT    NOT NULL DEFAULT 'openclaw_session'
+               CHECK (source IN ('openclaw_session','trajectory','transcript')),
+  agent_id     TEXT,
+  session_id   TEXT,
+  session_key  TEXT,
+  event_type   TEXT,
+  role         TEXT,
+  content      TEXT,
+  content_len  INTEGER,
+  usage_json   TEXT,
+  file_path    TEXT    NOT NULL,
+  line_no      INTEGER NOT NULL,
+  raw_json     TEXT,
+  UNIQUE (file_path, line_no)
+);
+
+CREATE INDEX idx_sess_ts      ON ai_session_logs(occurred_at);
+CREATE INDEX idx_sess_session ON ai_session_logs(session_id, occurred_at);
+CREATE INDEX idx_sess_source  ON ai_session_logs(source, occurred_at);
+
+CREATE TABLE log_ingest_cursors (
+  file_path     TEXT PRIMARY KEY,
+  offset_bytes  INTEGER NOT NULL DEFAULT 0,
+  line_no       INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+INSERT INTO settings (key, value) VALUES ('session_log_retain_days', '90');

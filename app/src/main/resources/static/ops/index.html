@@ -83,6 +83,8 @@
         <div class="card"><div class="label">24h AI 次</div><div class="val">${s.ai.calls}</div></div>
         <div class="card"><div class="label">24h HTTP 次</div><div class="val">${s.http.calls}</div></div>
         <div class="card"><div class="label">HTTP 均延迟</div><div class="val">${Math.round(s.http.avg_latency_ms || 0)} ms</div></div>
+        <div class="card"><div class="label">24h 会话条</div><div class="val">${(s.ai_session_logs && s.ai_session_logs.rows) || 0}</div></div>
+        <div class="card"><div class="label">24h 应用日志</div><div class="val">${(s.app_logs && s.app_logs.rows) || 0}</div></div>
       `;
       el('models').innerHTML = '<tr><th>provider</th><th>model</th><th class="right">calls</th><th class="right">cost</th></tr>'
         + (s.by_model || []).map(r => `<tr><td>${r.provider}</td><td>${r.model}</td><td class="right">${r.calls}</td><td class="right">${usd(r.cost_micros)}</td></tr>`).join('');

@@ -21,6 +21,10 @@ life:
     hook-token: ${OPENCLAW_HOOK_TOKEN:}
     channel: ${LIFE_WEIXIN_CHANNEL:openclaw-weixin}
     model: ${LIFE_PROACTIVE_MODEL:}
+    home: ${LIFE_OPENCLAW_HOME:}
+    file-log: ${LIFE_OPENCLAW_FILE_LOG:}
+  logs:
+    ingest-ms: ${LIFE_LOG_INGEST_MS:120000}
   proactive:
     cron: "${LIFE_PROACTIVE_CRON:0 * * * * *}"   # every minute, SQL first
     lead-minutes: 10

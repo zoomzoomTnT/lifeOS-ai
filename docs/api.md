@@ -238,9 +238,18 @@ Raw SELECT with params — not for production skill use.
 
 Java/SQLite gate, **no model**. Default lead is 10 minutes (not 36 hours). `{ "wake": false, "heartbeat_ok": true }`.
 
-### `POST /api/ops/proactive/run`
+### `POST /api/ops/logs/ingest`
 
-`{ "force": true }` optional. If due (or forced), Spring POSTs OpenClaw ` /hooks/agent` so the skill speaks on WeChat. 15-minute lock avoids repeat bills.
+Tail OpenClaw jsonl under `$LIFE_OPENCLAW_HOME` into SQLite.
+
+### `GET /api/ops/logs/app`
+
+Application / gateway logs. No chat.
+
+### `GET /api/ops/logs/sessions?include_content=false`
+
+AI session / trajectory rows. Default **omits** `content` and `raw_json`. Pass `include_content=true` only when you need the transcript.
+
 
 ## Ops (logging / AI spend)
 

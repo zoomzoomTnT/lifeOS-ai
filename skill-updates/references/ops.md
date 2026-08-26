@@ -51,4 +51,6 @@ curl -s "$LIFE_API_BASE/api/ops/summary?hours=24"
 
 Speak today's USD and whether the $5 default budget is blown. Point them at `/ops` if they have a browser.
 
+Session transcripts live in `ai_session_logs` (private). Do not dump `include_content=true` into WeChat. Application logs are `app_logs`.
+
 Do not dump schema. Do not paste full prompts into `meta_json`.
