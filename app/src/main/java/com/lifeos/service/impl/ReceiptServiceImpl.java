@@ -43,16 +43,15 @@ public class ReceiptServiceImpl implements ReceiptService {
 
     @Override
     public ReceiptLookupResponse lookup(ReceiptLookupRequest request) {
-        String fp = Fingerprints.receipt(request.barcode(), request.printedAt());
-        Optional<Receipt> existing = receipts.findByFingerprint(fp);
-        return receiptMapper.toLookup(existing.orElse(null));
+        return receiptMapper.toLookup(findExisting(request).orElse(null));
     }
 
     @Override
     @Transactional
     public ReceiptPreviewResponse preview(ReceiptPreviewRequest request, String handle) {
-        String fp = Fingerprints.receipt(request.barcode(), request.printedAt());
-        Optional<Receipt> existing = receipts.findByFingerprint(fp);
+        String fp = Fingerprints.receipt(
+                request.barcode(), request.merchantName(), request.printedAt(), request.totalCents());
+        Optional<Receipt> existing = findExisting(request);
         if (existing.isPresent()) {
             return receiptMapper.toDuplicate(existing.get());
         }
@@ -113,6 +112,23 @@ public class ReceiptServiceImpl implements ReceiptService {
             ids.add(fridge.insertInStock(item, null));
         }
         return ids;
+    }
+
+    private Optional<Receipt> findExisting(ReceiptLookupRequest request) {
+        return findExisting(request.barcode(), request.merchantName(), request.printedAt(), request.totalCents());
+    }
+
+    private Optional<Receipt> findExisting(ReceiptPreviewRequest request) {
+        return findExisting(request.barcode(), request.merchantName(), request.printedAt(), request.totalCents());
+    }
+
+    private Optional<Receipt> findExisting(String barcode, String merchantName, String printedAt, Integer totalCents) {
+        String fp = Fingerprints.receipt(barcode, merchantName, printedAt, totalCents);
+        Optional<Receipt> hit = receipts.findByFingerprint(fp);
+        if (hit.isPresent() || Fingerprints.normalizeBarcode(barcode).isEmpty()) {
+            return hit;
+        }
+        return receipts.findByFingerprint(Fingerprints.legacy(barcode, printedAt));
     }
 
     private long ensureMerchant(String name) {
