@@ -53,35 +53,13 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 | `LIFE_OPENCLAW_FILE_LOG` | 可选 | Gateway JSONL 目录（如 `/tmp/openclaw`）→ `app_logs` |
 | `LIFE_API_BASE` | skill 侧 | `http://127.0.0.1:8787` |
 | `LIFE_IMAGE` | 可选 | 默认 `ghcr.io/zoomzoomtnt/lifeos-ai:latest` |
-| `GEMINI_API_KEY` | **Gemini 3.1 必填** | OpenClaw `models.providers.google.apiKey`。写在 **Gateway 环境**，不要写进 git |
-| `TENCENT_TOKENHUB_API_KEY` | fallback 必填 | Kimi K3（TokenHub）。同样只放环境变量 |
 
-Gateway 进程要看得到 token 和模型 key：
+Gateway 进程也要看得到这两个 token（写进它的 systemd/env 或 shell profile）：
 
 ```bash
 export OPENCLAW_HOOK_TOKEN='和 .env 相同'
 export OPENCLAW_GATEWAY_TOKEN='原来的 gateway token'
-export GEMINI_API_KEY='...'
-export TENCENT_TOKENHUB_API_KEY='...'
 ```
-
-### GitHub Actions secrets
-
-仓库是 **public**，API key **禁止**写进 `openclaw.json`。Actions 里用同名 secret（以后 CD 会读）。
-
-这个环境的 `gh` token **没有** `secrets` 写权限（403），我无法替你 `gh secret set`。在你自己电脑（已 `gh auth login`）跑：
-
-```bash
-gh secret set GEMINI_API_KEY --repo zoomzoomTnT/lifeOS-ai
-gh secret set TENCENT_TOKENHUB_API_KEY --repo zoomzoomTnT/lifeOS-ai
-```
-
-或网页：Repo → Settings → Secrets and variables → Actions → New repository secret。
-
-名字必须是 `GEMINI_API_KEY`、`TENCENT_TOKENHUB_API_KEY`（以及已有的 hook/gateway token）。
-
-**若 key 曾经出现在 git 里：立刻在发行方轮换**，旧值当作已泄露。
-
 
 ### 2. OpenClaw 钩子（`~/.openclaw/openclaw.json`）
 
