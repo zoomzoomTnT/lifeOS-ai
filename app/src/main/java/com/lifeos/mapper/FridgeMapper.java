@@ -2,10 +2,15 @@ package com.lifeos.mapper;
 
 import com.lifeos.domain.FridgeItem;
 import com.lifeos.domain.FridgeLocation;
+import com.lifeos.domain.FridgeResolveAction;
 import com.lifeos.domain.FridgeStatus;
 import com.lifeos.domain.Names;
 import com.lifeos.domain.ReceiptItem;
 import com.lifeos.web.dto.FridgeAddRequest;
+import com.lifeos.web.dto.FridgeItemResponse;
+import com.lifeos.web.dto.FridgeWriteResponse;
+
+import java.util.List;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
@@ -42,4 +47,16 @@ public interface FridgeMapper {
     @Mapping(target = "sourceReceiptId", source = "receiptId")
     @Mapping(target = "sourceReceiptItemId", source = "item.id")
     FridgeItem fromReceiptItem(ReceiptItem item, long ownerId, long receiptId);
+
+    FridgeItemResponse toResponse(FridgeItem item);
+
+    List<FridgeItemResponse> toResponseList(List<FridgeItem> items);
+
+    default FridgeWriteResponse toCreated(long id) {
+        return new FridgeWriteResponse(id, FridgeStatus.IN_STOCK, null);
+    }
+
+    default FridgeWriteResponse toResolved(long id, FridgeResolveAction action) {
+        return new FridgeWriteResponse(id, null, action);
+    }
 }

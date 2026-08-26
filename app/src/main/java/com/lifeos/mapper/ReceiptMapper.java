@@ -4,10 +4,16 @@ import com.lifeos.domain.Names;
 import com.lifeos.domain.Receipt;
 import com.lifeos.domain.ReceiptItem;
 import com.lifeos.domain.ReceiptStatus;
+import com.lifeos.web.dto.ReceiptConfirmResponse;
+import com.lifeos.web.dto.ReceiptLookupResponse;
 import com.lifeos.web.dto.ReceiptPreviewRequest;
+import com.lifeos.web.dto.ReceiptPreviewResponse;
+import com.lifeos.web.dto.ReceiptResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
+
+import java.util.List;
 
 @Mapper(componentModel = MappingConstants.ComponentModel.SPRING, imports = {Names.class, ReceiptStatus.class})
 public interface ReceiptMapper {
@@ -35,4 +41,37 @@ public interface ReceiptMapper {
     @Mapping(target = "food", expression = "java(Boolean.TRUE.equals(line.isFood()))")
     @Mapping(target = "category", source = "line.category")
     ReceiptItem toItem(ReceiptPreviewRequest.Line line, long receiptId);
+
+    ReceiptResponse toResponse(Receipt receipt);
+
+    List<ReceiptResponse> toResponseList(List<Receipt> receipts);
+
+    ReceiptPreviewResponse.FoodHint toFoodHint(ReceiptItem item);
+
+    default ReceiptLookupResponse toLookup(Receipt receipt) {
+        if (receipt == null) return new ReceiptLookupResponse(false, null);
+        return new ReceiptLookupResponse(true, toResponse(receipt));
+    }
+
+    default ReceiptPreviewResponse toDuplicate(Receipt existing) {
+        return new ReceiptPreviewResponse(
+                "duplicate", null, existing.id(), existing.status(),
+                "同一张小票已经记过了", null, null, null, null, null, null);
+    }
+
+    default ReceiptPreviewResponse toCreated(long receiptId, String fingerprint, boolean sumOk,
+                                             int computedCents, int totalCents, long merchantId,
+                                             List<ReceiptPreviewResponse.FoodHint> foodItems) {
+        return new ReceiptPreviewResponse(
+                "create_pending", receiptId, null, null, null, fingerprint,
+                sumOk, computedCents, totalCents, merchantId, foodItems);
+    }
+
+    default ReceiptConfirmResponse toConfirmed(long id, List<Long> fridgeItemIds) {
+        return new ReceiptConfirmResponse(ReceiptStatus.CONFIRMED, id, fridgeItemIds, null);
+    }
+
+    default ReceiptConfirmResponse toNotPending(Receipt receipt) {
+        return new ReceiptConfirmResponse(receipt.status(), receipt.id(), null, "not_pending");
+    }
 }

@@ -5,6 +5,7 @@ import com.lifeos.domain.FridgeItem;
 import com.lifeos.domain.FridgeLocation;
 import com.lifeos.domain.FridgeStatus;
 import com.lifeos.web.dto.FridgeAddRequest;
+import com.lifeos.web.dto.FridgeItemResponse;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,5 +28,16 @@ class FridgeMapperTest {
         assertEquals(FridgeLocation.FRIDGE, item.location());
         assertEquals(FridgeStatus.IN_STOCK, item.status());
         assertEquals(1d, item.qty());
+    }
+
+    @Test
+    void toResponseCopiesDomain() {
+        FridgeItem item = mapper.toNewItem(new FridgeAddRequest("茶", FoodCategory.DRINK, FridgeLocation.FREEZER, 2d, null), 1L);
+        FridgeItemResponse dto = mapper.toResponse(item);
+        assertEquals("茶", dto.name());
+        assertEquals("茶", dto.nameNorm());
+        assertEquals(FridgeLocation.FREEZER, dto.location());
+        assertEquals(FridgeStatus.IN_STOCK, dto.status());
+        assertEquals(2d, dto.qty());
     }
 }

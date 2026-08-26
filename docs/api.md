@@ -9,7 +9,8 @@ OpenAPI JSON: `/v3/api-docs` (groups: `/v3/api-docs/api`, `/v3/api-docs/actuator
 2. Dropdown **api** vs **actuator**.
 3. Expand an operation → **Try it out** → **Execute**.
 
-This markdown is still the field-level contract (cents, fingerprints). Swagger request bodies come from DTOs; responses are domain objects or small maps.
+This markdown is still the field-level contract (cents, fingerprints). Swagger request/response bodies come from DTOs (MapStruct maps domain ↔ DTO).
+
 
 
 

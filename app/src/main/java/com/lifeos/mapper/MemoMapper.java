@@ -4,6 +4,10 @@ import com.lifeos.domain.Memo;
 import com.lifeos.domain.MemoKind;
 import com.lifeos.domain.MemoStatus;
 import com.lifeos.web.dto.MemoCreateRequest;
+import com.lifeos.web.dto.MemoResponse;
+import com.lifeos.web.dto.MemoWriteResponse;
+
+import java.util.List;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
@@ -27,4 +31,20 @@ public interface MemoMapper {
     @Mapping(target = "sourceId", source = "request.sourceId")
     @Mapping(target = "payloadJson", expression = "java(request.payloadJson() == null ? null : request.payloadJson().toString())")
     Memo toNewMemo(MemoCreateRequest request, long ownerId);
+
+    MemoResponse toResponse(Memo memo);
+
+    List<MemoResponse> toResponseList(List<Memo> memos);
+
+    default MemoWriteResponse toCreated(long id) {
+        return new MemoWriteResponse(id, MemoStatus.OPEN, null, null);
+    }
+
+    default MemoWriteResponse toPatched(long id) {
+        return new MemoWriteResponse(id, null, true, null);
+    }
+
+    default MemoWriteResponse toFired(long id) {
+        return new MemoWriteResponse(id, null, null, true);
+    }
 }

@@ -15,16 +15,18 @@ import com.lifeos.repo.ReceiptRepository;
 import com.lifeos.service.PersonService;
 import com.lifeos.service.ReceiptService;
 import com.lifeos.web.dto.ReceiptConfirmRequest;
+import com.lifeos.web.dto.ReceiptConfirmResponse;
 import com.lifeos.web.dto.ReceiptLookupRequest;
+import com.lifeos.web.dto.ReceiptLookupResponse;
 import com.lifeos.web.dto.ReceiptPreviewRequest;
+import com.lifeos.web.dto.ReceiptPreviewResponse;
+import com.lifeos.web.dto.ReceiptResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -40,26 +42,19 @@ public class ReceiptServiceImpl implements ReceiptService {
     private final FridgeMapper fridgeMapper;
 
     @Override
-    public Map<String, Object> lookup(ReceiptLookupRequest request) {
+    public ReceiptLookupResponse lookup(ReceiptLookupRequest request) {
         String fp = Fingerprints.receipt(request.barcode(), request.printedAt());
         Optional<Receipt> existing = receipts.findByFingerprint(fp);
-        if (existing.isEmpty()) return Map.of("found", false);
-        return Map.of("found", true, "receipt", existing.get());
+        return receiptMapper.toLookup(existing.orElse(null));
     }
 
     @Override
     @Transactional
-    public Map<String, Object> preview(ReceiptPreviewRequest request, String handle) {
+    public ReceiptPreviewResponse preview(ReceiptPreviewRequest request, String handle) {
         String fp = Fingerprints.receipt(request.barcode(), request.printedAt());
         Optional<Receipt> existing = receipts.findByFingerprint(fp);
         if (existing.isPresent()) {
-            Receipt r = existing.get();
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("action", "duplicate");
-            out.put("existing_receipt_id", r.id());
-            out.put("status", r.status().db());
-            out.put("message", "同一张小票已经记过了");
-            return out;
+            return receiptMapper.toDuplicate(existing.get());
         }
 
         long payerId = people.resolveId(handle);
@@ -78,50 +73,36 @@ public class ReceiptServiceImpl implements ReceiptService {
         );
 
         int order = 0;
-        List<Map<String, Object>> foodItems = new ArrayList<>();
+        List<ReceiptPreviewResponse.FoodHint> foodItems = new ArrayList<>();
         for (ReceiptPreviewRequest.Line line : items) {
             ReceiptItem item = receiptMapper.toItem(line, receiptId);
             receipts.insertItem(receiptId, item, order++);
             if (item.food()) {
-                foodItems.add(Map.of(
-                        "name", item.name(),
-                        "name_norm", item.nameNorm(),
-                        "category", item.category() == null ? "" : item.category().db()
-                ));
+                foodItems.add(receiptMapper.toFoodHint(item));
             }
         }
 
         events.insert("finance", "preview", payerId, "receipts", receiptId, null);
-
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("action", "create_pending");
-        out.put("receipt_id", receiptId);
-        out.put("fingerprint", fp);
-        out.put("sum_ok", sumOk);
-        out.put("computed_cents", computed);
-        out.put("total_cents", total);
-        out.put("merchant_id", merchantId);
-        out.put("food_items", foodItems);
-        return out;
+        return receiptMapper.toCreated(receiptId, fp, sumOk, computed, total, merchantId, foodItems);
     }
 
     @Override
     @Transactional
-    public Map<String, Object> confirm(long id, ReceiptConfirmRequest request, String handle) {
+    public ReceiptConfirmResponse confirm(long id, ReceiptConfirmRequest request, String handle) {
         Receipt r = receipts.findById(id).orElseThrow(() -> new IllegalArgumentException("receipt not found: " + id));
         if (r.status() != ReceiptStatus.PENDING_CONFIRM) {
-            return Map.of("error", "not_pending", "status", r.status().db());
+            return receiptMapper.toNotPending(r);
         }
         receipts.markConfirmed(id);
         boolean alsoFridge = request != null && Boolean.TRUE.equals(request.alsoFridge());
         List<Long> fridgeIds = alsoFridge ? createFridgeFromReceipt(id, handle) : List.of();
         events.insert("finance", "confirm", people.resolveId(handle), "receipts", id, null);
-        return Map.of("status", ReceiptStatus.CONFIRMED.db(), "receipt_id", id, "fridge_item_ids", fridgeIds);
+        return receiptMapper.toConfirmed(id, fridgeIds);
     }
 
     @Override
-    public List<Receipt> list(ReceiptStatus status, int limit) {
-        return receipts.list(status, limit);
+    public List<ReceiptResponse> list(ReceiptStatus status, int limit) {
+        return receiptMapper.toResponseList(receipts.list(status, limit));
     }
 
     private List<Long> createFridgeFromReceipt(long receiptId, String handle) {
