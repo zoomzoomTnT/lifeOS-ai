@@ -1,0 +1,18 @@
+# Local debug: repo-relative SQLite, do not ping WeChat.
+#   cd app && mvn spring-boot:run -Dspring-boot.run.profiles=local
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# Override path: LIFE_DB=/abs/path/life.db
+
+spring:
+  datasource:
+    url: jdbc:sqlite:${LIFE_DB:${user.dir}/../local/life.db}
+
+life:
+  openclaw:
+    enabled: false
+    home: ${LIFE_OPENCLAW_HOME:${user.dir}/../local/openclaw-stub}
+
+logging:
+  level:
+    com.lifeos: DEBUG

@@ -9,12 +9,16 @@ app/target/
 .project
 .settings/
 
-# SQLite + compose data dir (backup this folder)
+# SQLite — never commit production dumps on main
 *.db
 *.db-wal
 *.db-shm
 life.db
 /data/
+/local/*.db
+/local/*.db-wal
+/local/*.db-shm
+/local/*.db-journal
 
 # OS / editor
 .DS_Store
@@ -26,4 +30,3 @@ life.db
 .env.*
 *.pem
 openclaw/openclaw.local.json
-

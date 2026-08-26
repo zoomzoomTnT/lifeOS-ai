@@ -1,0 +1,16 @@
+# Local debug overlay. Does not replace docker-compose.yml.
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# SQLite file: ./local/life.db  (copy from server; see README)
+# OpenClaw wake is off so you do not message production WeChat.
+
+services:
+  api:
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      LIFE_DB: /data/life.db
+      LIFE_OPENCLAW_WAKE: "false"
+      LIFE_OPENCLAW_HOME: /openclaw
+    volumes:
+      - ./local:/data
+      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw:ro

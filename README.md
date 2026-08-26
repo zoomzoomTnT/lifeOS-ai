@@ -268,7 +268,8 @@ openclaw skills list
 .
 ├── env.example                 # install 环境变量模板
 ├── Dockerfile                  # API + /opt/life-os-skill
-├── docker-compose.yml          # api + profile sync (skill-sync)
+├── docker-compose.local.yml    # local profile：./local/life.db，不叫醒微信
+├── local/                      # 调试用 db 目录（main 不提交 .db；分支 local 才跟踪）
 ├── docker/sync-skill.sh
 ├── openclaw/openclaw.json      # heartbeat 0m + hooks（无密钥）
 ├── schema/schema.sql
@@ -290,6 +291,66 @@ cd app && mvn spring-boot:run
 ```
 
 skill 仍建议 `docker compose --profile sync run --rm skill-sync`，或手动把 `skills/life-os` 放到 workspace。
+
+## 本地调试（`local` profile）
+
+Spring profile `local` 把库指到 **仓库里的** `local/life.db`，并且 **关掉** OpenClaw 主动叫醒（避免 debug 时给微信发消息）。
+
+`main` **不提交** `.db`（对话在库里）。调试库放在 git 分支 **`local`** 上（`git add -f local/life.db`）。
+
+### 从 server 拷库
+
+```bash
+git checkout local
+git pull
+
+# 路径按你 server 上 compose 的 LIFE_DATA，默认是仓库 ./data/life.db
+scp you@SERVER:~/lifeOS-ai/data/life.db ./local/life.db
+# 或
+# scp you@SERVER:~/.openclaw/workspace/data/life.db ./local/life.db
+
+# 可选：把这份 dump 记在 local 分支，不要 merge 进 main
+git add -f local/life.db
+git commit -m "Refresh local debug db from server"
+```
+
+WAL 文件一并拷（若 server 上 API 还开着，先停再拷，避免半截库）：
+
+```bash
+scp you@SERVER:~/lifeOS-ai/data/life.db* ./local/
+```
+
+### 启动（Maven）
+
+在 `app/` 下跑，这样默认路径 `../local/life.db` 才对：
+
+```bash
+cd app
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+或任意目录：
+
+```bash
+LIFE_DB=/abs/path/lifeOS-ai/local/life.db \
+  mvn -f app/pom.xml spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+### 启动（Docker）
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+curl -fsS http://127.0.0.1:8787/api/health
+```
+
+`docker-compose.local.yml` 把 `./local` 挂到容器 `/data`，`LIFE_OPENCLAW_WAKE=false`。
+
+### 不要做的事
+
+- 不要把 `local/life.db` merge / cherry-pick 进 `main`
+- 不要在 `local` profile 下开 `LIFE_OPENCLAW_WAKE=true` 对着生产微信试
+- 拷库前尽量 `docker compose stop api`，否则 WAL 对不上
+
 
 ## Design
 
