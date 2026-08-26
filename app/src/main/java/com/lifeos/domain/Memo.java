@@ -1,72 +1,73 @@
 package com.lifeos.domain;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.Transient;
-import org.springframework.data.jdbc.core.mapping.AggregateReference;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
 
-@Table("memos")
+@Entity
+@Table(name = "memos")
 @Getter
 @Setter
 @NoArgsConstructor
 @EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class Memo extends AuditedEntity {
 
-    /** FK → {@link Person}. */
-    @Column("owner_id")
+    @Column(name = "owner_id", nullable = false)
     private Long ownerId;
 
-    @Column("title")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", insertable = false, updatable = false)
+    private Person owner;
+
+    @Column(name = "title", nullable = false)
     private String title;
 
-    @Column("body")
+    @Column(name = "body")
     private String body;
 
-    @Column("kind")
+    @Column(name = "kind", nullable = false)
     private MemoKind kind;
 
-    @Column("status")
+    @Column(name = "status", nullable = false)
     private MemoStatus status;
 
-    @Column("priority")
+    @Column(name = "priority", nullable = false)
     private int priority;
 
-    @Column("due_at")
+    @Column(name = "due_at")
     private String dueAt;
 
-    @Column("timezone")
+    @Column(name = "timezone", nullable = false)
     private String timezone;
 
-    @Column("cron_expr")
+    @Column(name = "cron_expr")
     private String cronExpr;
 
-    @Column("cron_tz")
+    @Column(name = "cron_tz")
     private String cronTz;
 
-    @Column("source_domain")
+    @Column(name = "source_domain")
     private String sourceDomain;
 
-    @Column("source_table")
+    @Column(name = "source_table")
     private String sourceTable;
 
-    @Column("source_id")
+    @Column(name = "source_id")
     private Long sourceId;
 
-    @Column("payload_json")
+    @Column(name = "payload_json")
     private String payloadJson;
 
-    @Column("automation_id")
+    @Column(name = "automation_id")
     private String automationId;
 
-    @Column("last_fired_at")
+    @Column(name = "last_fired_at")
     private String lastFiredAt;
-
-    @Transient
-    public AggregateReference<Person, Long> ownerRef() {
-        return ownerId == null ? null : AggregateReference.to(ownerId);
-    }
 }

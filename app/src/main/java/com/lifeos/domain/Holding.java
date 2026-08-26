@@ -1,47 +1,57 @@
 package com.lifeos.domain;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.MappedCollection;
-import org.springframework.data.relational.core.mapping.Table;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-@Table("holdings")
+@Entity
+@Table(name = "holdings")
 @Getter
 @Setter
 @NoArgsConstructor
 @EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class Holding extends AuditedEntity {
 
-    @Column("owner_id")
+    @Column(name = "owner_id", nullable = false)
     private Long ownerId;
 
-    @Column("symbol")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", insertable = false, updatable = false)
+    private Person owner;
+
+    @Column(name = "symbol", nullable = false)
     private String symbol;
 
-    @Column("market")
+    @Column(name = "market", nullable = false)
     private String market;
 
-    @Column("name")
+    @Column(name = "name")
     private String name;
 
-    @Column("qty")
+    @Column(name = "qty", nullable = false)
     private double qty;
 
-    @Column("avg_cost")
+    @Column(name = "avg_cost")
     private Double avgCost;
 
-    @Column("currency")
+    @Column(name = "currency", nullable = false)
     private String currency;
 
-    @Column("notes")
+    @Column(name = "notes")
     private String notes;
 
-    @MappedCollection(idColumn = "holding_id")
+    @OneToMany(mappedBy = "holding", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<StockEvent> events = new LinkedHashSet<>();
 }

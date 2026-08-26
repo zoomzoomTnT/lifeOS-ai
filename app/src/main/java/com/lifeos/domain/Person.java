@@ -1,29 +1,30 @@
 package com.lifeos.domain;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
 
-@Table("people")
+@Entity
+@Table(name = "people")
 @Getter
 @Setter
 @NoArgsConstructor
 @EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class Person extends AuditedEntity {
 
-    /** OpenClaw WeChat peer id. Unique. */
-    @Column("handle")
+    @Column(name = "handle", nullable = false, unique = true)
     private String handle;
 
-    @Column("display_name")
+    @Column(name = "display_name")
     private String displayName;
 
-    @Column("role")
+    @Column(name = "role", nullable = false)
     private PersonRole role;
 
-    @Column("timezone")
+    @Column(name = "timezone", nullable = false)
     private String timezone;
 }

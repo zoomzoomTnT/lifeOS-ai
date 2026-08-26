@@ -1,54 +1,66 @@
 package com.lifeos.domain;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.Transient;
-import org.springframework.data.jdbc.core.mapping.AggregateReference;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
 
-@Table("receipt_items")
+@Entity
+@Table(name = "receipt_items")
 @Getter
 @Setter
 @NoArgsConstructor
 @EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class ReceiptItem extends BaseEntity {
 
-    /** FK → {@link Receipt}. Also the {@code @MappedCollection} join on the parent. */
-    @Column("receipt_id")
+    @Column(name = "receipt_id", nullable = false)
     private Long receiptId;
 
-    @Column("name")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "receipt_id", insertable = false, updatable = false)
+    private Receipt receipt;
+
+    @Column(name = "name", nullable = false)
     private String name;
 
-    @Column("name_norm")
+    @Column(name = "name_norm", nullable = false)
     private String nameNorm;
 
-    @Column("qty")
+    @Column(name = "qty", nullable = false)
     private double qty;
 
-    @Column("unit")
+    @Column(name = "unit")
     private String unit;
 
-    @Column("amount_cents")
+    @Column(name = "amount_cents", nullable = false)
     private int amountCents;
 
-    @Column("is_food")
+    @Column(name = "is_food", nullable = false)
     private boolean food;
 
-    @Column("category")
+    @Column(name = "category")
     private FoodCategory category;
 
-    @Column("sort_order")
+    @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
-    @Column("created_at")
+    @Column(name = "created_at", nullable = false)
     private String createdAt;
 
-    @Transient
-    public AggregateReference<Receipt, Long> receiptRef() {
-        return receiptId == null ? null : AggregateReference.to(receiptId);
+    @PrePersist
+    void onPersist() {
+        if (createdAt == null) {
+            createdAt = Utc.now();
+        }
+        if (receipt != null && receiptId == null) {
+            receiptId = receipt.getId();
+        }
     }
 }

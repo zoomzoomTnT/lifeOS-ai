@@ -1,34 +1,36 @@
 package com.lifeos.domain;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
 
-@Table("merchants")
+@Entity
+@Table(name = "merchants")
 @Getter
 @Setter
 @NoArgsConstructor
 @EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class Merchant extends AuditedEntity {
 
-    @Column("name")
+    @Column(name = "name", nullable = false)
     private String name;
 
-    @Column("name_norm")
+    @Column(name = "name_norm", nullable = false, unique = true)
     private String nameNorm;
 
-    @Column("kind")
+    @Column(name = "kind", nullable = false)
     private MerchantKind kind;
 
-    @Column("location_tag")
+    @Column(name = "location_tag", nullable = false)
     private LocationTag locationTag;
 
-    @Column("favorite_score")
+    @Column(name = "favorite_score", nullable = false)
     private Double favoriteScore;
 
-    @Column("notes")
+    @Column(name = "notes")
     private String notes;
 }
