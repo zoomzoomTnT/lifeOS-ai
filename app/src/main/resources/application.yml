@@ -54,3 +54,19 @@ info:
     name: life-os-app
     version: 0.1.0
 
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: method
+    try-it-out-enabled: true
+  api-docs:
+    path: /v3/api-docs
+  show-actuator: true
+  group-configs:
+    - group: api
+      paths-to-match: /api/**
+    - group: actuator
+      paths-to-match: /actuator/**
+
+
