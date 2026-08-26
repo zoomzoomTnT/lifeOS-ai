@@ -24,6 +24,29 @@ Common error shape:
 ### `GET /api/path`
 Returns current DB path and owner timezone (for skill diagnostics).
 
+### Actuator (`/actuator`)
+
+Spring Boot Actuator. Default exposed: `health`, `info`, `metrics`, `scheduledtasks`, `loggers`, `mappings`, `threaddump`.
+
+| Path | Notes |
+|---|---|
+| `GET /actuator` | index of enabled endpoints |
+| `GET /actuator/health` | includes JDBC/`db`; `UP` / `DOWN` |
+| `GET /actuator/health/liveness` | process alive |
+| `GET /actuator/health/readiness` | ready for traffic |
+| `GET /actuator/info` | `info.app` name/version |
+| `GET /actuator/metrics` | list; `.../metrics/jvm.memory.used` for one |
+| `GET /actuator/scheduledtasks` | Java cron (proactive scan) |
+| `GET /actuator/loggers` | logger levels |
+| `GET /actuator/mappings` | all Spring MVC routes |
+
+Local profile exposes `*` (`env`, `configprops`, `beans`, `heapdump`). Do not do that on a public bind.
+
+Override: `LIFE_ACTUATOR_ENDPOINTS=health,info`
+
+Skill / Docker healthcheck still use `GET /api/health`.
+
+
 ---
 
 ## People

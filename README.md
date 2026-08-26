@@ -194,6 +194,7 @@ curl -fsS http://127.0.0.1:8787/api/ops/should-wake
 ```
 
 - API: http://127.0.0.1:8787/api/health  
+- Actuator: http://127.0.0.1:8787/actuator (`/health`, `/info`, `/metrics`, `/scheduledtasks`)
 - Ops: http://127.0.0.1:8787/ops  
 - DB：`$LIFE_DATA/life.db`（默认 `./data/life.db`），备份这个文件
 

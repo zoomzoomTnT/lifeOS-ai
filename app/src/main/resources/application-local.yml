@@ -16,3 +16,10 @@ life:
 logging:
   level:
     com.lifeos: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+
