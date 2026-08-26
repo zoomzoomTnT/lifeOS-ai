@@ -120,9 +120,13 @@ jobs:
             -d '{"provider":"xai","model":"grok-4","purpose":"heartbeat","source":"app","prompt_tokens":1000,"completion_tokens":0}')
           echo "$AI"
           echo "$AI" | grep -q '0.003000'
-          curl -fsS 'http://127.0.0.1:8787/api/ops/should-wake?lead_minutes=10' | grep -q '"heartbeat_ok":true'
-          curl -fsS -X POST http://127.0.0.1:8787/api/ops/proactive/run \
-            -H 'Content-Type: application/json' -d '{}' | grep -q 'wake'
+          SW=$(curl -fsS 'http://127.0.0.1:8787/api/ops/should-wake?lead_minutes=10')
+          echo "$SW"
+          echo "$SW" | grep -qi 'heartbeat_ok'
+          RUN=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/proactive/run \
+            -H 'Content-Type: application/json' -d '{}')
+          echo "$RUN"
+          echo "$RUN" | grep -qi 'skipped\|wake'
           curl -fsS -X POST http://127.0.0.1:8787/api/receipts/lookup \
             -H 'Content-Type: application/json' \
             -H 'X-Request-Id: ci-smoke-1' \

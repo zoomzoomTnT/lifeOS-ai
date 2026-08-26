@@ -36,7 +36,7 @@ public class WakeService {
                 WHERE owner_id = ?
                   AND status IN ('open','snoozed')
                   AND due_at IS NOT NULL
-                  AND due_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now', ? || ' minutes')
+                  AND due_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now', '+' || ? || ' minutes')
                   AND (last_fired_at IS NULL
                        OR last_fired_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now','-6 hours'))
                   AND (? = 0 OR priority = 1)

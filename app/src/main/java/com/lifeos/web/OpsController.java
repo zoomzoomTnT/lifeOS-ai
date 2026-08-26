@@ -55,9 +55,10 @@ public class OpsController {
     }
 
     @GetMapping("/should-wake")
-    public ResponseEntity<?> shouldWake(@RequestParam(defaultValue = "10") int leadMinutes,
-                                        @RequestParam(required = false) Integer withinHours,
-                                        @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
+    public ResponseEntity<?> shouldWake(
+            @RequestParam(name = "lead_minutes", defaultValue = "10") int leadMinutes,
+            @RequestParam(name = "within_hours", required = false) Integer withinHours,
+            @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
         int lead = withinHours != null ? withinHours * 60 : leadMinutes;
         return ResponseEntity.ok(wakeService.shouldWake(handle, lead));
     }

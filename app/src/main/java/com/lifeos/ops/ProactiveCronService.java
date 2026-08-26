@@ -45,7 +45,7 @@ public class ProactiveCronService {
 
     public Map<String, Object> run(boolean force) {
         if (!enabled && !force) {
-            return Map.of("ok", true, "skipped", "LIFE_OPENCLAW_WAKE=false");
+            return Map.of("ok", true, "wake", false, "skipped", "LIFE_OPENCLAW_WAKE=false");
         }
         Map<String, Object> gate = wakeService.shouldWake("owner", leadMinutes);
         boolean wake = Boolean.TRUE.equals(gate.get("wake"));
