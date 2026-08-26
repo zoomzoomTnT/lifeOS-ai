@@ -77,7 +77,7 @@ public class ReceiptServiceImpl implements ReceiptService {
         for (ReceiptPreviewRequest.Line line : items) {
             ReceiptItem item = receiptMapper.toItem(line, receiptId);
             receipts.insertItem(receiptId, item, order++);
-            if (item.food()) {
+            if (item.isFood()) {
                 foodItems.add(receiptMapper.toFoodHint(item));
             }
         }
@@ -90,7 +90,7 @@ public class ReceiptServiceImpl implements ReceiptService {
     @Transactional
     public ReceiptConfirmResponse confirm(long id, ReceiptConfirmRequest request, String handle) {
         Receipt r = receipts.findById(id).orElseThrow(() -> new IllegalArgumentException("receipt not found: " + id));
-        if (r.status() != ReceiptStatus.PENDING_CONFIRM) {
+        if (r.getStatus() != ReceiptStatus.PENDING_CONFIRM) {
             return receiptMapper.toNotPending(r);
         }
         receipts.markConfirmed(id);

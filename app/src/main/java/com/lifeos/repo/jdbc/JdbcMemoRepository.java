@@ -1,12 +1,10 @@
 package com.lifeos.repo.jdbc;
 
 import com.lifeos.domain.Memo;
-import com.lifeos.domain.MemoKind;
 import com.lifeos.domain.MemoStatus;
 import com.lifeos.repo.MemoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -17,23 +15,6 @@ public class JdbcMemoRepository implements MemoRepository {
 
     private final JdbcTemplate jdbc;
 
-    private static final RowMapper<Memo> ROW = (rs, n) -> new Memo(
-            rs.getLong("id"),
-            rs.getLong("owner_id"),
-            rs.getString("title"),
-            rs.getString("body"),
-            MemoKind.from(rs.getString("kind")),
-            MemoStatus.from(rs.getString("status")),
-            rs.getInt("priority"),
-            rs.getString("due_at"),
-            rs.getString("timezone"),
-            rs.getString("cron_expr"),
-            rs.getString("cron_tz"),
-            rs.getString("source_domain"),
-            rs.getString("source_table"),
-            SqliteIds.longOrNull(rs.getObject("source_id")),
-            rs.getString("payload_json")
-    );
 
     @Override
     public long insert(Memo memo) {
@@ -43,10 +24,10 @@ public class JdbcMemoRepository implements MemoRepository {
                             source_domain, source_table, source_id, payload_json)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
-                memo.ownerId(), memo.title(), memo.body(),
-                memo.kind().db(), memo.status().db(), memo.priority(),
-                memo.dueAt(), memo.timezone(), memo.cronExpr(), memo.cronTz(),
-                memo.sourceDomain(), memo.sourceTable(), memo.sourceId(), memo.payloadJson()
+                memo.getOwnerId(), memo.getTitle(), memo.getBody(),
+                memo.getKind().db(), memo.getStatus().db(), memo.getPriority(),
+                memo.getDueAt(), memo.getTimezone(), memo.getCronExpr(), memo.getCronTz(),
+                memo.getSourceDomain(), memo.getSourceTable(), memo.getSourceId(), memo.getPayloadJson()
         );
         return SqliteIds.lastInsertId(jdbc);
     }
@@ -61,7 +42,7 @@ public class JdbcMemoRepository implements MemoRepository {
                   AND due_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
                 ORDER BY priority ASC, due_at ASC
                 LIMIT 20
-                """, ROW, ownerId, withinHours);
+                """, RowMappers.MEMO, ownerId, withinHours);
     }
 
     @Override
@@ -77,7 +58,7 @@ public class JdbcMemoRepository implements MemoRepository {
                   AND (? = 0 OR priority = 1)
                 ORDER BY priority ASC, due_at ASC
                 LIMIT 10
-                """, ROW, ownerId, leadMinutes, nightPriorityOnly ? 1 : 0);
+                """, RowMappers.MEMO, ownerId, leadMinutes, nightPriorityOnly ? 1 : 0);
     }
 
     @Override

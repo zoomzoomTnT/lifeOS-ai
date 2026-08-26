@@ -357,7 +357,8 @@ curl -fsS http://localhost:8787/actuator/health
 ## Design
 
 - `schema.sql` 是可执行 schema。领域规则在 markdown。
-- 分层：`web`（request/response DTO + `ResponseEntity`）→ MapStruct → `service` 接口 → `repo` 接口 → `repo.jdbc`。
+- 分层：`web` DTO + `ResponseEntity` → MapStruct → `service` → `repo` → `repo.jdbc`。
+- Domain 是 class（`BaseEntity.id`），字段用 Spring Data JDBC 的 `@Table` / `@Column` / `@MappedCollection`。外键留 `Long` + `AggregateReference` helper。SQL 仍手写（SQLite `strftime`），没有上 Hibernate。
 - Bean 注入用 Lombok `@RequiredArgsConstructor`（一行，不手写构造器）。
 - CHECK 值用 enum（`eaten` / `discarded` / `in_stock`…），JSON 存库都是小写字符串。
 - 写入只走 Java REST。skill 只做视觉 / 意图 / 中文。

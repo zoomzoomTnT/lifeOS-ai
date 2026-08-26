@@ -19,15 +19,15 @@ class FridgeMapperTest {
     void toNewItemAppliesDefaultsAndNameNorm() {
         FridgeAddRequest req = new FridgeAddRequest(" 生菜 ", FoodCategory.VEG, null, null, 2);
         FridgeItem item = mapper.toNewItem(req, 9L);
-        assertNull(item.id());
-        assertEquals(9L, item.ownerId());
-        assertEquals(9L, item.addedById());
-        assertEquals(" 生菜 ", item.name());
-        assertEquals("生菜", item.nameNorm());
-        assertEquals(FoodCategory.VEG, item.category());
-        assertEquals(FridgeLocation.FRIDGE, item.location());
-        assertEquals(FridgeStatus.IN_STOCK, item.status());
-        assertEquals(1d, item.qty());
+        assertNull(item.getId());
+        assertEquals(9L, item.getOwnerId());
+        assertEquals(9L, item.getAddedById());
+        assertEquals(" 生菜 ", item.getName());
+        assertEquals("生菜", item.getNameNorm());
+        assertEquals(FoodCategory.VEG, item.getCategory());
+        assertEquals(FridgeLocation.FRIDGE, item.getLocation());
+        assertEquals(FridgeStatus.IN_STOCK, item.getStatus());
+        assertEquals(1d, item.getQty());
     }
 
     @Test

@@ -1,13 +1,10 @@
 package com.lifeos.repo.jdbc;
 
-import com.lifeos.domain.FoodCategory;
 import com.lifeos.domain.FridgeItem;
-import com.lifeos.domain.FridgeLocation;
 import com.lifeos.domain.FridgeStatus;
 import com.lifeos.repo.FridgeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -18,20 +15,6 @@ public class JdbcFridgeRepository implements FridgeRepository {
 
     private final JdbcTemplate jdbc;
 
-    private static final RowMapper<FridgeItem> ROW = (rs, n) -> new FridgeItem(
-            rs.getLong("id"),
-            rs.getLong("owner_id"),
-            rs.getLong("added_by_id"),
-            rs.getString("name"),
-            rs.getString("name_norm"),
-            FoodCategory.from(rs.getString("category")),
-            FridgeLocation.from(rs.getString("location")),
-            FridgeStatus.from(rs.getString("status")),
-            rs.getDouble("qty"),
-            rs.getString("expires_at"),
-            SqliteIds.longOrNull(rs.getObject("source_receipt_id")),
-            SqliteIds.longOrNull(rs.getObject("source_receipt_item_id"))
-    );
 
     @Override
     public long insertInStock(FridgeItem item, Integer expiresInDays) {
@@ -42,13 +25,13 @@ public class JdbcFridgeRepository implements FridgeRepository {
                             CASE WHEN ? IS NOT NULL THEN strftime('%Y-%m-%dT%H:%M:%SZ','now', ? || ' days') ELSE NULL END,
                             ?, ?)
                         """,
-                item.ownerId(), item.addedById(), item.name(), item.nameNorm(),
-                item.category() == null ? null : item.category().db(),
-                item.location().db(),
+                item.getOwnerId(), item.getAddedById(), item.getName(), item.getNameNorm(),
+                item.getCategory() == null ? null : item.getCategory().db(),
+                item.getLocation().db(),
                 FridgeStatus.IN_STOCK.db(),
-                item.qty(),
+                item.getQty(),
                 expiresInDays, expiresInDays,
-                item.sourceReceiptId(), item.sourceReceiptItemId()
+                item.getSourceReceiptId(), item.getSourceReceiptItemId()
         );
         return SqliteIds.lastInsertId(jdbc);
     }
@@ -62,13 +45,13 @@ public class JdbcFridgeRepository implements FridgeRepository {
                       AND expires_at IS NOT NULL
                       AND expires_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now', ? || ' hours')
                     ORDER BY expires_at ASC
-                    """, ROW, ownerId, FridgeStatus.IN_STOCK.db(), expiringWithinHours);
+                    """, RowMappers.FRIDGE, ownerId, FridgeStatus.IN_STOCK.db(), expiringWithinHours);
         }
         if (status != null) {
             return jdbc.query("SELECT * FROM fridge_items WHERE owner_id = ? AND status = ? ORDER BY id DESC",
-                    ROW, ownerId, status.db());
+                    RowMappers.FRIDGE, ownerId, status.db());
         }
-        return jdbc.query("SELECT * FROM fridge_items WHERE owner_id = ? ORDER BY id DESC LIMIT 50", ROW, ownerId);
+        return jdbc.query("SELECT * FROM fridge_items WHERE owner_id = ? ORDER BY id DESC LIMIT 50", RowMappers.FRIDGE, ownerId);
     }
 
     @Override
