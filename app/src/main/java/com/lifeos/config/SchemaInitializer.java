@@ -1,7 +1,7 @@
 package com.lifeos.config;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -17,20 +17,15 @@ import java.nio.charset.StandardCharsets;
  * Fresh DB: apply schema.sql. Existing DB: apply additive migrations (IF NOT EXISTS).
  */
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class SchemaInitializer implements ApplicationRunner {
-
-    private static final Logger log = LoggerFactory.getLogger(SchemaInitializer.class);
 
     private final JdbcTemplate jdbc;
     private final ResourceLoader resourceLoader;
 
     @Value("${life.schema-path:classpath:schema.sql}")
     private String schemaPath;
-
-    public SchemaInitializer(JdbcTemplate jdbc, ResourceLoader resourceLoader) {
-        this.jdbc = jdbc;
-        this.resourceLoader = resourceLoader;
-    }
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
@@ -49,6 +44,8 @@ public class SchemaInitializer implements ApplicationRunner {
         execScript("classpath:migrations/0002_ops.sql");
         log.info("Applying logs migration 0003 (idempotent)");
         execScript("classpath:migrations/0003_logs.sql");
+        log.info("Applying session-v3 migration 0004 (idempotent)");
+        execScript("classpath:migrations/0004_session_v3.sql");
     }
 
     private void execScript(String location) throws Exception {

@@ -80,7 +80,31 @@ Periodic OpenClaw heartbeats are **disabled** (`heartbeat.every=0m`). Due scanni
 
 Both have `occurred_at` (from the jsonl timestamp) and `ingested_at`.
 
-OpenClaw files ingested every 2 minutes from `$OPENCLAW_HOME` (`agents/*/sessions/*.jsonl`, `transcripts/**/transcript.jsonl`, trajectory `events.jsonl`):
+OpenClaw **session JSONL v3** (the file under `agents/*/sessions/*.jsonl`) is not a flat transcript. Ingest maps it like this:
+
+```
+{"type":"session","id":"<uuid>"}                  → session_id for every later row in that file
+{"type":"model_change","provider","modelId"}      → provider / model
+{"type":"thinking_level_change"}                  → event_type only
+{"type":"custom","customType":"model-snapshot"}   → custom_type
+{"type":"message","id","parentId","message":{...}}
+{"type":"leaf"}                                   → tree marker, no tokens
+```
+
+A `message` object has `role` (`user` | `assistant` | `toolResult`) and `content[]`:
+
+| part `type` | stored in `content` | dropped |
+|---|---|---|
+| `text` | text (heartbeat poll, WeChat copy, media path caption) | — |
+| `thinking` | `[thinking] …` | `thoughtSignature` |
+| `toolCall` | `[tool exec] {command:…}` | `thoughtSignature` |
+| `image` | `[image mime=image/jpeg bytes=N]` | **JPEG base64 `data`** |
+
+`session_id` is **only** the UUID from `type=session`. Short ids like `da6f557c` go to `event_id` / `parent_id`. The cursor remembers `last_session_id` so a file tailed mid-session still tags later lines.
+
+`message.usage` (`input` / `output` / `cacheRead` / `cacheWrite` / `totalTokens` / `cost`) is copied onto the session row **and** inserted into `ai_calls` (`correlation_id=oc:<event_id>`, `purpose=chat` or `heartbeat`) so heartbeat token burn shows up on `/ops` even when the skill never POSTed.
+
+`GET /api/ops/logs/sessions` returns metadata + token columns by default. `include_content=true` adds `content` and sanitized `raw_json` (still no image bytes).
 
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/ops/logs/ingest"

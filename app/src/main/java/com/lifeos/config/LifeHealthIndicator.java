@@ -1,5 +1,6 @@
 package com.lifeos.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
@@ -8,16 +9,13 @@ import org.springframework.stereotype.Component;
 
 /** Actuator component `life`: SQLite ping + app version. */
 @Component("life")
+@RequiredArgsConstructor
 public class LifeHealthIndicator implements HealthIndicator {
 
     private final JdbcTemplate jdbc;
 
     @Value("${info.app.version:0.1.0}")
     private String version;
-
-    public LifeHealthIndicator(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     @Override
     public Health health() {

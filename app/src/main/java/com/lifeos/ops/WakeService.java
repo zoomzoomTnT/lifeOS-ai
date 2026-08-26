@@ -1,7 +1,11 @@
 package com.lifeos.ops;
 
+import com.lifeos.domain.Memo;
+import com.lifeos.domain.Receipt;
+import com.lifeos.repo.MemoRepository;
+import com.lifeos.repo.ReceiptRepository;
 import com.lifeos.service.PersonService;
-import org.springframework.jdbc.core.JdbcTemplate;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.ZoneId;
@@ -11,46 +15,21 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Decides whether an LLM needs to wake. This query is free — Java + SQLite, no model.
- */
 @Service
+@RequiredArgsConstructor
 public class WakeService {
 
-    private final JdbcTemplate jdbc;
-    private final PersonService personService;
-
-    public WakeService(JdbcTemplate jdbc, PersonService personService) {
-        this.jdbc = jdbc;
-        this.personService = personService;
-    }
+    private final MemoRepository memos;
+    private final ReceiptRepository receipts;
+    private final PersonService people;
 
     public Map<String, Object> shouldWake(String handle, int leadMinutes) {
         int minutes = Math.max(0, Math.min(leadMinutes, 72 * 60));
-        long ownerId = personService.resolveId(handle);
+        long ownerId = people.resolveId(handle);
         boolean night = isTokyoNight();
 
-        List<Map<String, Object>> due = jdbc.queryForList("""
-                SELECT id, title, kind, priority, due_at
-                FROM memos
-                WHERE owner_id = ?
-                  AND status IN ('open','snoozed')
-                  AND due_at IS NOT NULL
-                  AND due_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now', '+' || ? || ' minutes')
-                  AND (last_fired_at IS NULL
-                       OR last_fired_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now','-6 hours'))
-                  AND (? = 0 OR priority = 1)
-                ORDER BY priority ASC, due_at ASC
-                LIMIT 10
-                """, ownerId, minutes, night ? 1 : 0);
-
-        List<Map<String, Object>> staleReceipts = night ? List.of() : jdbc.queryForList("""
-                SELECT id, status, created_at FROM receipts
-                WHERE payer_id = ?
-                  AND status = 'pending_confirm'
-                  AND created_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now','-24 hours')
-                LIMIT 5
-                """, ownerId);
+        List<Memo> due = memos.dueForWake(ownerId, minutes, night);
+        List<Receipt> staleReceipts = night ? List.of() : receipts.stalePending(ownerId, 24);
 
         List<String> reasons = new ArrayList<>();
         if (!due.isEmpty()) reasons.add("due_memos");

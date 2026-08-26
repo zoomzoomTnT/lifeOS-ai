@@ -1,5 +1,6 @@
 package com.lifeos.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
@@ -12,6 +13,7 @@ import java.util.Map;
 /** GET /actuator/db — SQLite path + timezone (replaces /api/path). */
 @Component
 @Endpoint(id = "db")
+@RequiredArgsConstructor
 public class DbEndpoint {
 
     private final JdbcTemplate jdbc;
@@ -21,10 +23,6 @@ public class DbEndpoint {
 
     @Value("${life.owner-timezone:Asia/Tokyo}")
     private String ownerTimezone;
-
-    public DbEndpoint(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     @ReadOperation
     public Map<String, Object> db() {

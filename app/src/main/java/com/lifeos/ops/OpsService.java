@@ -1,6 +1,7 @@
 package com.lifeos.ops;
 
 import com.lifeos.service.PersonService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -10,15 +11,11 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@RequiredArgsConstructor
 public class OpsService {
 
     private final JdbcTemplate jdbc;
     private final PersonService personService;
-
-    public OpsService(JdbcTemplate jdbc, PersonService personService) {
-        this.jdbc = jdbc;
-        this.personService = personService;
-    }
 
     public void recordHttp(String correlationId, String handle, String method, String path,
                            String query, Integer status, long latencyMs,
