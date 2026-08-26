@@ -1,47 +1,10 @@
 # OpenClaw config (versioned)
 
-`openclaw.json` in this folder is the life-os policy:
+安装、钩子、skill 自动加载、Docker `skill-sync`：**看仓库根 [README.md](../README.md)**。CD 还没做。
 
-- **heartbeat.every = 0m** — no 30-minute model wake
-- **hooks.enabled** — Spring Boot wakes the skill only when SQLite says something is due
-- secrets via env (`OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_HOOK_TOKEN`), never committed
+本目录的 `openclaw.json` 是无密钥策略模板：
 
-Weixin / plugin credentials stay in your existing `~/.openclaw/openclaw.json` (or `openclaw.local.json`, gitignored). Merge the `agents.defaults.heartbeat` and `hooks` blocks into that file.
+- `heartbeat.every = 0m`
+- `hooks.enabled` + `hooks.token = ${OPENCLAW_HOOK_TOKEN}`
 
-Install the skill from the same image (no manual cp):
-
-```bash
-docker compose --profile sync run --rm skill-sync
-```
-
-
-
-Generate a hook token and put it in the environment Spring Boot sees:
-
-```bash
-export OPENCLAW_HOOK_TOKEN=...
-export OPENCLAW_GATEWAY=http://127.0.0.1:18789
-```
-
-Docker Compose uses `host.docker.internal:18789` so the API container can reach the host gateway.
-
-## Who wakes whom
-
-```
-Spring @Scheduled (every minute, SQL only)
-    │  wake=false → log, sleep, $0
-    │  wake=true  and not locked
-    ▼
-POST $OPENCLAW_GATEWAY/hooks/agent
-    Authorization: Bearer $OPENCLAW_HOOK_TOKEN
-    { message, sessionMode: isolated, deliver, channel: openclaw-weixin, to }
-    ▼
-OpenClaw runs life-os skill once → WeChat
-```
-
-Verify:
-
-```bash
-curl -s http://127.0.0.1:8787/api/ops/should-wake
-curl -s -X POST http://127.0.0.1:8787/api/ops/proactive/run
-```
+合并进 `~/.openclaw/openclaw.json`，微信插件密钥留在本地（`openclaw.local.json` 已 gitignore）。
