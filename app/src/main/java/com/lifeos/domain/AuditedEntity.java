@@ -1,19 +1,36 @@
 package com.lifeos.domain;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
-import org.springframework.data.relational.core.mapping.Column;
 
-/** Tables with created_at / updated_at TEXT (UTC ISO-8601). */
+@MappedSuperclass
 @Getter
 @Setter
 @EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public abstract class AuditedEntity extends BaseEntity {
 
-    @Column("created_at")
+    @Column(name = "created_at", nullable = false)
     private String createdAt;
 
-    @Column("updated_at")
+    @Column(name = "updated_at", nullable = false)
     private String updatedAt;
+
+    @PrePersist
+    void onPersist() {
+        String now = Utc.now();
+        if (createdAt == null) {
+            createdAt = now;
+        }
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = Utc.now();
+    }
 }
