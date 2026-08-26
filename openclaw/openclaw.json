@@ -1,33 +1,17 @@
 {
   "plugins": {
     "entries": {
-      "openclaw-weixin": {
-        "enabled": true
-      },
-      "google": {
-        "enabled": true
-      },
-      "tencent": {
-        "enabled": true
-      }
-    }
-  },
-  "meta": {
-    "lastTouchedVersion": "2026.7.1-2",
-    "lastTouchedAt": "2026-08-25T15:25:52.196Z"
-  },
-  "channels": {
-    "openclaw-weixin": {
-      "channelConfigUpdatedAt": "2026-08-23T14:49:23.127Z"
+      "openclaw-weixin": { "enabled": true },
+      "google": { "enabled": true },
+      "tencent": { "enabled": true }
     }
   },
   "agents": {
     "defaults": {
+      "workspace": "~/.openclaw/workspace",
       "model": {
         "primary": "google/gemini-3.1-pro-preview",
-        "fallbacks": [
-          "tencent-tokenhub/kimi-k3"
-        ]
+        "fallbacks": ["tencent-tokenhub/kimi-k3"]
       },
       "models": {
         "google/gemini-3.1-pro-preview": {}
@@ -40,9 +24,12 @@
   },
   "models": {
     "providers": {
+      "google": {
+        "apiKey": "${GEMINI_API_KEY}"
+      },
       "tencent-tokenhub": {
         "baseUrl": "https://tokenhub.tencentmaas.com/v1",
-        "apiKey": "sk-CbxlNHs3OSotx6uY1VuoLBwUv6K21IWPuPJTqTu8hmRFirE7",
+        "apiKey": "${TENCENT_TOKENHUB_API_KEY}",
         "models": [
           {
             "id": "kimi-k3",
@@ -54,6 +41,18 @@
         ]
       }
     }
+  },
+  "gateway": {
+    "port": 18789,
+    "bind": "127.0.0.1",
+    "auth": {
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    }
+  },
+  "hooks": {
+    "enabled": true,
+    "token": "${OPENCLAW_HOOK_TOKEN}",
+    "path": "/hooks"
   },
   "cron": {
     "enabled": true
