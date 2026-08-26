@@ -189,11 +189,12 @@ skill 调 API：`LIFE_API_BASE=http://127.0.0.1:8787`，请求头 `X-Life-Handle
 ```bash
 docker compose up -d --build
 docker compose --profile sync run --rm skill-sync
-curl -fsS http://127.0.0.1:8787/api/health
+curl -fsS http://127.0.0.1:8787/actuator/health
 curl -fsS http://127.0.0.1:8787/api/ops/should-wake
 ```
 
-- API: http://127.0.0.1:8787/api/health  
+- API: http://127.0.0.1:8787/actuator/health
+- Actuator: http://127.0.0.1:8787/actuator (`/health`, `/info`, `/metrics`, `/scheduledtasks`)
 - Ops: http://127.0.0.1:8787/ops  
 - DB：`$LIFE_DATA/life.db`（默认 `./data/life.db`），备份这个文件
 
@@ -235,7 +236,7 @@ curl -s 'http://127.0.0.1:8787/api/ops/logs/sessions?include_content=true'  # �
 - [ ] `openclaw gateway restart` 之后钩子 curl 不是 401/404
 - [ ] `skill-sync` 之后存在 `~/.openclaw/workspace/skills/life-os/SKILL.md`
 - [ ] `openclaw skills list` 有 `life-os`
-- [ ] `curl /api/health` 且 `db=ok`
+- [ ] `curl /actuator/health` 且 `"status":"UP"`
 - [ ] `POST /api/ops/proactive/run` 没到期时 `wake=false`；到期时 Gateway 出现 `/hooks/agent`
 - [ ] `POST /api/ops/logs/ingest` 的 `session_rows` 会涨
 - [ ] `./data/life.db` 纳入备份
@@ -340,7 +341,7 @@ LIFE_DB=/abs/path/lifeOS-ai/local/life.db \
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
-curl -fsS http://127.0.0.1:8787/api/health
+curl -fsS http://127.0.0.1:8787/actuator/health
 ```
 
 `docker-compose.local.yml` 把 `./local` 挂到容器 `/data`，`LIFE_OPENCLAW_WAKE=false`。

@@ -116,8 +116,9 @@ jobs:
             '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
             > "$HOME/.openclaw/agents/main/sessions/ci.jsonl"
           docker compose up -d --wait --wait-timeout 90
-          curl -fsS http://127.0.0.1:8787/api/health
-          echo
+          curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
+          curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"life"'
+          curl -fsS http://127.0.0.1:8787/actuator/info | grep -q life-os-app
           curl -fsS http://127.0.0.1:8787/ops/index.html | grep -q "Life OS ops"
           AI=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/ai \
             -H 'Content-Type: application/json' \

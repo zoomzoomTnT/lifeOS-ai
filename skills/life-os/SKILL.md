@@ -29,7 +29,7 @@ All mutations go through the REST API. Do not write SQLite from this skill.
 ## Session start
 
 ```bash
-curl -s "$LIFE_API_BASE/api/health"
+curl -s "$LIFE_API_BASE/actuator/health"
 curl -s "$LIFE_API_BASE/api/path"
 ```
 

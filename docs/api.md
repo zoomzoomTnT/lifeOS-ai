@@ -16,13 +16,54 @@ Common error shape:
 
 ## Health & Meta
 
-### `GET /api/health`
+Health is **only** Actuator. There is no custom `/api/health`.
+
+### `GET /actuator/health`
+
+`LifeHealthIndicator` (component `life`) plus JDBC `db`. DOWN → HTTP 503.
+
 ```json
-{ "status": "ok", "db": "ok", "version": "0.1.0" }
+{
+  "status": "UP",
+  "components": {
+    "db": { "status": "UP" },
+    "life": {
+      "status": "UP",
+      "details": { "db": "ok", "version": "0.1.0" }
+    }
+  }
+}
 ```
+
+Also: `/actuator/health/liveness`, `/actuator/health/readiness`.
 
 ### `GET /api/path`
 Returns current DB path and owner timezone (for skill diagnostics).
+
+
+### Actuator (`/actuator`)
+
+Spring Boot Actuator. Default exposed: `health`, `info`, `metrics`, `scheduledtasks`, `loggers`, `mappings`, `threaddump`.
+
+| Path | Notes |
+|---|---|
+| `GET /actuator` | index of enabled endpoints |
+| `GET /actuator/health` | JDBC `db` + component `life` (SQLite ping, version) |
+| `GET /actuator/health/liveness` | process alive |
+| `GET /actuator/health/readiness` | ready for traffic |
+| `GET /actuator/info` | `info.app` name/version |
+| `GET /actuator/metrics` | list; `.../metrics/jvm.memory.used` for one |
+| `GET /actuator/scheduledtasks` | Java cron (proactive scan) |
+| `GET /actuator/loggers` | logger levels |
+| `GET /actuator/mappings` | all Spring MVC routes |
+
+Local profile exposes `*` (`env`, `configprops`, `beans`, `heapdump`). Do not do that on a public bind.
+
+Override: `LIFE_ACTUATOR_ENDPOINTS=health,info`
+
+Docker / skill healthcheck: `GET /actuator/health`.
+
+
 
 ---
 

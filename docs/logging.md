@@ -43,7 +43,7 @@ curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H 'Content-Type: application/json' 
 - method, path, query, status, latency_ms, byte sizes, truncated JSON excerpt
 - `X-Life-Handle` → `actor_id`
 - `X-Request-Id` (generated if missing), echoed on the response
-- **Not logged:** `GET /api/health` (Docker healthcheck), `GET /api/ops/*` (dashboard poll), `GET /ops*`
+- **Not logged:** `GET /actuator*` (healthcheck + actuator poll), `GET /api/ops/*` (dashboard poll), `GET /ops*`
 - Never stores image bytes. Redacts `password` / `token` / `authorization` / `secret` keys
 
 **AI** (`ai_calls`) — skill **must** POST after every model call, including failed ones

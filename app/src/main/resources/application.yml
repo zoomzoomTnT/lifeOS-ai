@@ -33,3 +33,24 @@ life:
 logging:
   level:
     com.lifeos: INFO
+
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics,scheduledtasks,loggers,mappings,threaddump}
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: life-os-app
+    version: 0.1.0
+

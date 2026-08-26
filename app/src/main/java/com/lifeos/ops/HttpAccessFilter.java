@@ -31,7 +31,7 @@ public class HttpAccessFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         String method = request.getMethod();
-        if ("GET".equals(method) && ("/api/health".equals(path) || path.startsWith("/ops"))) {
+        if ("GET".equals(method) && (path.startsWith("/actuator") || path.startsWith("/ops"))) {
             return true;
         }
         if ("GET".equals(method) && path.startsWith("/api/ops")) {
