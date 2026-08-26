@@ -44,6 +44,8 @@ public class SchemaInitializer implements ApplicationRunner {
         execScript("classpath:migrations/0002_ops.sql");
         log.info("Applying logs migration 0003 (idempotent)");
         execScript("classpath:migrations/0003_logs.sql");
+        log.info("Applying session-v3 migration 0004 (idempotent)");
+        execScript("classpath:migrations/0004_session_v3.sql");
     }
 
     private void execScript(String location) throws Exception {

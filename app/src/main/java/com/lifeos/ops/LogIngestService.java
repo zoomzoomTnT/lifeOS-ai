@@ -18,12 +18,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class LogIngestService {
+
+    private static final Pattern AGENT_IN_PATH = Pattern.compile("/agents/([^/]+)/");
 
     private final JdbcTemplate jdbc;
     private final JsonlParser parser;
@@ -41,7 +45,7 @@ public class LogIngestService {
     }
 
     public Map<String, Object> run() {
-        int app = 0, session = 0, files = 0;
+        int app = 0, session = 0, files = 0, aiCalls = 0;
         Path home = resolveHome();
         List<Path> sessionFiles = new ArrayList<>();
         if (home != null && Files.isDirectory(home)) {
@@ -56,16 +60,19 @@ public class LogIngestService {
         }
         for (Path f : sessionFiles) {
             files++;
-            session += ingestFile(f, true);
+            int[] n = ingestFile(f, true);
+            session += n[0];
+            aiCalls += n[1];
         }
         for (Path f : gatewayFiles) {
             files++;
-            app += ingestFile(f, false);
+            app += ingestFile(f, false)[0];
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", true);
         out.put("files", files);
         out.put("session_rows", session);
+        out.put("ai_call_rows", aiCalls);
         out.put("app_rows", app);
         out.put("home", home == null ? "" : home.toString());
         return out;
@@ -81,12 +88,18 @@ public class LogIngestService {
     public List<Map<String, Object>> listSessions(int limit, boolean includeContent) {
         String sql = includeContent
                 ? """
-                  SELECT id, occurred_at, ingested_at, source, agent_id, session_id, event_type, role,
+                  SELECT id, occurred_at, ingested_at, source, agent_id, session_id, event_id, parent_id,
+                         event_type, role, provider, model, stop_reason, tool_name, heartbeat,
+                         prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
+                         total_tokens, cost_micros, media_paths_json, custom_type,
                          content, content_len, usage_json, file_path, line_no, raw_json
                   FROM ai_session_logs ORDER BY id DESC LIMIT ?
                   """
                 : """
-                  SELECT id, occurred_at, ingested_at, source, agent_id, session_id, event_type, role,
+                  SELECT id, occurred_at, ingested_at, source, agent_id, session_id, event_id, parent_id,
+                         event_type, role, provider, model, stop_reason, tool_name, heartbeat,
+                         prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
+                         total_tokens, cost_micros, media_paths_json, custom_type,
                          content_len, file_path, line_no
                   FROM ai_session_logs ORDER BY id DESC LIMIT ?
                   """;
@@ -105,21 +118,26 @@ public class LogIngestService {
         jdbc.update("""
                 INSERT INTO app_logs (occurred_at, source, level, logger, message)
                 VALUES (strftime('%Y-%m-%dT%H:%M:%SZ','now'), ?, ?, ?, ?)
-                """, source, level, loggerName, cap(message));
+                """, source, level, loggerName, JsonlParser.cap(message));
     }
 
-    private int ingestFile(Path file, boolean sessionFile) {
+    /** @return [sessionOrAppRows, aiCallRows] */
+    private int[] ingestFile(Path file, boolean sessionFile) {
         String path = file.toAbsolutePath().normalize().toString();
         long startOff = 0;
         int startLine = 0;
-        List<Map<String, Object>> cur = jdbc.queryForList(
-                "SELECT offset_bytes, line_no FROM log_ingest_cursors WHERE file_path = ?", path);
-        if (!cur.isEmpty()) {
-            startOff = ((Number) cur.get(0).get("offset_bytes")).longValue();
-            startLine = ((Number) cur.get(0).get("line_no")).intValue();
-        }
+        String lastSessionId = null;
         int inserted = 0;
+        int aiCalls = 0;
         try {
+            List<Map<String, Object>> cur = jdbc.queryForList(
+                    "SELECT offset_bytes, line_no, last_session_id FROM log_ingest_cursors WHERE file_path = ?", path);
+            if (!cur.isEmpty()) {
+                startOff = ((Number) cur.get(0).get("offset_bytes")).longValue();
+                startLine = ((Number) cur.get(0).get("line_no")).intValue();
+                Object sid = cur.get(0).get("last_session_id");
+                if (sid != null) lastSessionId = sid.toString();
+            }
             long size = Files.size(file);
             if (startOff > size) {
                 startOff = 0;
@@ -127,6 +145,7 @@ public class LogIngestService {
             }
             long consumed = startOff;
             int lineNo = startLine;
+            String agentFromPath = agentFromPath(path);
             try (InputStream raw = Files.newInputStream(file)) {
                 if (startOff > 0) raw.skipNBytes(startOff);
                 BufferedReader reader = new BufferedReader(new InputStreamReader(raw, StandardCharsets.UTF_8));
@@ -136,48 +155,113 @@ public class LogIngestService {
                     consumed += line.getBytes(StandardCharsets.UTF_8).length + 1L;
                     if (line.isBlank()) continue;
                     if (sessionFile) {
-                        if (insertSession(path, lineNo, line)) inserted++;
+                        JsonlParser.Parsed p = parser.parse(line);
+                        if (p == null) continue;
+                        if (p.sessionId() != null) lastSessionId = p.sessionId();
+                        if (insertSession(path, lineNo, p, lastSessionId, agentFromPath)) {
+                            inserted++;
+                            if (recordUsage(p, lastSessionId)) aiCalls++;
+                        }
                     } else if (insertGateway(line)) {
                         inserted++;
                     }
                 }
             }
             jdbc.update("""
-                    INSERT INTO log_ingest_cursors (file_path, offset_bytes, line_no, updated_at)
-                    VALUES (?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                    INSERT INTO log_ingest_cursors (file_path, offset_bytes, line_no, last_session_id, updated_at)
+                    VALUES (?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
                     ON CONFLICT(file_path) DO UPDATE SET
                       offset_bytes=excluded.offset_bytes,
                       line_no=excluded.line_no,
+                      last_session_id=excluded.last_session_id,
                       updated_at=excluded.updated_at
-                    """, path, consumed, lineNo);
+                    """, path, consumed, lineNo, lastSessionId);
         } catch (Exception e) {
             log.warn("ingest {} failed: {}", file, e.getMessage());
         }
-        return inserted;
+        return new int[] {inserted, aiCalls};
     }
 
-    private boolean insertSession(String filePath, int lineNo, String line) {
-        JsonlParser.Parsed p = parser.parse(line);
-        if (p == null) return false;
+    private boolean insertSession(String filePath, int lineNo, JsonlParser.Parsed p,
+                                  String sessionId, String agentFromPath) {
         String occurred = p.occurredAt() != null ? p.occurredAt() : nowUtc();
-        String raw = cap(line);
+        String agent = p.agentId() != null ? p.agentId() : agentFromPath;
         try {
             int n = jdbc.update("""
                     INSERT OR IGNORE INTO ai_session_logs (
                       occurred_at, source, agent_id, session_id, session_key,
-                      event_type, role, content, content_len, usage_json,
-                      file_path, line_no, raw_json)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                      event_id, parent_id, event_type, role, provider, model,
+                      stop_reason, tool_name, custom_type, heartbeat,
+                      prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
+                      total_tokens, cost_micros, media_paths_json,
+                      content, content_len, usage_json, file_path, line_no, raw_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
-                    occurred, sourceFor(filePath), p.agentId(), p.sessionId(), p.sessionKey(),
-                    p.eventType(), p.role(), p.content(),
-                    p.content() == null ? 0 : p.content().length(),
-                    p.usageJson(), filePath, lineNo, raw);
+                    occurred, sourceFor(filePath), agent, sessionId, p.sessionKey(),
+                    p.eventId(), p.parentId(), p.eventType(), p.role(), p.provider(), p.model(),
+                    p.stopReason(), p.toolName(), p.customType(), p.heartbeat() ? 1 : 0,
+                    p.promptTokens(), p.completionTokens(), p.cacheReadTokens(), p.cacheWriteTokens(),
+                    p.totalTokens(), p.costMicros(), p.mediaPathsJson(),
+                    p.content(), p.content() == null ? 0 : p.content().length(),
+                    p.usageJson(), filePath, lineNo, p.sanitizedRawJson());
             return n > 0;
         } catch (Exception e) {
             log.debug("session row skip: {}", e.getMessage());
             return false;
         }
+    }
+
+    private boolean recordUsage(JsonlParser.Parsed p, String sessionId) {
+        if (p.promptTokens() == null && p.completionTokens() == null && p.totalTokens() == null) {
+            return false;
+        }
+        if (p.eventId() == null) return false;
+        String corr = "oc:" + p.eventId();
+        Integer exists = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ai_calls WHERE correlation_id = ?", Integer.class, corr);
+        if (exists != null && exists > 0) return false;
+        long prompt = p.promptTokens() == null ? 0 : p.promptTokens();
+        long completion = p.completionTokens() == null ? 0 : p.completionTokens();
+        long total = p.totalTokens() != null ? p.totalTokens() : prompt + completion;
+        String provider = p.provider() == null ? "unknown" : p.provider();
+        String model = p.model() == null ? "unknown" : p.model();
+        long cost = p.costMicros() == null ? 0 : p.costMicros();
+        if (cost == 0 && !"unknown".equals(provider)) {
+            List<Map<String, Object>> prices = jdbc.queryForList(
+                    "SELECT input_usd_micros_per_mtok, output_usd_micros_per_mtok FROM model_prices WHERE provider=? AND model=?",
+                    provider, model);
+            if (!prices.isEmpty()) {
+                cost = CostCalculator.costMicros(
+                        prompt, completion,
+                        ((Number) prices.get(0).get("input_usd_micros_per_mtok")).longValue(),
+                        ((Number) prices.get(0).get("output_usd_micros_per_mtok")).longValue());
+            }
+        }
+        String purpose = p.heartbeat() ? "heartbeat" : "chat";
+        try {
+            jdbc.update("""
+                    INSERT INTO ai_calls (
+                      correlation_id, source, purpose, provider, model,
+                      prompt_tokens, completion_tokens, total_tokens, cost_micros, currency,
+                      status, meta_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    corr, "other", purpose, provider, model,
+                    prompt, completion, total, cost, "USD", "ok",
+                    "{\"session_id\":" + quote(sessionId)
+                            + ",\"event_id\":" + quote(p.eventId())
+                            + ",\"cache_read\":" + p.cacheReadTokens()
+                            + ",\"cache_write\":" + p.cacheWriteTokens() + "}");
+            return true;
+        } catch (Exception e) {
+            log.debug("ai_calls from session skip: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private static String quote(String s) {
+        if (s == null) return "null";
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     private boolean insertGateway(String line) {
@@ -192,7 +276,7 @@ public class LogIngestService {
         jdbc.update("""
                 INSERT INTO app_logs (occurred_at, source, level, logger, message)
                 VALUES (?,?,?,?,?)
-                """, occurred, "openclaw_gateway", level, "openclaw", cap(msg));
+                """, occurred, "openclaw_gateway", level, "openclaw", JsonlParser.cap(msg));
         return true;
     }
 
@@ -200,6 +284,11 @@ public class LogIngestService {
         if (openclawHome != null && !openclawHome.isBlank()) return Path.of(openclawHome);
         String h = System.getProperty("user.home");
         return h == null ? null : Path.of(h, ".openclaw");
+    }
+
+    private static String agentFromPath(String path) {
+        Matcher m = AGENT_IN_PATH.matcher(path.replace('\\', '/'));
+        return m.find() ? m.group(1) : null;
     }
 
     private static List<Path> walk(Path root, int maxDepth, String suffix) {
@@ -226,10 +315,5 @@ public class LogIngestService {
 
     private static String nowUtc() {
         return java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
-    }
-
-    private static String cap(String s) {
-        if (s == null) return null;
-        return s.length() > JsonlParser.CONTENT_CAP ? s.substring(0, JsonlParser.CONTENT_CAP) + "…" : s;
     }
 }

@@ -352,7 +352,7 @@ INSERT INTO model_prices (provider, model, input_usd_micros_per_mtok, output_usd
   ('openai', 'gpt-4o-mini',      150000,   600000, 'list price-ish'),
   ('anthropic', 'claude-sonnet-4', 3000000, 15000000, 'list price-ish');
 
-INSERT INTO schema_migrations (name) VALUES ('0001_base'), ('0002_ops'), ('0003_logs');
+INSERT INTO schema_migrations (name) VALUES ('0001_base'), ('0002_ops'), ('0003_logs'), ('0004_session_v3');
 
 -- ---------------------------------------------------------------------------
 -- Logs: app vs AI session (privacy). AI conversation NEVER lives in app_logs.
@@ -382,8 +382,23 @@ CREATE TABLE ai_session_logs (
   agent_id     TEXT,
   session_id   TEXT,
   session_key  TEXT,
+  event_id     TEXT,
+  parent_id    TEXT,
   event_type   TEXT,
   role         TEXT,
+  provider     TEXT,
+  model        TEXT,
+  stop_reason  TEXT,
+  tool_name    TEXT,
+  custom_type  TEXT,
+  heartbeat    INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens INTEGER,
+  completion_tokens INTEGER,
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
+  total_tokens INTEGER,
+  cost_micros  INTEGER,
+  media_paths_json TEXT,
   content      TEXT,
   content_len  INTEGER,
   usage_json   TEXT,
@@ -396,12 +411,15 @@ CREATE TABLE ai_session_logs (
 CREATE INDEX idx_sess_ts      ON ai_session_logs(occurred_at);
 CREATE INDEX idx_sess_session ON ai_session_logs(session_id, occurred_at);
 CREATE INDEX idx_sess_source  ON ai_session_logs(source, occurred_at);
+CREATE INDEX idx_sess_event   ON ai_session_logs(event_id);
+CREATE INDEX idx_sess_hb      ON ai_session_logs(heartbeat, occurred_at);
 
 CREATE TABLE log_ingest_cursors (
-  file_path     TEXT PRIMARY KEY,
-  offset_bytes  INTEGER NOT NULL DEFAULT 0,
-  line_no       INTEGER NOT NULL DEFAULT 0,
-  updated_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  file_path        TEXT PRIMARY KEY,
+  offset_bytes     INTEGER NOT NULL DEFAULT 0,
+  line_no          INTEGER NOT NULL DEFAULT 0,
+  last_session_id  TEXT,
+  updated_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
 INSERT INTO settings (key, value) VALUES ('session_log_retain_days', '90');
