@@ -31,7 +31,7 @@ Use the **same** `X-Request-Id` on `/api/receipts/preview` (or whatever API you 
 
 If you do not know token counts, still POST (`prompt_tokens: 0`) with model + purpose + latency — a zero-token row is better than a missing row. Fill tokens when the runtime exposes them.
 
-Failed calls: `"status":"error","error":"..."`.
+Do **not** POST `/api/ops/ai` for a quiet heartbeat that only hit `should-wake` and returned `HEARTBEAT_OK` — that turn should not exist. If the harness billed you anyway, you may record it with `purpose=heartbeat` so the waste is visible.
 
 ## purpose
 
@@ -39,7 +39,7 @@ Failed calls: `"status":"error","error":"..."`.
 |---|---|
 | 小票 / 看图 OCR | `receipt_ocr` |
 | 这是小票还是食物照片 | `classify` |
-| heartbeat 扫描 due | `heartbeat` |
+| heartbeat（仅当模型真的跑了） | `heartbeat` |
 | 写提醒文案 | `memo` |
 | 普通对话 | `chat` |
 

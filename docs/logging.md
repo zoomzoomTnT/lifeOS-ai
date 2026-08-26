@@ -69,8 +69,8 @@ curl -s -X POST "$LIFE_API_BASE/api/ops/ai" \
 
 Do **not** send full prompts. `meta_json` may hold image_path, receipt_id, memo_id.
 
-`purpose`: `receipt_ocr | classify | heartbeat | memo | chat | embedding | other`  
-`source`: `skill | heartbeat | automation | app | other`
+Periodic OpenClaw heartbeats are **disabled**. Due scanning runs in Java (`DueScanScheduler`, 15m) at $0. Record `purpose=heartbeat` only if a model was actually invoked.
+
 
 ## Dashboard
 

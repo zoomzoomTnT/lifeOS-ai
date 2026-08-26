@@ -1,6 +1,7 @@
 package com.lifeos.web;
 
 import com.lifeos.ops.OpsService;
+import com.lifeos.ops.WakeService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,9 +12,11 @@ import java.util.Map;
 public class OpsController {
 
     private final OpsService opsService;
+    private final WakeService wakeService;
 
-    public OpsController(OpsService opsService) {
+    public OpsController(OpsService opsService, WakeService wakeService) {
         this.opsService = opsService;
+        this.wakeService = wakeService;
     }
 
     @PostMapping("/ai")
@@ -45,6 +48,12 @@ public class OpsController {
     @PutMapping("/prices")
     public ResponseEntity<?> upsertPrice(@RequestBody Map<String, Object> body) {
         return ResponseEntity.ok(opsService.upsertPrice(body));
+    }
+
+    @GetMapping("/should-wake")
+    public ResponseEntity<?> shouldWake(@RequestParam(defaultValue = "36") int withinHours,
+                                        @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
+        return ResponseEntity.ok(wakeService.shouldWake(handle, withinHours));
     }
 
     @PostMapping("/purge")

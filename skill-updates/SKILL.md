@@ -60,9 +60,9 @@ If `people.handle` is still `owner`, the first real WeChat peer id will auto-cre
 
 1. Run the Spring Boot app (`life-os-app`) so the API is listening.
 2. Copy updated skill package to `~/.openclaw/workspace/skills/life-os-skills`.
-3. Merge AGENTS / HEARTBEAT snippets.
-4. Heartbeat every 30m, target `openclaw-weixin`, activeHours 08:00-22:00 Asia/Tokyo.
-5. Vision model required for receipt photos.
+3. Merge AGENTS snippet. Merge `HEARTBEAT.snippet.md` — **turn off the 30m model heartbeat**.
+4. Create OpenClaw automations only when inserting memos (exact cron / `--at`).
+5. Vision model required for receipt photos only, never for heartbeat.
 
 ## Backup
 

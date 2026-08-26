@@ -232,10 +232,11 @@ Raw SELECT with params — not for production skill use.
 4. User 「对」 → `POST /api/receipts/{id}/confirm` `{ "also_fridge": true }`
 5. If fridge created, skill may still soft-ask, but server already did the writes + memos
 
-**主动提醒 (heartbeat):**
-1. `GET /api/memos/due?within_hours=36`
-2. If empty → HEARTBEAT_OK
-3. Else pick top 1-2, send WeChat, then `POST /api/memos/{id}/fired`
+**主动提醒:** 不要用 30 分钟 AI heartbeat。到期靠 OpenClaw automation。若 harness 强制 heartbeat：只打 `GET /api/ops/should-wake`，`wake=false` 则立刻 `HEARTBEAT_OK`。
+
+### `GET /api/ops/should-wake?within_hours=36`
+
+Java/SQLite gate, **no model**. `{ "wake": false, "heartbeat_ok": true, "instruction": "..." }`
 
 ## Ops (logging / AI spend)
 

@@ -20,6 +20,7 @@ docker compose up -d --build
 
 API: `http://127.0.0.1:8787/api/health`  
 Ops dashboard (API + AI spend): `http://127.0.0.1:8787/ops`  
+No 30-minute AI heartbeat — due scan is Java every 15 minutes (`GET /api/ops/should-wake`). WeChat pings use OpenClaw automations on memos.  
 SQLite file (backup this): `./data/life.db`
 
 ```bash

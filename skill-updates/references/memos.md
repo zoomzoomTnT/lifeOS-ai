@@ -31,7 +31,9 @@ curl -s -X POST "$LIFE_API_BASE/api/memos" \
 - One-shot — supply `due_at` (UTC), leave `cron_expr` empty
 - Recurring — `cron_expr` + `cron_tz`; server stores next `due_at`
 
-**Immediately** create the OpenClaw automation, then:
+Create the OpenClaw automation, then:
+
+Quiet 30m model heartbeats are **off**. This automation is the send path.
 
 ```bash
 curl -s -X PATCH "$LIFE_API_BASE/api/memos/$ID" \
