@@ -31,6 +31,6 @@ EXPOSE 8787
 VOLUME /data
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=25s --retries=8 \
-  CMD curl -fsS http://127.0.0.1:8787/api/health || exit 1
+  CMD curl -fsS http://127.0.0.1:8787/actuator/health || exit 1
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

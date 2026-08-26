@@ -8,7 +8,7 @@ From the repo root:
 
 ```bash
 docker compose up -d --build
-curl http://127.0.0.1:8787/api/health
+curl http://127.0.0.1:8787/actuator/health
 ```
 
 DB file: `../data/life.db` (compose volume `./data`).
@@ -21,7 +21,7 @@ export LIFE_API_PORT=8787
 mvn spring-boot:run
 ```
 
-Health: `curl http://127.0.0.1:8787/api/health`
+Health: `curl http://127.0.0.1:8787/actuator/health`
 
 ## Key endpoints (see ../docs/api.md)
 

@@ -6,7 +6,7 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** Same checks as GET /api/health, folded into GET /actuator/health as component "life". */
+/** Actuator component `life`: SQLite ping + app version. */
 @Component("life")
 public class LifeHealthIndicator implements HealthIndicator {
 

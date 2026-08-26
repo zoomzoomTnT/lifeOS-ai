@@ -16,16 +16,11 @@ Common error shape:
 
 ## Health & Meta
 
-### `GET /api/health`
-```json
-{ "status": "ok", "db": "ok", "version": "0.1.0" }
-```
-
-Same check as Actuator component `life` (`LifeHealthIndicator`). Docker / skill keep this path.
+Health is **only** Actuator. There is no custom `/api/health`.
 
 ### `GET /actuator/health`
 
-Includes JDBC `db` plus:
+`LifeHealthIndicator` (component `life`) plus JDBC `db`. DOWN → HTTP 503.
 
 ```json
 {
@@ -40,9 +35,11 @@ Includes JDBC `db` plus:
 }
 ```
 
+Also: `/actuator/health/liveness`, `/actuator/health/readiness`.
 
 ### `GET /api/path`
 Returns current DB path and owner timezone (for skill diagnostics).
+
 
 ### Actuator (`/actuator`)
 
@@ -51,7 +48,7 @@ Spring Boot Actuator. Default exposed: `health`, `info`, `metrics`, `scheduledta
 | Path | Notes |
 |---|---|
 | `GET /actuator` | index of enabled endpoints |
-| `GET /actuator/health` | includes JDBC/`db`; `UP` / `DOWN` |
+| `GET /actuator/health` | JDBC `db` + component `life` (SQLite ping, version) |
 | `GET /actuator/health/liveness` | process alive |
 | `GET /actuator/health/readiness` | ready for traffic |
 | `GET /actuator/info` | `info.app` name/version |
@@ -64,7 +61,8 @@ Local profile exposes `*` (`env`, `configprops`, `beans`, `heapdump`). Do not do
 
 Override: `LIFE_ACTUATOR_ENDPOINTS=health,info`
 
-Skill / Docker healthcheck still use `GET /api/health`.
+Docker / skill healthcheck: `GET /actuator/health`.
+
 
 
 ---
