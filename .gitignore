@@ -19,6 +19,7 @@ life.db
 /local/*.db-wal
 /local/*.db-shm
 /local/*.db-journal
+!/local/life.db
 
 # OS / editor
 .DS_Store
