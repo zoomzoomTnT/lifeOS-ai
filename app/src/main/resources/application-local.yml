@@ -6,12 +6,12 @@
 
 spring:
   datasource:
-    url: jdbc:sqlite:${LIFE_DB:${user.dir}/../local/life.db}
+    url: jdbc:sqlite:${LIFE_DB:${user.dir}/local/life.db}
 
 life:
   openclaw:
     enabled: false
-    home: ${LIFE_OPENCLAW_HOME:${user.dir}/../local/openclaw-stub}
+    home: ${LIFE_OPENCLAW_HOME:${user.dir}/local/openclaw-stub}
 
 logging:
   level:
