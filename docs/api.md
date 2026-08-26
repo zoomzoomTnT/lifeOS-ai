@@ -9,7 +9,8 @@ OpenAPI JSON: `/v3/api-docs` (groups: `/v3/api-docs/api`, `/v3/api-docs/actuator
 2. Dropdown **api** vs **actuator**.
 3. Expand an operation → **Try it out** → **Execute**.
 
-This markdown is still the field-level contract (cents, fingerprints). Swagger is generated from controllers; many bodies are untyped `Map`.
+This markdown is still the field-level contract (cents, fingerprints). Swagger is generated from controllers; request bodies are untyped `Map`.
+
 
 All responses are JSON. Money fields are **integer cents**. Times are UTC ISO-8601 with `Z` unless noted.
 

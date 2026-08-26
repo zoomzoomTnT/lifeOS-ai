@@ -6,16 +6,12 @@ import com.lifeos.domain.MemoStatus;
 import com.lifeos.repo.MemoRepository;
 import com.lifeos.service.MemoService;
 import com.lifeos.service.PersonService;
-import com.lifeos.web.dto.MemoCreateRequest;
-import com.lifeos.web.dto.MemoCreateResponse;
-import com.lifeos.web.dto.MemoFiredResponse;
-import com.lifeos.web.dto.MemoPatchRequest;
-import com.lifeos.web.dto.MemoPatchResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -31,34 +27,38 @@ public class MemoServiceImpl implements MemoService {
 
     @Override
     @Transactional
-    public MemoCreateResponse create(MemoCreateRequest request, String handle) {
+    public Map<String, Object> create(Map<String, Object> body, String handle) {
         long ownerId = people.resolveId(handle);
-        MemoKind kind = request.kind() == null ? MemoKind.REMINDER : request.kind();
-        int priority = request.priority() == null ? 3 : request.priority();
-        String tz = request.timezone() == null ? "Asia/Tokyo" : request.timezone();
-        String payload = request.payloadJson() == null ? null : request.payloadJson().toString();
+        MemoKind kind = body.get("kind") == null ? MemoKind.REMINDER : MemoKind.from(Bodies.str(body, "kind"));
+        int priority = Bodies.intVal(body.get("priority"), 3);
+        String tz = body.get("timezone") == null ? "Asia/Tokyo" : Bodies.str(body, "timezone");
+        Object payload = body.get("payload_json");
+        Long sourceId = body.get("source_id") == null ? null : Bodies.longVal(body.get("source_id"));
         Memo memo = new Memo(
-                null, ownerId, request.title(), request.body(), kind, MemoStatus.OPEN, priority,
-                request.dueAt(), tz, request.cronExpr(), request.cronTz(),
-                request.sourceDomain(), request.sourceTable(), request.sourceId(), payload
+                null, ownerId, Bodies.str(body, "title"), Bodies.str(body, "body"),
+                kind, MemoStatus.OPEN, priority,
+                Bodies.str(body, "due_at"), tz,
+                Bodies.str(body, "cron_expr"), Bodies.str(body, "cron_tz"),
+                Bodies.str(body, "source_domain"), Bodies.str(body, "source_table"),
+                sourceId, payload == null ? null : payload.toString()
         );
         long id = memos.insert(memo);
-        return new MemoCreateResponse(id, MemoStatus.OPEN);
+        return Map.of("id", id, "status", MemoStatus.OPEN.db());
     }
 
     @Override
     @Transactional
-    public MemoPatchResponse patch(long id, MemoPatchRequest request) {
-        if (request.status() != null) memos.updateStatus(id, request.status());
-        if (request.dueAt() != null) memos.updateDueAt(id, request.dueAt());
-        if (request.automationId() != null) memos.updateAutomationId(id, request.automationId());
-        if (request.lastFiredAt() != null) memos.markFired(id);
-        return new MemoPatchResponse(id, true);
+    public Map<String, Object> patch(long id, Map<String, Object> body) {
+        if (body.containsKey("status")) memos.updateStatus(id, MemoStatus.from(Bodies.str(body, "status")));
+        if (body.containsKey("due_at")) memos.updateDueAt(id, Bodies.str(body, "due_at"));
+        if (body.containsKey("automation_id")) memos.updateAutomationId(id, Bodies.str(body, "automation_id"));
+        if (body.containsKey("last_fired_at")) memos.markFired(id);
+        return Map.of("id", id, "updated", true);
     }
 
     @Override
-    public MemoFiredResponse markFired(long id) {
+    public Map<String, Object> markFired(long id) {
         memos.markFired(id);
-        return new MemoFiredResponse(id, true);
+        return Map.of("id", id, "fired", true);
     }
 }

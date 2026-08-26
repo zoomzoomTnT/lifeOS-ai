@@ -1,14 +1,9 @@
 package com.lifeos.web;
 
-import com.lifeos.domain.FridgeItem;
 import com.lifeos.domain.FridgeStatus;
 import com.lifeos.service.FridgeService;
-import com.lifeos.web.dto.FridgeAddRequest;
-import com.lifeos.web.dto.FridgeAddResponse;
-import com.lifeos.web.dto.FridgeResolveRequest;
-import com.lifeos.web.dto.FridgeResolveResponse;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/fridge")
@@ -28,22 +23,22 @@ public class FridgeController {
     private final FridgeService fridgeService;
 
     @PostMapping
-    public FridgeAddResponse add(@Valid @RequestBody FridgeAddRequest body,
+    public ResponseEntity<?> add(@RequestBody Map<String, Object> body,
                                  @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return fridgeService.add(body, handle);
+        return ResponseEntity.ok(fridgeService.add(body, handle));
     }
 
     @GetMapping
-    public List<FridgeItem> list(@RequestParam(required = false) FridgeStatus status,
-                                 @RequestParam(required = false) Integer expiringWithinHours,
-                                 @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return fridgeService.list(status, expiringWithinHours, handle);
+    public ResponseEntity<?> list(@RequestParam(required = false) FridgeStatus status,
+                                  @RequestParam(required = false) Integer expiringWithinHours,
+                                  @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
+        return ResponseEntity.ok(fridgeService.list(status, expiringWithinHours, handle));
     }
 
     @PostMapping("/{id}/resolve")
-    public FridgeResolveResponse resolve(@PathVariable long id,
-                                         @Valid @RequestBody FridgeResolveRequest body,
-                                         @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return fridgeService.resolve(id, body, handle);
+    public ResponseEntity<?> resolve(@PathVariable long id,
+                                     @RequestBody Map<String, Object> body,
+                                     @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
+        return ResponseEntity.ok(fridgeService.resolve(id, body, handle));
     }
 }

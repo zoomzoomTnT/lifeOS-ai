@@ -1,14 +1,8 @@
 package com.lifeos.web;
 
-import com.lifeos.domain.Memo;
 import com.lifeos.service.MemoService;
-import com.lifeos.web.dto.MemoCreateRequest;
-import com.lifeos.web.dto.MemoCreateResponse;
-import com.lifeos.web.dto.MemoFiredResponse;
-import com.lifeos.web.dto.MemoPatchRequest;
-import com.lifeos.web.dto.MemoPatchResponse;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/memos")
@@ -29,24 +23,24 @@ public class MemoController {
     private final MemoService memoService;
 
     @GetMapping("/due")
-    public List<Memo> due(@RequestParam(defaultValue = "36") int withinHours,
-                          @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return memoService.due(withinHours, handle);
+    public ResponseEntity<?> due(@RequestParam(defaultValue = "36") int withinHours,
+                                 @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
+        return ResponseEntity.ok(memoService.due(withinHours, handle));
     }
 
     @PostMapping
-    public MemoCreateResponse create(@Valid @RequestBody MemoCreateRequest body,
-                                     @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return memoService.create(body, handle);
+    public ResponseEntity<?> create(@RequestBody Map<String, Object> body,
+                                    @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
+        return ResponseEntity.ok(memoService.create(body, handle));
     }
 
     @PatchMapping("/{id}")
-    public MemoPatchResponse patch(@PathVariable long id, @RequestBody MemoPatchRequest body) {
-        return memoService.patch(id, body);
+    public ResponseEntity<?> patch(@PathVariable long id, @RequestBody Map<String, Object> body) {
+        return ResponseEntity.ok(memoService.patch(id, body));
     }
 
     @PostMapping("/{id}/fired")
-    public MemoFiredResponse fired(@PathVariable long id) {
-        return memoService.markFired(id);
+    public ResponseEntity<?> fired(@PathVariable long id) {
+        return ResponseEntity.ok(memoService.markFired(id));
     }
 }

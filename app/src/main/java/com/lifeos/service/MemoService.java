@@ -1,20 +1,16 @@
 package com.lifeos.service;
 
 import com.lifeos.domain.Memo;
-import com.lifeos.web.dto.MemoCreateRequest;
-import com.lifeos.web.dto.MemoCreateResponse;
-import com.lifeos.web.dto.MemoFiredResponse;
-import com.lifeos.web.dto.MemoPatchRequest;
-import com.lifeos.web.dto.MemoPatchResponse;
 
 import java.util.List;
+import java.util.Map;
 
 public interface MemoService {
     List<Memo> due(int withinHours, String handle);
 
-    MemoCreateResponse create(MemoCreateRequest request, String handle);
+    Map<String, Object> create(Map<String, Object> body, String handle);
 
-    MemoPatchResponse patch(long id, MemoPatchRequest request);
+    Map<String, Object> patch(long id, Map<String, Object> body);
 
-    MemoFiredResponse markFired(long id);
+    Map<String, Object> markFired(long id);
 }

@@ -2,21 +2,16 @@ package com.lifeos.service;
 
 import com.lifeos.domain.Receipt;
 import com.lifeos.domain.ReceiptStatus;
-import com.lifeos.web.dto.ReceiptConfirmRequest;
-import com.lifeos.web.dto.ReceiptConfirmResponse;
-import com.lifeos.web.dto.ReceiptLookupRequest;
-import com.lifeos.web.dto.ReceiptLookupResponse;
-import com.lifeos.web.dto.ReceiptPreviewRequest;
-import com.lifeos.web.dto.ReceiptPreviewResponse;
 
 import java.util.List;
+import java.util.Map;
 
 public interface ReceiptService {
-    ReceiptLookupResponse lookup(ReceiptLookupRequest request);
+    Map<String, Object> lookup(Map<String, Object> body);
 
-    ReceiptPreviewResponse preview(ReceiptPreviewRequest request, String handle);
+    Map<String, Object> preview(Map<String, Object> body, String handle);
 
-    ReceiptConfirmResponse confirm(long id, ReceiptConfirmRequest request, String handle);
+    Map<String, Object> confirm(long id, Map<String, Object> body, String handle);
 
     List<Receipt> list(ReceiptStatus status, int limit);
 }

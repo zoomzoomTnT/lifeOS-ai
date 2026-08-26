@@ -1,6 +1,5 @@
 package com.lifeos.web;
 
-import com.lifeos.web.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -16,7 +15,7 @@ import java.util.stream.Collectors;
 public class ApiExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> validation(MethodArgumentNotValidException ex) {
+    public ResponseEntity<?> validation(MethodArgumentNotValidException ex) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("fields", ex.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(
@@ -25,12 +24,12 @@ public class ApiExceptionHandler {
                         (a, b) -> a,
                         LinkedHashMap::new)));
         return ResponseEntity.badRequest()
-                .body(new ErrorResponse("validation", "request invalid", details));
+                .body(Map.of("error", "validation", "message", "request invalid", "details", details));
     }
 
     @ExceptionHandler({IllegalArgumentException.class, HttpMessageNotReadableException.class})
-    public ResponseEntity<ErrorResponse> badRequest(Exception ex) {
+    public ResponseEntity<?> badRequest(Exception ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse("bad_request", ex.getMessage(), Map.of()));
+                .body(Map.of("error", "bad_request", "message", String.valueOf(ex.getMessage()), "details", Map.of()));
     }
 }

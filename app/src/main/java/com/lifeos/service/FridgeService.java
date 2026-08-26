@@ -2,17 +2,14 @@ package com.lifeos.service;
 
 import com.lifeos.domain.FridgeItem;
 import com.lifeos.domain.FridgeStatus;
-import com.lifeos.web.dto.FridgeAddRequest;
-import com.lifeos.web.dto.FridgeAddResponse;
-import com.lifeos.web.dto.FridgeResolveRequest;
-import com.lifeos.web.dto.FridgeResolveResponse;
 
 import java.util.List;
+import java.util.Map;
 
 public interface FridgeService {
-    FridgeAddResponse add(FridgeAddRequest request, String handle);
+    Map<String, Object> add(Map<String, Object> body, String handle);
 
     List<FridgeItem> list(FridgeStatus status, Integer expiringWithinHours, String handle);
 
-    FridgeResolveResponse resolve(long id, FridgeResolveRequest request, String handle);
+    Map<String, Object> resolve(long id, Map<String, Object> body, String handle);
 }
