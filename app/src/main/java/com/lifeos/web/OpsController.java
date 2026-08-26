@@ -4,29 +4,28 @@ import com.lifeos.ops.LogIngestService;
 import com.lifeos.ops.OpsService;
 import com.lifeos.ops.ProactiveCronService;
 import com.lifeos.ops.WakeService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ops")
+@RequiredArgsConstructor
 public class OpsController {
 
     private final OpsService opsService;
     private final WakeService wakeService;
     private final ProactiveCronService proactiveCronService;
-
     private final LogIngestService logIngestService;
-
-    public OpsController(OpsService opsService, WakeService wakeService,
-                         ProactiveCronService proactiveCronService,
-                         LogIngestService logIngestService) {
-        this.opsService = opsService;
-        this.wakeService = wakeService;
-        this.proactiveCronService = proactiveCronService;
-        this.logIngestService = logIngestService;
-    }
 
     @PostMapping("/ai")
     public ResponseEntity<?> recordAi(@RequestBody Map<String, Object> body,
@@ -84,7 +83,6 @@ public class OpsController {
         return ResponseEntity.ok(logIngestService.listApp(limit));
     }
 
-    /** Metadata only unless include_content=true — conversation is private. */
     @GetMapping("/logs/sessions")
     public ResponseEntity<?> sessionLogs(@RequestParam(defaultValue = "50") int limit,
                                          @RequestParam(name = "include_content", defaultValue = "false") boolean includeContent) {

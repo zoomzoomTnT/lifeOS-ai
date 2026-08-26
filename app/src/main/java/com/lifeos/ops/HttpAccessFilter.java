@@ -4,8 +4,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
@@ -16,16 +16,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class HttpAccessFilter extends OncePerRequestFilter {
 
-    private static final Logger log = LoggerFactory.getLogger(HttpAccessFilter.class);
     private static final int BODY_CAP = 4096;
 
     private final OpsService opsService;
-
-    public HttpAccessFilter(OpsService opsService) {
-        this.opsService = opsService;
-    }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

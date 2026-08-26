@@ -1,8 +1,8 @@
 package com.lifeos.ops;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,10 +20,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class LogIngestService {
-
-    private static final Logger log = LoggerFactory.getLogger(LogIngestService.class);
 
     private final JdbcTemplate jdbc;
     private final JsonlParser parser;
@@ -34,12 +34,6 @@ public class LogIngestService {
 
     @Value("${life.openclaw.file-log:}")
     private String fileLogDir;
-
-    public LogIngestService(JdbcTemplate jdbc, ObjectMapper mapper) {
-        this.jdbc = jdbc;
-        this.mapper = mapper;
-        this.parser = new JsonlParser(mapper);
-    }
 
     @Scheduled(fixedDelayString = "${life.logs.ingest-ms:120000}")
     public void tick() {

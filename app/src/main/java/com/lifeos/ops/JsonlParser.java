@@ -3,10 +3,12 @@ package com.lifeos.ops;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.util.ArrayList;
-import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 /** Lenient parser for OpenClaw session / trajectory / gateway JSONL lines. */
+@Component
+@RequiredArgsConstructor
 public final class JsonlParser {
 
     public static final int CONTENT_CAP = 32_768;
@@ -24,10 +26,6 @@ public final class JsonlParser {
     ) {}
 
     private final ObjectMapper mapper;
-
-    public JsonlParser(ObjectMapper mapper) {
-        this.mapper = mapper;
-    }
 
     public Parsed parse(String line) {
         if (line == null || line.isBlank()) return null;

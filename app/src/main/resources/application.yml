@@ -5,6 +5,8 @@ server:
 spring:
   application:
     name: life-os-app
+  jackson:
+    property-naming-strategy: SNAKE_CASE
   datasource:
     url: jdbc:sqlite:${LIFE_DB:${user.home}/.openclaw/workspace/data/life.db}
     driver-class-name: org.sqlite.JDBC
