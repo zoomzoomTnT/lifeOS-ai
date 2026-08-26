@@ -1,16 +1,15 @@
 ---
 name: life-os
-description: Operate the wechat-lifeOS-ai Life OS via REST API — SQLite life.db for WeChat记账, 小票, 冰箱, 备忘, 持仓, and proactive pings via OpenClaw openclaw-weixin. Use when the user mentions life-os-skills, life.db, 生活台账, 记账, 小票, 冰箱, 过期, 提醒我, 期权, heartbeat, or any life-* skill.
+description: Life OS via REST — WeChat 记账, 小票, 冰箱, 备忘, 持仓, and proactive pings on openclaw-weixin. Use when the user mentions life-os, life.db, 生活台账, 记账, 小票, 冰箱, 过期, 提醒我, 期权, or any life-* skill.
 metadata:
   type: workflow
   version: "2.0"
-  repo: zoomzoomTnT/wechat-lifeOS-ai
+  repo: zoomzoomTnT/lifeOS-ai
   api: "http://127.0.0.1:8787"
 ---
 
-# life-os — 生活台账 (API edition)
+# life-os — 生活台账
 
-Source of truth is the GitHub package in `zoomzoomTnT/wechat-lifeOS-ai`.  
 **One SQLite file. Business logic lives in the Spring Boot app. This skill only talks HTTP + domain rules.**
 
 ## Paths & API
@@ -25,7 +24,7 @@ Source of truth is the GitHub package in `zoomzoomTnT/wechat-lifeOS-ai`.
 | WeChat channel | `openclaw-weixin` |
 | Auth header | `X-Life-Handle: <people.handle>` |
 
-Never call `life.py` or raw `sqlite3` for writes. All mutations go through the API.
+All mutations go through the REST API. Do not write SQLite from this skill.
 
 ## Session start
 
@@ -53,16 +52,20 @@ If `people.handle` is still `owner`, the first real WeChat peer id will auto-cre
 | 冰箱, 过期, 蔬菜水果肉 | `references/fridge.md` |
 | 提醒我, cron, 到期 | `references/memos.md` |
 | 持仓, 期权, ticker | `references/stocks.md` |
-| heartbeat, 主动找我, HEARTBEAT_OK | `references/proactive.md` |
+| 主动找我, 到期提醒 | `references/proactive.md` |
 | 用量, token, 花费模型, ops, 日志 | `references/ops.md` |
 
 ## Install (OpenClaw workspace)
 
-1. Run the Spring Boot app (`life-os-app`) so the API is listening.
-2. Copy updated skill package to `~/.openclaw/workspace/skills/life-os-skills`.
-3. Merge `openclaw/openclaw.json` (`heartbeat.every=0m`, `hooks.enabled`). Set `OPENCLAW_HOOK_TOKEN`.
-4. Java cron wakes the skill via `POST /hooks/agent` only when memos are due. Do not create a 30m heartbeat.
-5. Vision model required for receipt photos only, never for proactive.
+```bash
+cp -R skills/life-os ~/.openclaw/workspace/skills/life-os
+cp skills/life-os/HEARTBEAT.md ~/.openclaw/workspace/HEARTBEAT.md
+```
+
+1. Run the Spring Boot app so the API is listening (`docker compose up -d`).
+2. Merge `openclaw/openclaw.json` (`heartbeat.every=0m`, `hooks.enabled`). Set `OPENCLAW_HOOK_TOKEN`.
+3. Java cron wakes this skill via `POST /hooks/agent` only when memos are due. Do not create a 30m model heartbeat.
+4. Vision model required for receipt photos only, never for proactive.
 
 ## Backup
 

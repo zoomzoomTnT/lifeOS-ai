@@ -6,13 +6,15 @@
 - **hooks.enabled** — Spring Boot wakes the skill only when SQLite says something is due
 - secrets via env (`OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_HOOK_TOKEN`), never committed
 
-Weixin / plugin credentials stay in your existing `~/.openclaw/openclaw.json` (or `openclaw.local.json`, gitignored). Merge the `agents.defaults.heartbeat` and `hooks` blocks into that file, or:
+Weixin / plugin credentials stay in your existing `~/.openclaw/openclaw.json` (or `openclaw.local.json`, gitignored). Merge the `agents.defaults.heartbeat` and `hooks` blocks into that file.
+
+Install the skill:
 
 ```bash
-# policy overlay (no secrets)
-cp openclaw/openclaw.json ~/.openclaw/openclaw.json
-# then restore your weixin plugin block
+cp -R skills/life-os ~/.openclaw/workspace/skills/life-os
+cp skills/life-os/HEARTBEAT.md ~/.openclaw/workspace/HEARTBEAT.md
 ```
+
 
 Generate a hook token and put it in the environment Spring Boot sees:
 

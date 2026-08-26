@@ -46,14 +46,15 @@ cp env.example .env
 
 1. `agents.defaults.heartbeat.every = "0m"` — **关掉 30 分钟模型心跳**
 2. `hooks.enabled = true`，`hooks.token = "${OPENCLAW_HOOK_TOKEN}"`
-3. workspace 里的 `HEARTBEAT.md` 按 `skill-updates/HEARTBEAT.snippet.md` 改掉
+3. workspace 里的 `HEARTBEAT.md` 用 `skills/life-os/HEARTBEAT.md` 覆盖
 
 微信插件、模型 API key、Gateway bind 继续用你现有的。仓库这份 **不含密钥**。
 
 ### 3. Skill
 
 ```bash
-cp -R skill-updates ~/.openclaw/workspace/skills/life-os-skills
+cp -R skills/life-os ~/.openclaw/workspace/skills/life-os
+cp skills/life-os/HEARTBEAT.md ~/.openclaw/workspace/HEARTBEAT.md
 # skill 调 API 时带:
 #   LIFE_API_BASE=http://127.0.0.1:8787
 #   X-Life-Handle: <你的微信 peer id>
@@ -91,7 +92,7 @@ Java 每 2 分钟扫描 `OPENCLAW_HOME`：
 
 - [ ] `.env` 里 `OPENCLAW_HOOK_TOKEN` 非空，且等于 OpenClaw `hooks.token`
 - [ ] heartbeat 已是 `0m`，workspace 没有 30m 模型心跳
-- [ ] skill 已拷到 `~/.openclaw/workspace/skills/life-os-skills`
+- [ ] skill 已拷到 `~/.openclaw/workspace/skills/life-os`
 - [ ] `curl /api/health` 且 `db=ok`
 - [ ] `POST /api/ops/proactive/run` 在没到期时 `wake=false`；到期时 Gateway 日志出现 `/hooks/agent`
 - [ ] `OPENCLAW_HOME` 挂载成功，`POST /api/ops/logs/ingest` 的 `session_rows` 会涨
@@ -134,7 +135,7 @@ LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest docker compose up -d
 ├── docs/api.md
 ├── docs/logging.md
 ├── app/                        # Spring Boot 3 + Java 21
-├── skill-updates/
+├── skills/life-os/             # OpenClaw skill（完整包）
 └── .github/workflows/ci.yml
 ```
 
@@ -158,9 +159,11 @@ export OPENCLAW_HOOK_TOKEN=...
 cd app && mvn spring-boot:run
 ```
 
+Skill: `cp -R skills/life-os ~/.openclaw/workspace/skills/life-os` and `LIFE_API_BASE=http://127.0.0.1:8787`.
+
 ## Design (2026-08-26)
 
 - `schema.sql` is the only executable schema. Domain rules stay in markdown.
-- Python `life.py` is retired. All writes go through Java REST.
+- All writes go through Java REST.
 - AI skill: vision + intent + Chinese copy. App owns fingerprint, fridge, due, backup, log ingest.
 - Conversation transcripts stay in `ai_session_logs`, never in `app_logs`.

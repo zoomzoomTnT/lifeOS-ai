@@ -57,4 +57,4 @@ Lowercase, strip spaces and punctuation. Chinese stays Chinese (`生菜` → `�
 - Raw card numbers or payment QR payloads
 - Auto-confirm a receipt whose lines do not sum to `total_cents` (±2 cents)
 - Mark fridge `eaten` without user confirmation on expiry day
-- Call `life.py` or raw sqlite for writes — use the REST API only
+- Write SQLite from this skill — use the REST API only
