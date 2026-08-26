@@ -357,7 +357,7 @@ curl -fsS http://localhost:8787/actuator/health
 ## Design
 
 - `schema.sql` 是可执行 schema。领域规则在 markdown。
-- 分层：`web`（`ResponseEntity` + Map body）→ `service` 接口 → `repo` 接口 → `repo.jdbc`。Service 不写 SQL。
+- 分层：`web`（request DTO + `ResponseEntity`）→ `service` 接口 → `repo` 接口 → `repo.jdbc`。Service 不写 SQL。
 - Bean 注入用 Lombok `@RequiredArgsConstructor`（一行，不手写构造器）。
 - CHECK 值用 enum（`eaten` / `discarded` / `in_stock`…），JSON 存库都是小写字符串。
 - 写入只走 Java REST。skill 只做视觉 / 意图 / 中文。

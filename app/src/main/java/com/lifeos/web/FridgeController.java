@@ -2,6 +2,9 @@ package com.lifeos.web;
 
 import com.lifeos.domain.FridgeStatus;
 import com.lifeos.service.FridgeService;
+import com.lifeos.web.dto.FridgeAddRequest;
+import com.lifeos.web.dto.FridgeResolveRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,8 +16,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
 @RestController
 @RequestMapping("/api/fridge")
 @RequiredArgsConstructor
@@ -23,7 +24,7 @@ public class FridgeController {
     private final FridgeService fridgeService;
 
     @PostMapping
-    public ResponseEntity<?> add(@RequestBody Map<String, Object> body,
+    public ResponseEntity<?> add(@Valid @RequestBody FridgeAddRequest body,
                                  @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
         return ResponseEntity.ok(fridgeService.add(body, handle));
     }
@@ -37,7 +38,7 @@ public class FridgeController {
 
     @PostMapping("/{id}/resolve")
     public ResponseEntity<?> resolve(@PathVariable long id,
-                                     @RequestBody Map<String, Object> body,
+                                     @Valid @RequestBody FridgeResolveRequest body,
                                      @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
         return ResponseEntity.ok(fridgeService.resolve(id, body, handle));
     }

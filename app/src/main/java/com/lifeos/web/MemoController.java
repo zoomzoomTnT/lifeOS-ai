@@ -1,6 +1,9 @@
 package com.lifeos.web;
 
 import com.lifeos.service.MemoService;
+import com.lifeos.web.dto.MemoCreateRequest;
+import com.lifeos.web.dto.MemoPatchRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,8 +15,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/memos")
@@ -29,13 +30,13 @@ public class MemoController {
     }
 
     @PostMapping
-    public ResponseEntity<?> create(@RequestBody Map<String, Object> body,
+    public ResponseEntity<?> create(@Valid @RequestBody MemoCreateRequest body,
                                     @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
         return ResponseEntity.ok(memoService.create(body, handle));
     }
 
     @PatchMapping("/{id}")
-    public ResponseEntity<?> patch(@PathVariable long id, @RequestBody Map<String, Object> body) {
+    public ResponseEntity<?> patch(@PathVariable long id, @RequestBody MemoPatchRequest body) {
         return ResponseEntity.ok(memoService.patch(id, body));
     }
 

@@ -6,6 +6,8 @@ import com.lifeos.domain.MemoStatus;
 import com.lifeos.repo.MemoRepository;
 import com.lifeos.service.MemoService;
 import com.lifeos.service.PersonService;
+import com.lifeos.web.dto.MemoCreateRequest;
+import com.lifeos.web.dto.MemoPatchRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,20 +29,16 @@ public class MemoServiceImpl implements MemoService {
 
     @Override
     @Transactional
-    public Map<String, Object> create(Map<String, Object> body, String handle) {
+    public Map<String, Object> create(MemoCreateRequest request, String handle) {
         long ownerId = people.resolveId(handle);
-        MemoKind kind = body.get("kind") == null ? MemoKind.REMINDER : MemoKind.from(Bodies.str(body, "kind"));
-        int priority = Bodies.intVal(body.get("priority"), 3);
-        String tz = body.get("timezone") == null ? "Asia/Tokyo" : Bodies.str(body, "timezone");
-        Object payload = body.get("payload_json");
-        Long sourceId = body.get("source_id") == null ? null : Bodies.longVal(body.get("source_id"));
+        MemoKind kind = request.kind() == null ? MemoKind.REMINDER : request.kind();
+        int priority = request.priority() == null ? 3 : request.priority();
+        String tz = request.timezone() == null ? "Asia/Tokyo" : request.timezone();
+        String payload = request.payloadJson() == null ? null : request.payloadJson().toString();
         Memo memo = new Memo(
-                null, ownerId, Bodies.str(body, "title"), Bodies.str(body, "body"),
-                kind, MemoStatus.OPEN, priority,
-                Bodies.str(body, "due_at"), tz,
-                Bodies.str(body, "cron_expr"), Bodies.str(body, "cron_tz"),
-                Bodies.str(body, "source_domain"), Bodies.str(body, "source_table"),
-                sourceId, payload == null ? null : payload.toString()
+                null, ownerId, request.title(), request.body(), kind, MemoStatus.OPEN, priority,
+                request.dueAt(), tz, request.cronExpr(), request.cronTz(),
+                request.sourceDomain(), request.sourceTable(), request.sourceId(), payload
         );
         long id = memos.insert(memo);
         return Map.of("id", id, "status", MemoStatus.OPEN.db());
@@ -48,11 +46,11 @@ public class MemoServiceImpl implements MemoService {
 
     @Override
     @Transactional
-    public Map<String, Object> patch(long id, Map<String, Object> body) {
-        if (body.containsKey("status")) memos.updateStatus(id, MemoStatus.from(Bodies.str(body, "status")));
-        if (body.containsKey("due_at")) memos.updateDueAt(id, Bodies.str(body, "due_at"));
-        if (body.containsKey("automation_id")) memos.updateAutomationId(id, Bodies.str(body, "automation_id"));
-        if (body.containsKey("last_fired_at")) memos.markFired(id);
+    public Map<String, Object> patch(long id, MemoPatchRequest request) {
+        if (request.status() != null) memos.updateStatus(id, request.status());
+        if (request.dueAt() != null) memos.updateDueAt(id, request.dueAt());
+        if (request.automationId() != null) memos.updateAutomationId(id, request.automationId());
+        if (request.lastFiredAt() != null) memos.markFired(id);
         return Map.of("id", id, "updated", true);
     }
 

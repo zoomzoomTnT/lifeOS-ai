@@ -1,7 +1,6 @@
 package com.lifeos.service.impl;
 
 import com.lifeos.domain.Fingerprints;
-import com.lifeos.domain.FoodCategory;
 import com.lifeos.domain.FridgeItem;
 import com.lifeos.domain.FridgeLocation;
 import com.lifeos.domain.FridgeStatus;
@@ -15,6 +14,9 @@ import com.lifeos.repo.MerchantRepository;
 import com.lifeos.repo.ReceiptRepository;
 import com.lifeos.service.PersonService;
 import com.lifeos.service.ReceiptService;
+import com.lifeos.web.dto.ReceiptConfirmRequest;
+import com.lifeos.web.dto.ReceiptLookupRequest;
+import com.lifeos.web.dto.ReceiptPreviewRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,8 +38,8 @@ public class ReceiptServiceImpl implements ReceiptService {
     private final PersonService people;
 
     @Override
-    public Map<String, Object> lookup(Map<String, Object> body) {
-        String fp = Fingerprints.receipt(Bodies.str(body, "barcode"), Bodies.str(body, "printed_at"));
+    public Map<String, Object> lookup(ReceiptLookupRequest request) {
+        String fp = Fingerprints.receipt(request.barcode(), request.printedAt());
         Optional<Receipt> existing = receipts.findByFingerprint(fp);
         if (existing.isEmpty()) return Map.of("found", false);
         return Map.of("found", true, "receipt", existing.get());
@@ -45,8 +47,8 @@ public class ReceiptServiceImpl implements ReceiptService {
 
     @Override
     @Transactional
-    public Map<String, Object> preview(Map<String, Object> body, String handle) {
-        String fp = Fingerprints.receipt(Bodies.str(body, "barcode"), Bodies.str(body, "printed_at"));
+    public Map<String, Object> preview(ReceiptPreviewRequest request, String handle) {
+        String fp = Fingerprints.receipt(request.barcode(), request.printedAt());
         Optional<Receipt> existing = receipts.findByFingerprint(fp);
         if (existing.isPresent()) {
             Receipt r = existing.get();
@@ -59,41 +61,41 @@ public class ReceiptServiceImpl implements ReceiptService {
         }
 
         long payerId = people.resolveId(handle);
-        long merchantId = ensureMerchant(Bodies.str(body, "merchant_name"));
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> items = (List<Map<String, Object>>) body.getOrDefault("items", List.of());
-        int computed = items.stream().mapToInt(i -> Bodies.intVal(i.get("amount_cents"), 0)).sum();
-        int total = Bodies.intVal(body.get("total_cents"), 0);
+        long merchantId = ensureMerchant(request.merchantName());
+        List<ReceiptPreviewRequest.Line> items = request.items() == null ? List.of() : request.items();
+        int computed = items.stream().mapToInt(i -> i.amountCents() == null ? 0 : i.amountCents()).sum();
+        int total = request.totalCents() == null ? 0 : request.totalCents();
         boolean sumOk = Math.abs(computed - total) <= 2;
 
-        String currency = Bodies.str(body.getOrDefault("currency", "CNY"));
         Receipt pending = new Receipt(
-                null, merchantId, payerId, Bodies.str(body, "barcode"), Bodies.str(body, "printed_at"), fp,
-                currency, total, computed, ReceiptStatus.PENDING_CONFIRM, null
+                null, merchantId, payerId, request.barcode(), request.printedAt(), fp,
+                request.currency() == null ? "CNY" : request.currency(),
+                total, computed, ReceiptStatus.PENDING_CONFIRM, null
         );
-        Object raw = body.get("raw_ocr_json");
+        Object raw = request.rawOcrJson();
         long receiptId = receipts.insertPending(
-                pending, raw == null ? null : raw.toString(), Bodies.str(body, "image_path"),
-                Bodies.intVal(body.get("tax_cents"), 0),
-                Bodies.intVal(body.get("discount_cents"), 0)
+                pending, raw == null ? null : raw.toString(), request.imagePath(),
+                request.taxCents() == null ? 0 : request.taxCents(),
+                request.discountCents() == null ? 0 : request.discountCents()
         );
 
         int order = 0;
         List<Map<String, Object>> foodItems = new ArrayList<>();
-        for (Map<String, Object> line : items) {
-            boolean isFood = Bodies.bool(line.get("is_food"));
-            String name = Bodies.str(line.get("name"));
-            String nameNorm = Names.norm(name);
-            FoodCategory category = line.get("category") == null ? null : FoodCategory.from(Bodies.str(line.get("category")));
+        for (ReceiptPreviewRequest.Line line : items) {
+            boolean isFood = Boolean.TRUE.equals(line.isFood());
+            String nameNorm = Names.norm(line.name());
             receipts.insertItem(receiptId, new ReceiptItem(
-                    null, receiptId, name, nameNorm,
-                    Bodies.doubleVal(line.get("qty"), 1d),
-                    Bodies.intVal(line.get("amount_cents"), 0),
-                    isFood, category
+                    null, receiptId, line.name(), nameNorm,
+                    line.qty() == null ? 1d : line.qty(),
+                    line.amountCents() == null ? 0 : line.amountCents(),
+                    isFood, line.category()
             ), order++);
             if (isFood) {
-                foodItems.add(Map.of("name", name, "name_norm", nameNorm,
-                        "category", category == null ? "" : category.db()));
+                foodItems.add(Map.of(
+                        "name", line.name(),
+                        "name_norm", nameNorm,
+                        "category", line.category() == null ? "" : line.category().db()
+                ));
             }
         }
 
@@ -113,13 +115,13 @@ public class ReceiptServiceImpl implements ReceiptService {
 
     @Override
     @Transactional
-    public Map<String, Object> confirm(long id, Map<String, Object> body, String handle) {
+    public Map<String, Object> confirm(long id, ReceiptConfirmRequest request, String handle) {
         Receipt r = receipts.findById(id).orElseThrow(() -> new IllegalArgumentException("receipt not found: " + id));
         if (r.status() != ReceiptStatus.PENDING_CONFIRM) {
             return Map.of("error", "not_pending", "status", r.status().db());
         }
         receipts.markConfirmed(id);
-        boolean alsoFridge = body != null && Bodies.bool(body.get("also_fridge"));
+        boolean alsoFridge = request != null && Boolean.TRUE.equals(request.alsoFridge());
         List<Long> fridgeIds = alsoFridge ? createFridgeFromReceipt(id, handle) : List.of();
         events.insert("finance", "confirm", people.resolveId(handle), "receipts", id, null);
         return Map.of("status", ReceiptStatus.CONFIRMED.db(), "receipt_id", id, "fridge_item_ids", fridgeIds);
