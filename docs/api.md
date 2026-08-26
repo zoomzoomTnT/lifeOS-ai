@@ -21,6 +21,26 @@ Common error shape:
 { "status": "ok", "db": "ok", "version": "0.1.0" }
 ```
 
+Same check as Actuator component `life` (`LifeHealthIndicator`). Docker / skill keep this path.
+
+### `GET /actuator/health`
+
+Includes JDBC `db` plus:
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "db": { "status": "UP" },
+    "life": {
+      "status": "UP",
+      "details": { "db": "ok", "version": "0.1.0" }
+    }
+  }
+}
+```
+
+
 ### `GET /api/path`
 Returns current DB path and owner timezone (for skill diagnostics).
 
