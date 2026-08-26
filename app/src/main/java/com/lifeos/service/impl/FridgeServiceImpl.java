@@ -1,10 +1,9 @@
 package com.lifeos.service.impl;
 
 import com.lifeos.domain.FridgeItem;
-import com.lifeos.domain.FridgeLocation;
 import com.lifeos.domain.FridgeResolveAction;
 import com.lifeos.domain.FridgeStatus;
-import com.lifeos.domain.Names;
+import com.lifeos.mapper.FridgeMapper;
 import com.lifeos.repo.FridgeRepository;
 import com.lifeos.service.FridgeService;
 import com.lifeos.service.PersonService;
@@ -23,18 +22,13 @@ public class FridgeServiceImpl implements FridgeService {
 
     private final FridgeRepository fridge;
     private final PersonService people;
+    private final FridgeMapper fridgeMapper;
 
     @Override
     @Transactional
     public Map<String, Object> add(FridgeAddRequest request, String handle) {
         long personId = people.resolveId(handle);
-        FridgeLocation location = request.location() == null ? FridgeLocation.FRIDGE : request.location();
-        FridgeItem item = new FridgeItem(
-                null, personId, personId, request.name(), Names.norm(request.name()),
-                request.category(), location, FridgeStatus.IN_STOCK,
-                request.qty() == null ? 1d : request.qty(),
-                null, null, null
-        );
+        FridgeItem item = fridgeMapper.toNewItem(request, personId);
         long id = fridge.insertInStock(item, request.expiresInDays());
         return Map.of("id", id, "status", FridgeStatus.IN_STOCK.db());
     }

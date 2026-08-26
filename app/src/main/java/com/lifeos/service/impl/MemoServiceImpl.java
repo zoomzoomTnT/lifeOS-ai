@@ -1,8 +1,8 @@
 package com.lifeos.service.impl;
 
 import com.lifeos.domain.Memo;
-import com.lifeos.domain.MemoKind;
 import com.lifeos.domain.MemoStatus;
+import com.lifeos.mapper.MemoMapper;
 import com.lifeos.repo.MemoRepository;
 import com.lifeos.service.MemoService;
 import com.lifeos.service.PersonService;
@@ -21,6 +21,7 @@ public class MemoServiceImpl implements MemoService {
 
     private final MemoRepository memos;
     private final PersonService people;
+    private final MemoMapper memoMapper;
 
     @Override
     public List<Memo> due(int withinHours, String handle) {
@@ -30,16 +31,7 @@ public class MemoServiceImpl implements MemoService {
     @Override
     @Transactional
     public Map<String, Object> create(MemoCreateRequest request, String handle) {
-        long ownerId = people.resolveId(handle);
-        MemoKind kind = request.kind() == null ? MemoKind.REMINDER : request.kind();
-        int priority = request.priority() == null ? 3 : request.priority();
-        String tz = request.timezone() == null ? "Asia/Tokyo" : request.timezone();
-        String payload = request.payloadJson() == null ? null : request.payloadJson().toString();
-        Memo memo = new Memo(
-                null, ownerId, request.title(), request.body(), kind, MemoStatus.OPEN, priority,
-                request.dueAt(), tz, request.cronExpr(), request.cronTz(),
-                request.sourceDomain(), request.sourceTable(), request.sourceId(), payload
-        );
+        Memo memo = memoMapper.toNewMemo(request, people.resolveId(handle));
         long id = memos.insert(memo);
         return Map.of("id", id, "status", MemoStatus.OPEN.db());
     }

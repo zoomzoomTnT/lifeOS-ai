@@ -2,12 +2,12 @@ package com.lifeos.service.impl;
 
 import com.lifeos.domain.Fingerprints;
 import com.lifeos.domain.FridgeItem;
-import com.lifeos.domain.FridgeLocation;
-import com.lifeos.domain.FridgeStatus;
 import com.lifeos.domain.Names;
 import com.lifeos.domain.Receipt;
 import com.lifeos.domain.ReceiptItem;
 import com.lifeos.domain.ReceiptStatus;
+import com.lifeos.mapper.FridgeMapper;
+import com.lifeos.mapper.ReceiptMapper;
 import com.lifeos.repo.EventRepository;
 import com.lifeos.repo.FridgeRepository;
 import com.lifeos.repo.MerchantRepository;
@@ -36,6 +36,8 @@ public class ReceiptServiceImpl implements ReceiptService {
     private final FridgeRepository fridge;
     private final EventRepository events;
     private final PersonService people;
+    private final ReceiptMapper receiptMapper;
+    private final FridgeMapper fridgeMapper;
 
     @Override
     public Map<String, Object> lookup(ReceiptLookupRequest request) {
@@ -67,11 +69,7 @@ public class ReceiptServiceImpl implements ReceiptService {
         int total = request.totalCents() == null ? 0 : request.totalCents();
         boolean sumOk = Math.abs(computed - total) <= 2;
 
-        Receipt pending = new Receipt(
-                null, merchantId, payerId, request.barcode(), request.printedAt(), fp,
-                request.currency() == null ? "CNY" : request.currency(),
-                total, computed, ReceiptStatus.PENDING_CONFIRM, null
-        );
+        Receipt pending = receiptMapper.toPending(request, merchantId, payerId, fp, total, computed);
         Object raw = request.rawOcrJson();
         long receiptId = receipts.insertPending(
                 pending, raw == null ? null : raw.toString(), request.imagePath(),
@@ -82,19 +80,13 @@ public class ReceiptServiceImpl implements ReceiptService {
         int order = 0;
         List<Map<String, Object>> foodItems = new ArrayList<>();
         for (ReceiptPreviewRequest.Line line : items) {
-            boolean isFood = Boolean.TRUE.equals(line.isFood());
-            String nameNorm = Names.norm(line.name());
-            receipts.insertItem(receiptId, new ReceiptItem(
-                    null, receiptId, line.name(), nameNorm,
-                    line.qty() == null ? 1d : line.qty(),
-                    line.amountCents() == null ? 0 : line.amountCents(),
-                    isFood, line.category()
-            ), order++);
-            if (isFood) {
+            ReceiptItem item = receiptMapper.toItem(line, receiptId);
+            receipts.insertItem(receiptId, item, order++);
+            if (item.food()) {
                 foodItems.add(Map.of(
-                        "name", line.name(),
-                        "name_norm", nameNorm,
-                        "category", line.category() == null ? "" : line.category().db()
+                        "name", item.name(),
+                        "name_norm", item.nameNorm(),
+                        "category", item.category() == null ? "" : item.category().db()
                 ));
             }
         }
@@ -136,11 +128,7 @@ public class ReceiptServiceImpl implements ReceiptService {
         long ownerId = people.resolveId(handle);
         List<Long> ids = new ArrayList<>();
         for (ReceiptItem it : receipts.foodItems(receiptId)) {
-            FridgeItem item = new FridgeItem(
-                    null, ownerId, ownerId, it.name(), it.nameNorm(), it.category(),
-                    FridgeLocation.FRIDGE, FridgeStatus.IN_STOCK, it.qty(),
-                    null, receiptId, it.id()
-            );
+            FridgeItem item = fridgeMapper.fromReceiptItem(it, ownerId, receiptId);
             ids.add(fridge.insertInStock(item, null));
         }
         return ids;

@@ -1,0 +1,31 @@
+package com.lifeos.mapper;
+
+import com.lifeos.domain.FoodCategory;
+import com.lifeos.domain.FridgeItem;
+import com.lifeos.domain.FridgeLocation;
+import com.lifeos.domain.FridgeStatus;
+import com.lifeos.web.dto.FridgeAddRequest;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+class FridgeMapperTest {
+
+    private final FridgeMapper mapper = new FridgeMapperImpl();
+
+    @Test
+    void toNewItemAppliesDefaultsAndNameNorm() {
+        FridgeAddRequest req = new FridgeAddRequest(" 生菜 ", FoodCategory.VEG, null, null, 2);
+        FridgeItem item = mapper.toNewItem(req, 9L);
+        assertNull(item.id());
+        assertEquals(9L, item.ownerId());
+        assertEquals(9L, item.addedById());
+        assertEquals(" 生菜 ", item.name());
+        assertEquals("生菜", item.nameNorm());
+        assertEquals(FoodCategory.VEG, item.category());
+        assertEquals(FridgeLocation.FRIDGE, item.location());
+        assertEquals(FridgeStatus.IN_STOCK, item.status());
+        assertEquals(1d, item.qty());
+    }
+}
