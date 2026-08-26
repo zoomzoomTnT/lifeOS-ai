@@ -30,6 +30,7 @@ public interface ReceiptMapper {
     @Mapping(target = "computedCents", source = "computedCents")
     @Mapping(target = "status", expression = "java(ReceiptStatus.PENDING_CONFIRM)")
     @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "rawOcrJson", ignore = true)
     Receipt toPending(ReceiptPreviewRequest request, long merchantId, long payerId,
                       String fingerprint, int totalCents, int computedCents);
 
