@@ -28,8 +28,16 @@ jobs:
 
       - name: Required tables exist
         run: |
-          sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -E '^(people|receipts|fridge_items|memos|holdings)$'
+          sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -E '^(people|receipts|fridge_items|memos|holdings|http_requests|ai_calls|model_prices|settings)$'
           sqlite3 /tmp/life-ci.db "SELECT handle, role FROM people WHERE id = 1;"
+          sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;" | grep -v '^0$'
+          sqlite3 /tmp/life-ci.db "SELECT name FROM sqlite_master WHERE type='view' AND name='v_ai_daily';"
+
+      - name: Additive migration applies to an old database
+        run: |
+          sqlite3 /tmp/life-old.db "CREATE TABLE people (id INTEGER PRIMARY KEY, handle TEXT); INSERT INTO people VALUES (1,'owner');"
+          sqlite3 /tmp/life-old.db < schema/migrations/0002_ops.sql
+          sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM ai_calls; SELECT COUNT(*) FROM http_requests;"
 
   build:
     name: Maven test & package
@@ -103,6 +111,20 @@ jobs:
           docker compose up -d --wait --wait-timeout 90
           curl -fsS http://127.0.0.1:8787/api/health
           echo
+          curl -fsS http://127.0.0.1:8787/ops/index.html | grep -q "Life OS ops"
+          AI=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/ai \
+            -H 'Content-Type: application/json' \
+            -H 'X-Life-Handle: owner' \
+            -H 'X-Request-Id: ci-smoke-1' \
+            -d '{"provider":"xai","model":"grok-4","purpose":"heartbeat","source":"app","prompt_tokens":1000,"completion_tokens":0}')
+          echo "$AI"
+          echo "$AI" | grep -q '0.003000'
+          curl -fsS http://127.0.0.1:8787/api/ops/summary?hours=24 | grep -q 'today_cost_micros'
+          curl -fsS -X POST http://127.0.0.1:8787/api/receipts/lookup \
+            -H 'Content-Type: application/json' \
+            -H 'X-Request-Id: ci-smoke-1' \
+            -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
+          curl -fsS http://127.0.0.1:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
           docker compose down
 
       - name: Login to GHCR

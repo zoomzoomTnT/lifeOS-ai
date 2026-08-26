@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Life OS · ops</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --ink: #1c1915;
+      --muted: #6b6358;
+      --card: #fffdf8;
+      --line: #ddd4c4;
+      --warn: #9a3412;
+      --ok: #3f6212;
+      --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+      --sans: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 16px/1.45 var(--sans);
+    }
+    header {
+      padding: 28px 24px 12px;
+      display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); font-size: 13px; }
+    main { padding: 20px 24px 48px; max-width: 1100px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+    }
+    .label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .val { font-family: var(--mono); font-size: 22px; margin-top: 6px; }
+    .val.warn { color: var(--warn); }
+    .val.ok { color: var(--ok); }
+    h2 { font-size: 15px; margin: 28px 0 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; font-family: var(--mono); }
+    th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+    td, th { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .right { text-align: right; }
+    button {
+      font: 13px var(--sans); background: var(--ink); color: var(--bg);
+      border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Life OS ops</h1>
+      <div class="sub">API 访问 + AI 用量 · 同一颗 SQLite</div>
+    </div>
+    <button id="reload">刷新</button>
+  </header>
+  <main>
+    <div class="kpis" id="kpis"></div>
+    <h2>按模型（窗口内）</h2>
+    <div class="card"><table id="models"></table></div>
+    <h2>最近 AI 调用</h2>
+    <div class="card"><table id="ai"></table></div>
+    <h2>最近 HTTP</h2>
+    <div class="card"><table id="http"></table></div>
+  </main>
+  <script>
+    const usd = (micros) => {
+      const n = Number(micros || 0);
+      return '$' + (n / 1_000_000).toFixed(4);
+    };
+    const el = (id) => document.getElementById(id);
+    async function load() {
+      const s = await (await fetch('/api/ops/summary?hours=24')).json();
+      const ai = await (await fetch('/api/ops/ai?limit=30')).json();
+      const http = await (await fetch('/api/ops/http?limit=30')).json();
+      const over = s.budget_exceeded;
+      el('kpis').innerHTML = `
+        <div class="card"><div class="label">今日 AI</div><div class="val ${over ? 'warn' : 'ok'}">${s.today_cost_usd}</div></div>
+        <div class="card"><div class="label">日预算</div><div class="val">${s.daily_budget_usd}</div></div>
+        <div class="card"><div class="label">预算占用</div><div class="val ${over ? 'warn' : ''}">${s.budget_used_pct}%</div></div>
+        <div class="card"><div class="label">24h AI 次</div><div class="val">${s.ai.calls}</div></div>
+        <div class="card"><div class="label">24h HTTP 次</div><div class="val">${s.http.calls}</div></div>
+        <div class="card"><div class="label">HTTP 均延迟</div><div class="val">${Math.round(s.http.avg_latency_ms || 0)} ms</div></div>
+      `;
+      el('models').innerHTML = '<tr><th>provider</th><th>model</th><th class="right">calls</th><th class="right">cost</th></tr>'
+        + (s.by_model || []).map(r => `<tr><td>${r.provider}</td><td>${r.model}</td><td class="right">${r.calls}</td><td class="right">${usd(r.cost_micros)}</td></tr>`).join('');
+      el('ai').innerHTML = '<tr><th>when</th><th>purpose</th><th>model</th><th class="right">tok</th><th class="right">$</th><th>st</th></tr>'
+        + ai.map(r => `<tr><td>${(r.created_at||'').slice(11,19)}</td><td>${r.purpose}</td><td>${r.model}</td><td class="right">${r.total_tokens}</td><td class="right">${usd(r.cost_micros)}</td><td>${r.status}</td></tr>`).join('');
+      el('http').innerHTML = '<tr><th>when</th><th>m</th><th>path</th><th class="right">ms</th><th>st</th></tr>'
+        + http.map(r => `<tr><td>${(r.created_at||'').slice(11,19)}</td><td>${r.method}</td><td>${r.path}</td><td class="right">${r.latency_ms}</td><td>${r.status}</td></tr>`).join('');
+    }
+    el('reload').onclick = load;
+    load();
+    setInterval(load, 15000);
+  </script>
+</body>
+</html>

@@ -19,6 +19,7 @@ docker compose up -d --build
 ```
 
 API: `http://127.0.0.1:8787/api/health`  
+Ops dashboard (API + AI spend): `http://127.0.0.1:8787/ops`  
 SQLite file (backup this): `./data/life.db`
 
 ```bash
@@ -51,9 +52,9 @@ Env overrides: `LIFE_API_PORT` (host port), `LIFE_DATA` (host folder for the db)
 
 On `main` and pull requests:
 
-1. Schema copies must match; apply to a fresh SQLite db
-2. Maven `verify` (Java 21) + unit tests; upload jar on `main`
-3. Docker build + `docker compose` smoke (`GET /api/health`)
+1. Schema copies must match; apply to a fresh SQLite db; apply `0002_ops` onto an old db
+2. Maven `verify` (Java 21) including cost-calculator tests; upload jar on `main`
+3. Docker build + compose smoke: health, `/ops`, `POST /api/ops/ai` pricing, HTTP access log
 4. On `main` push, publish `ghcr.io/zoomzoomtnt/lifeos-ai` (`latest` + `sha-*`)
 
 If the GHCR package is private on first publish: GitHub → Packages → `lifeos-ai` → Package settings → Change visibility → Public.

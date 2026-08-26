@@ -237,5 +237,48 @@ Raw SELECT with params — not for production skill use.
 2. If empty → HEARTBEAT_OK
 3. Else pick top 1-2, send WeChat, then `POST /api/memos/{id}/fired`
 
-**美东周五 8:25:**
-OpenClaw cron wakes skill → skill calls due + holdings → speaks.
+## Ops (logging / AI spend)
+
+AI money is **USD micros** (`1 USD = 1_000_000`), not CNY cents. See `docs/logging.md`.
+
+Dashboard: `GET /ops`
+
+### `POST /api/ops/ai`
+
+Skill reports one model call. Server prices it from `model_prices` if `cost_micros` omitted.
+
+```json
+{
+  "source": "skill",
+  "purpose": "receipt_ocr",
+  "provider": "xai",
+  "model": "grok-4",
+  "prompt_tokens": 12000,
+  "completion_tokens": 800,
+  "latency_ms": 2400,
+  "status": "ok",
+  "correlation_id": "uuid",
+  "meta_json": { "image_path": "..." }
+}
+```
+
+Response includes `cost_usd`, `today_cost_usd`, `budget_exceeded`.
+
+### `GET /api/ops/summary?hours=24`
+
+HTTP counts + AI tokens/spend + per-model + last 14 daily rows.
+
+### `GET /api/ops/ai?limit=50` / `GET /api/ops/http?limit=50`
+
+### `GET /api/ops/prices` / `PUT /api/ops/prices`
+
+Update the rate card so cost estimates match the invoice.
+
+### `POST /api/ops/purge`
+
+```json
+{ "older_than_days": 90 }
+```
+
+Send the same `X-Request-Id` on the business API call and the `/api/ops/ai` report so rows correlate.
+

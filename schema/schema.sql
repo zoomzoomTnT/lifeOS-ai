@@ -251,3 +251,105 @@ CREATE INDEX idx_events_entity ON events(entity_table, entity_id);
 
 INSERT INTO people (id, handle, display_name, role, timezone)
 VALUES (1, 'owner', '主人', 'owner', 'Asia/Tokyo');
+
+-- ---------------------------------------------------------------------------
+-- Ops: HTTP access log + AI usage (cost in USD micros, not CNY cents)
+-- 1 USD = 1_000_000 micros. Display: cost_micros / 1e6 as $x.xxxxxx
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE schema_migrations (
+  name        TEXT PRIMARY KEY,
+  applied_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE settings (
+  key         TEXT PRIMARY KEY,
+  value       TEXT NOT NULL,
+  updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE model_prices (
+  id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider                   TEXT    NOT NULL,
+  model                      TEXT    NOT NULL,
+  input_usd_micros_per_mtok  INTEGER NOT NULL,   -- USD micros per 1M input tokens
+  output_usd_micros_per_mtok INTEGER NOT NULL,
+  notes                      TEXT,
+  updated_at                 TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  UNIQUE (provider, model)
+);
+
+CREATE TABLE http_requests (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  correlation_id  TEXT,
+  actor_id        INTEGER REFERENCES people(id),
+  method          TEXT    NOT NULL,
+  path            TEXT    NOT NULL,
+  query           TEXT,
+  status          INTEGER,
+  latency_ms      INTEGER,
+  request_bytes   INTEGER,
+  response_bytes  INTEGER,
+  body_excerpt    TEXT,                          -- truncated JSON, never images
+  error           TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE INDEX idx_http_created ON http_requests(created_at);
+CREATE INDEX idx_http_path    ON http_requests(path, created_at);
+CREATE INDEX idx_http_corr    ON http_requests(correlation_id);
+
+CREATE TABLE ai_calls (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  correlation_id   TEXT,
+  actor_id         INTEGER REFERENCES people(id),
+  source           TEXT    NOT NULL DEFAULT 'skill'
+                   CHECK (source IN ('skill','heartbeat','automation','app','other')),
+  purpose          TEXT    NOT NULL DEFAULT 'other'
+                   CHECK (purpose IN ('receipt_ocr','classify','heartbeat','memo','chat','embedding','other')),
+  provider         TEXT    NOT NULL,
+  model            TEXT    NOT NULL,
+  prompt_tokens    INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens     INTEGER NOT NULL DEFAULT 0,
+  cost_micros      INTEGER NOT NULL DEFAULT 0,   -- USD micros
+  currency         TEXT    NOT NULL DEFAULT 'USD',
+  latency_ms       INTEGER,
+  status           TEXT    NOT NULL DEFAULT 'ok'
+                   CHECK (status IN ('ok','error','skipped')),
+  error            TEXT,
+  http_request_id  INTEGER REFERENCES http_requests(id),
+  meta_json        TEXT,                         -- no full prompts by default
+  created_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE INDEX idx_ai_created ON ai_calls(created_at);
+CREATE INDEX idx_ai_model   ON ai_calls(provider, model, created_at);
+CREATE INDEX idx_ai_purpose ON ai_calls(purpose, created_at);
+
+CREATE VIEW v_ai_daily AS
+SELECT
+  substr(created_at, 1, 10) AS day,
+  COUNT(*)                  AS calls,
+  SUM(prompt_tokens)        AS prompt_tokens,
+  SUM(completion_tokens)    AS completion_tokens,
+  SUM(total_tokens)         AS total_tokens,
+  SUM(cost_micros)          AS cost_micros
+FROM ai_calls
+GROUP BY substr(created_at, 1, 10);
+
+INSERT INTO settings (key, value) VALUES
+  ('ai_daily_budget_usd_micros', '5000000'),  -- $5 / day default
+  ('http_body_log_max_bytes', '4096');
+
+-- Prices are estimates; PATCH /api/ops/prices when you have the real rate card.
+-- input/output = USD micros per 1 million tokens ($3.00 / 1M = 3000000).
+INSERT INTO model_prices (provider, model, input_usd_micros_per_mtok, output_usd_micros_per_mtok, notes) VALUES
+  ('xai', 'grok-4',            3000000, 15000000, 'estimate'),
+  ('xai', 'grok-4-fast',        200000,   500000, 'estimate'),
+  ('xai', 'grok-2-vision-1212', 2000000, 10000000, 'estimate, vision'),
+  ('openai', 'gpt-4o',          2500000, 10000000, 'list price-ish'),
+  ('openai', 'gpt-4o-mini',      150000,   600000, 'list price-ish'),
+  ('anthropic', 'claude-sonnet-4', 3000000, 15000000, 'list price-ish');
+
+INSERT INTO schema_migrations (name) VALUES ('0001_base'), ('0002_ops');

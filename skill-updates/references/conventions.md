@@ -2,7 +2,9 @@
 
 ## Money
 
-Store integer cents. `128.50 CNY` → `12850`. Display divide by 100, 2 dp (`¥128.50`).
+Store integer cents for 记账. `128.50 CNY` → `12850`. Display divide by 100, 2 dp (`¥128.50`).
+
+AI spend is **USD micros**, not cents: `1 USD = 1_000_000 micros`. `$0.003` → `3000`. Never float. See `docs/logging.md`.
 
 ## Time
 

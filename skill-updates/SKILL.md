@@ -38,9 +38,10 @@ If `people.handle` is still `owner`, the first real WeChat peer id will auto-cre
 
 ## Core contract
 
-- Money = integer cents.
+- Money = integer cents (CNY). AI spend = integer USD micros.
 - Times stored as UTC ISO with `Z`. Speak in owner timezone.
 - After important writes the app already inserts `events` rows.
+- After **every** model call, `POST /api/ops/ai` (see `references/ops.md`).
 - Cross-domain order: confirm finance → fridge intake (server can do both) → memos.
 
 ## Route by intent
@@ -53,6 +54,7 @@ If `people.handle` is still `owner`, the first real WeChat peer id will auto-cre
 | 提醒我, cron, 到期 | `references/memos.md` |
 | 持仓, 期权, ticker | `references/stocks.md` |
 | heartbeat, 主动找我, HEARTBEAT_OK | `references/proactive.md` |
+| 用量, token, 花费模型, ops, 日志 | `references/ops.md` |
 
 ## Install (OpenClaw workspace)
 

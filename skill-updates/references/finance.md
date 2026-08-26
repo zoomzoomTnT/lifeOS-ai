@@ -11,6 +11,7 @@ Classify first — receipt / food photo / other. Only receipts use this flow.
 ## Receipt workflow (in order)
 
 1. Extract merchant, printed timestamp, barcode/order id, currency, line items, tax, discount, footer total.
+   Immediately `POST /api/ops/ai` with `purpose=receipt_ocr` (and `classify` if you classified the image first). Reuse `X-Request-Id`.
 2. Call API preview (server computes fingerprint + sum check + pending insert):
 
 ```bash
