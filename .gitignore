@@ -25,3 +25,5 @@ life.db
 .env
 .env.*
 *.pem
+openclaw/openclaw.local.json
+

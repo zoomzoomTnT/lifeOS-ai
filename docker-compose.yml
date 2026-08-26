@@ -7,9 +7,16 @@ services:
     container_name: lifeos-api
     ports:
       - "${LIFE_API_PORT:-8787}:8787"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       LIFE_DB: /data/life.db
       LIFE_API_PORT: "8787"
+      LIFE_OPENCLAW_WAKE: ${LIFE_OPENCLAW_WAKE:-true}
+      OPENCLAW_GATEWAY: ${OPENCLAW_GATEWAY:-http://host.docker.internal:18789}
+      OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN:-}
+      LIFE_WEIXIN_CHANNEL: ${LIFE_WEIXIN_CHANNEL:-openclaw-weixin}
+      LIFE_PROACTIVE_MODEL: ${LIFE_PROACTIVE_MODEL:-}
     volumes:
       - ${LIFE_DATA:-./data}:/data
     restart: unless-stopped

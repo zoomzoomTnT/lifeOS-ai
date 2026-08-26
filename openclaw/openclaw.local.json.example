@@ -1,0 +1,33 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "heartbeat": {
+        "every": "0m",
+        "target": "none"
+      }
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "bind": "127.0.0.1",
+    "auth": {
+      "token": "replace-me-gateway-token"
+    }
+  },
+  "hooks": {
+    "enabled": true,
+    "token": "replace-me-hook-token",
+    "path": "/hooks"
+  },
+  "cron": {
+    "enabled": true
+  },
+  "plugins": {
+    "entries": {
+      "openclaw-weixin": {
+        "enabled": true
+      }
+    }
+  }
+}

@@ -31,15 +31,19 @@ curl -s -X POST "$LIFE_API_BASE/api/memos" \
 - One-shot — supply `due_at` (UTC), leave `cron_expr` empty
 - Recurring — `cron_expr` + `cron_tz`; server stores next `due_at`
 
-Create the OpenClaw automation, then:
+Create via API only. **Do not also create an OpenClaw automation** — Spring `ProactiveCronService` already POSTs `/hooks/agent` when `due_at` is reached. Two schedulers = two bills.
 
-Quiet 30m model heartbeats are **off**. This automation is the send path.
+Store `cron_expr` / `cron_tz` / `due_at` on the memo so Java knows when to wake. Leave `automation_id` null.
+
+Quiet 30m model heartbeats are **off**. Java cron is the send path.
 
 ```bash
 curl -s -X PATCH "$LIFE_API_BASE/api/memos/$ID" \
   -H "Content-Type: application/json" \
-  -d '{"automation_id": "<openclaw-job-id>"}'
+  -d '{"due_at": "<utc>"}'
 ```
+
+Optional (only if Java cannot reach the gateway): OpenClaw job as backup, never both.
 
 ## OpenClaw jobs
 

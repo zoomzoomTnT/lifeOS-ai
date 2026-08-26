@@ -1,44 +1,46 @@
 # life-proactive — 主动开口 (API)
 
-**Do not run an OpenClaw model heartbeat.** That path burns tokens every 30 minutes even when nothing is due.
+**Do not run an OpenClaw model heartbeat.** `heartbeat.every = 0m` in versioned `openclaw/openclaw.json`.
 
-The app already scans due rows in Java every 15 minutes (`DueScanScheduler`) — cost $0. WeChat delivery is **OpenClaw automations created when a memo is inserted** (exact minute: options 8:25 ET, fridge 18:00).
+Java is the clock. When a memo is actually due, Spring cron reverse-calls OpenClaw:
+
+```
+Spring @Scheduled every minute
+  GET should-wake (SQL, $0)
+  if wake → POST $OPENCLAW_GATEWAY/hooks/agent  (one isolated skill turn)
+```
 
 ## Wake sources (allowed)
 
 | Source | Cost | Use |
 |---|---|---|
-| OpenClaw automation on a memo | one model call when it actually fires | options, expiry, user reminders |
+| Spring `ProactiveCronService` → `/hooks/agent` | one model call when due | options, expiry, stale receipt |
 | User message | normal | 记账 / 小票 |
-| App `DueScanScheduler` | zero | SQL only; optional `LIFE_WAKE_WEBHOOK` |
-| OpenClaw heartbeat | **forbidden by default** | see gate below if you cannot turn it off |
+| OpenClaw heartbeat | **off** (`every: 0m`) | do not re-enable |
 
-Do not expect a 30m heartbeat to hit 8:25. That is what cron automations are for.
+Exact minute (美东周五 8:25) works because Java polls every minute and only fires when `due_at` is within 10 minutes.
 
-## If OpenClaw heartbeat cannot be disabled
+## When this skill is woken by Spring
 
-It must be a **gate only**. Cheapest text model. No vision. One HTTP call:
+The prompt will say `life-os proactive (woken by Spring cron`. Then:
 
-```bash
-curl -s "$LIFE_API_BASE/api/ops/should-wake?within_hours=36" -H "X-Life-Handle: $HANDLE"
-```
+1. Trust it — do not re-scan with vision.
+2. Speak ≤2 WeChat messages (Chinese, one fact + one question).
+3. `POST /api/memos/{id}/fired`
+4. Do **not** reply `HEARTBEAT_OK`.
 
-- `"heartbeat_ok": true` / `"wake": false` → reply exactly `HEARTBEAT_OK`. **No other tools. No prose. Do not POST /api/ops/ai** (this turn is wasted money; do not add a usage row unless the runtime already billed you).
-- `"wake": true` → follow `instruction` in the JSON. At most 2 WeChat messages. Then `POST /api/memos/{id}/fired`. Still no vision.
-
-Do not `GET /api/memos/due` on a quiet heartbeat — `should-wake` already did the SQL.
-
-## After a real send
+## Manual / debug
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/memos/$ID/fired"
+curl -s "$LIFE_API_BASE/api/ops/should-wake?lead_minutes=10"
+curl -s -X POST "$LIFE_API_BASE/api/ops/proactive/run" -H 'Content-Type: application/json' -d '{"force":true}'
 ```
+
+## If a heartbeat still exists
+
+Gate only: `GET /api/ops/should-wake`. `wake=false` → `HEARTBEAT_OK` and stop.
 
 Night Asia/Tokyo 22:00–08:00 — server only returns priority=1 memos.
-
-## Copy
-
-Chinese, friend-like, one fact + one question. No long reports.
 
 ## Channel
 

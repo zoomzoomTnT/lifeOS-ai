@@ -69,7 +69,8 @@ curl -s -X POST "$LIFE_API_BASE/api/ops/ai" \
 
 Do **not** send full prompts. `meta_json` may hold image_path, receipt_id, memo_id.
 
-Periodic OpenClaw heartbeats are **disabled**. Due scanning runs in Java (`DueScanScheduler`, 15m) at $0. Record `purpose=heartbeat` only if a model was actually invoked.
+Periodic OpenClaw heartbeats are **disabled** (`heartbeat.every=0m`). Due scanning is Spring cron every minute (`ProactiveCronService`); it reverse-calls `/hooks/agent` only when `should-wake` is true. Record `purpose=heartbeat` only if a model was actually invoked.
+
 
 
 ## Dashboard

@@ -1,16 +1,13 @@
 # life-os heartbeat policy (merge into workspace HEARTBEAT.md)
 
-**Disable the periodic OpenClaw heartbeat for this agent.**
+**Disable the periodic OpenClaw heartbeat.** `agents.defaults.heartbeat.every = "0m"`.
 
-Due work is delivered by OpenClaw *automations* created when memos are inserted.
-The Spring Boot app scans SQLite every 15 minutes with no model.
+The Spring Boot app is the scheduler (`ProactiveCronService`). It POSTs
+`/hooks/agent` only when `GET /api/ops/should-wake` is true.
 
-If a heartbeat entry must remain (harness requirement), replace the body with:
+If a heartbeat entry must remain (harness requirement):
 
 ```
 GET $LIFE_API_BASE/api/ops/should-wake
 If wake=false, reply HEARTBEAT_OK and stop. Do not call other tools. Do not use vision.
-If wake=true, follow the JSON instruction (≤2 WeChat messages).
 ```
-
-Interval if forced: ≥ 6 hours, not 30 minutes. activeHours 08:00-22:00 Asia/Tokyo.

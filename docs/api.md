@@ -232,11 +232,15 @@ Raw SELECT with params — not for production skill use.
 4. User 「对」 → `POST /api/receipts/{id}/confirm` `{ "also_fridge": true }`
 5. If fridge created, skill may still soft-ask, but server already did the writes + memos
 
-**主动提醒:** 不要用 30 分钟 AI heartbeat。到期靠 OpenClaw automation。若 harness 强制 heartbeat：只打 `GET /api/ops/should-wake`，`wake=false` 则立刻 `HEARTBEAT_OK`。
+**主动提醒:** Java cron is the clock. OpenClaw heartbeat is off.
 
-### `GET /api/ops/should-wake?within_hours=36`
+### `GET /api/ops/should-wake?lead_minutes=10`
 
-Java/SQLite gate, **no model**. `{ "wake": false, "heartbeat_ok": true, "instruction": "..." }`
+Java/SQLite gate, **no model**. Default lead is 10 minutes (not 36 hours). `{ "wake": false, "heartbeat_ok": true }`.
+
+### `POST /api/ops/proactive/run`
+
+`{ "force": true }` optional. If due (or forced), Spring POSTs OpenClaw ` /hooks/agent` so the skill speaks on WeChat. 15-minute lock avoids repeat bills.
 
 ## Ops (logging / AI spend)
 

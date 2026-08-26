@@ -1,6 +1,7 @@
 package com.lifeos.web;
 
 import com.lifeos.ops.OpsService;
+import com.lifeos.ops.ProactiveCronService;
 import com.lifeos.ops.WakeService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,10 +14,13 @@ public class OpsController {
 
     private final OpsService opsService;
     private final WakeService wakeService;
+    private final ProactiveCronService proactiveCronService;
 
-    public OpsController(OpsService opsService, WakeService wakeService) {
+    public OpsController(OpsService opsService, WakeService wakeService,
+                         ProactiveCronService proactiveCronService) {
         this.opsService = opsService;
         this.wakeService = wakeService;
+        this.proactiveCronService = proactiveCronService;
     }
 
     @PostMapping("/ai")
@@ -51,9 +55,17 @@ public class OpsController {
     }
 
     @GetMapping("/should-wake")
-    public ResponseEntity<?> shouldWake(@RequestParam(defaultValue = "36") int withinHours,
+    public ResponseEntity<?> shouldWake(@RequestParam(defaultValue = "10") int leadMinutes,
+                                        @RequestParam(required = false) Integer withinHours,
                                         @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return ResponseEntity.ok(wakeService.shouldWake(handle, withinHours));
+        int lead = withinHours != null ? withinHours * 60 : leadMinutes;
+        return ResponseEntity.ok(wakeService.shouldWake(handle, lead));
+    }
+
+    @PostMapping("/proactive/run")
+    public ResponseEntity<?> proactiveRun(@RequestBody(required = false) Map<String, Object> body) {
+        boolean force = body != null && Boolean.TRUE.equals(body.get("force"));
+        return ResponseEntity.ok(proactiveCronService.run(force));
     }
 
     @PostMapping("/purge")

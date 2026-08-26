@@ -15,8 +15,16 @@ spring:
 life:
   owner-timezone: Asia/Tokyo
   schema-path: classpath:schema.sql   # or external path
-  due-scan-ms: ${LIFE_DUE_SCAN_MS:900000}   # 15m, Java only, no LLM
-  wake-webhook: ${LIFE_WAKE_WEBHOOK:}       # optional non-model hook
+  openclaw:
+    enabled: ${LIFE_OPENCLAW_WAKE:true}
+    base-url: ${OPENCLAW_GATEWAY:http://127.0.0.1:18789}
+    hook-token: ${OPENCLAW_HOOK_TOKEN:}
+    channel: ${LIFE_WEIXIN_CHANNEL:openclaw-weixin}
+    model: ${LIFE_PROACTIVE_MODEL:}
+  proactive:
+    cron: "${LIFE_PROACTIVE_CRON:0 * * * * *}"   # every minute, SQL first
+    lead-minutes: 10
+    lock-minutes: 15
 
 logging:
   level:

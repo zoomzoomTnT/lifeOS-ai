@@ -25,8 +25,8 @@ public class WakeService {
         this.personService = personService;
     }
 
-    public Map<String, Object> shouldWake(String handle, int withinHours) {
-        int hours = Math.max(1, Math.min(withinHours, 72));
+    public Map<String, Object> shouldWake(String handle, int leadMinutes) {
+        int minutes = Math.max(0, Math.min(leadMinutes, 72 * 60));
         long ownerId = personService.resolveId(handle);
         boolean night = isTokyoNight();
 
@@ -36,13 +36,13 @@ public class WakeService {
                 WHERE owner_id = ?
                   AND status IN ('open','snoozed')
                   AND due_at IS NOT NULL
-                  AND due_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now', ? || ' hours')
+                  AND due_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now', ? || ' minutes')
                   AND (last_fired_at IS NULL
                        OR last_fired_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now','-6 hours'))
                   AND (? = 0 OR priority = 1)
                 ORDER BY priority ASC, due_at ASC
                 LIMIT 10
-                """, ownerId, hours, night ? 1 : 0);
+                """, ownerId, minutes, night ? 1 : 0);
 
         List<Map<String, Object>> staleReceipts = night ? List.of() : jdbc.queryForList("""
                 SELECT id, status, created_at FROM receipts

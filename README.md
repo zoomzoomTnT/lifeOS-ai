@@ -20,7 +20,7 @@ docker compose up -d --build
 
 API: `http://127.0.0.1:8787/api/health`  
 Ops dashboard (API + AI spend): `http://127.0.0.1:8787/ops`  
-No 30-minute AI heartbeat — due scan is Java every 15 minutes (`GET /api/ops/should-wake`). WeChat pings use OpenClaw automations on memos.  
+No 30-minute AI heartbeat. Spring cron polls SQLite every minute and POSTs OpenClaw `/hooks/agent` only when something is due. Versioned config: [`openclaw/openclaw.json`](openclaw/openclaw.json) (`heartbeat.every=0m`).  
 SQLite file (backup this): `./data/life.db`
 
 ```bash
@@ -42,6 +42,7 @@ Env overrides: `LIFE_API_PORT` (host port), `LIFE_DATA` (host folder for the db)
 .
 ├── Dockerfile
 ├── docker-compose.yml
+├── openclaw/openclaw.json    # heartbeat off + inbound hooks (no secrets)
 ├── schema/schema.sql
 ├── docs/api.md
 ├── app/                      # Spring Boot 3 + Java 21
