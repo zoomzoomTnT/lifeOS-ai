@@ -119,6 +119,8 @@ jobs:
           curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
           curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"life"'
           curl -fsS http://127.0.0.1:8787/actuator/info | grep -q life-os-app
+          curl -fsS http://127.0.0.1:8787/v3/api-docs/api | grep -q '"openapi"'
+          curl -fsS http://127.0.0.1:8787/swagger-ui/index.html | grep -qi swagger
           curl -fsS http://127.0.0.1:8787/ops/index.html | grep -q "Life OS ops"
           AI=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/ai \
             -H 'Content-Type: application/json' \

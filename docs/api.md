@@ -2,6 +2,16 @@
 
 Base URL: `http://127.0.0.1:8787` (or `$LIFE_API_BASE`)
 
+**Try it in the browser:** [Swagger UI](http://127.0.0.1:8787/swagger-ui.html)  
+OpenAPI JSON: `/v3/api-docs` (groups: `/v3/api-docs/api`, `/v3/api-docs/actuator`)
+
+1. Open Swagger UI, top-right **Authorize**, put `X-Life-Handle` (WeChat peer id or `owner`).
+2. Dropdown **api** vs **actuator**.
+3. Expand an operation → **Try it out** → **Execute**.
+
+This markdown is still the field-level contract (cents, fingerprints). Swagger is generated from controllers; many bodies are untyped `Map`.
+
+
 All responses are JSON. Money fields are **integer cents**. Times are UTC ISO-8601 with `Z` unless noted.
 
 Authentication (v0.1): simple header `X-Life-Handle: <people.handle>`  

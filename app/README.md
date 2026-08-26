@@ -21,7 +21,9 @@ export LIFE_API_PORT=8787
 mvn spring-boot:run
 ```
 
-Health: `curl http://127.0.0.1:8787/actuator/health`
+Health: `curl http://127.0.0.1:8787/actuator/health`  
+Swagger UI: http://127.0.0.1:8787/swagger-ui.html
+
 
 ## Key endpoints (see ../docs/api.md)
 
