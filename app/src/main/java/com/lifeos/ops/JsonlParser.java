@@ -2,9 +2,11 @@ package com.lifeos.ops;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** Lenient parser for OpenClaw session / trajectory / gateway JSONL lines. */
 @Component
