@@ -20,7 +20,7 @@ Image: `ghcr.io/zoomzoomtnt/lifeos-ai:latest`
 ### 0. 机器上先有的东西
 
 - Docker + Docker Compose
-- 已在跑的 **OpenClaw Gateway**（默认 `127.0.0.1:18789`）和 **openclaw-weixin**
+- 已在跑的 **OpenClaw Gateway**（默认 `localhost:18789`）和 **openclaw-weixin**
 - 本机 clone 本仓库（compose 文件、`.env` 放这里）
 
 ### 1. 环境变量
@@ -51,7 +51,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 | `LIFE_DATA` | 默认 `./data` | `life.db` 目录，**备份这个文件夹** |
 | `OPENCLAW_HOME` | 默认 `$HOME/.openclaw` | 挂进容器：API 只读吃 jsonl；`skill-sync` 可写 skill |
 | `LIFE_OPENCLAW_FILE_LOG` | 可选 | Gateway JSONL 目录（如 `/tmp/openclaw`）→ `app_logs` |
-| `LIFE_API_BASE` | skill 侧 | `http://127.0.0.1:8787` |
+| `LIFE_API_BASE` | skill 侧 | `http://localhost:8787` |
 | `LIFE_IMAGE` | 可选 | 默认 `ghcr.io/zoomzoomtnt/lifeos-ai:latest` |
 
 Gateway 进程也要看得到这两个 token（写进它的 systemd/env 或 shell profile）：
@@ -77,7 +77,7 @@ export OPENCLAW_GATEWAY_TOKEN='原来的 gateway token'
   },
   gateway: {
     port: 18789,
-    bind: "127.0.0.1",
+    bind: "localhost",
     auth: { token: "${OPENCLAW_GATEWAY_TOKEN}" }
   },
   hooks: {
@@ -107,7 +107,7 @@ OpenClaw 跑 life-os skill → 微信
 先测钩子（`to` 换成你的微信 peer id）：
 
 ```bash
-curl -sS -X POST http://127.0.0.1:18789/hooks/agent \
+curl -sS -X POST http://localhost:18789/hooks/agent \
   -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -128,7 +128,7 @@ curl -sS -X POST http://127.0.0.1:18789/hooks/agent \
 | 401 | `.env` 和 `hooks.token` 不一致，或 Gateway 没重启 |
 | 404 `/hooks/agent` | `hooks.enabled` 不是 true |
 | 400 | `channel` / `to` 只填了一个 |
-| 容器连不上 | 要用 `host.docker.internal:18789`，Gateway 听 `127.0.0.1:18789` |
+| 容器连不上 | 要用 `host.docker.internal:18789`，Gateway 听 `localhost:18789` |
 
 官方字段：[Automations / hooks](https://docs.openclaw.ai/automation/cron-jobs)。
 
@@ -158,7 +158,7 @@ openclaw skills list    # 应有 life-os
 
 `skills.load.watch` 默认 `true`，改 `SKILL.md` 下一轮对话会刷新。
 
-skill 调 API：`LIFE_API_BASE=http://127.0.0.1:8787`，请求头 `X-Life-Handle: <微信 peer id>`。  
+skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `X-Life-Handle: <微信 peer id>`。  
 把 `people.handle` 从占位 `owner` 改成真实微信 id。时区默认 **Asia/Tokyo**；期权 cron 用 **America/New_York**。
 
 自动加载失败时：
@@ -189,14 +189,14 @@ skill 调 API：`LIFE_API_BASE=http://127.0.0.1:8787`，请求头 `X-Life-Handle
 ```bash
 docker compose up -d --build
 docker compose --profile sync run --rm skill-sync
-curl -fsS http://127.0.0.1:8787/actuator/health
-curl -fsS http://127.0.0.1:8787/api/ops/should-wake
+curl -fsS http://localhost:8787/actuator/health
+curl -fsS http://localhost:8787/api/ops/should-wake
 ```
 
-- API: http://127.0.0.1:8787/actuator/health
-- Actuator: http://127.0.0.1:8787/actuator (`/health`, `/info`, `/metrics`, `/scheduledtasks`)
-- Swagger UI: http://127.0.0.1:8787/swagger-ui.html
-- Ops: http://127.0.0.1:8787/ops
+- API: http://localhost:8787/actuator/health
+- Actuator: http://localhost:8787/actuator (`/health`, `/db`, `/info`, `/metrics`, `/scheduledtasks`)
+- Swagger UI: http://localhost:8787/swagger-ui.html
+- Ops: http://localhost:8787/ops
 - DB：`$LIFE_DATA/life.db`（默认 `./data/life.db`），备份这个文件
 
 ```bash
@@ -224,9 +224,9 @@ Java 每 2 分钟扫描 `OPENCLAW_HOME`：
 `source` + `occurred_at` 区分来源。`/ops` 只显示条数，不显示对话。
 
 ```bash
-curl -s -X POST http://127.0.0.1:8787/api/ops/logs/ingest
-curl -s http://127.0.0.1:8787/api/ops/logs/sessions                  # 无正文
-curl -s 'http://127.0.0.1:8787/api/ops/logs/sessions?include_content=true'  # 隐私
+curl -s -X POST http://localhost:8787/api/ops/logs/ingest
+curl -s http://localhost:8787/api/ops/logs/sessions                  # 无正文
+curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true'  # 隐私
 ```
 
 ### 6. 自检清单
@@ -342,7 +342,7 @@ LIFE_DB=/abs/path/lifeOS-ai/local/life.db \
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
-curl -fsS http://127.0.0.1:8787/actuator/health
+curl -fsS http://localhost:8787/actuator/health
 ```
 
 `docker-compose.local.yml` 把 `./local` 挂到容器 `/data`，`LIFE_OPENCLAW_WAKE=false`。

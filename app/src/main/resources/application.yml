@@ -17,7 +17,7 @@ life:
   schema-path: classpath:schema.sql   # or external path
   openclaw:
     enabled: ${LIFE_OPENCLAW_WAKE:true}
-    base-url: ${OPENCLAW_GATEWAY:http://127.0.0.1:18789}
+    base-url: ${OPENCLAW_GATEWAY:http://localhost:18789}
     hook-token: ${OPENCLAW_HOOK_TOKEN:}
     channel: ${LIFE_WEIXIN_CHANNEL:openclaw-weixin}
     model: ${LIFE_PROACTIVE_MODEL:}
@@ -39,7 +39,7 @@ management:
     web:
       base-path: /actuator
       exposure:
-        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics,scheduledtasks,loggers,mappings,threaddump}
+        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics,db,scheduledtasks,loggers,mappings,threaddump}
   endpoint:
     health:
       show-details: always

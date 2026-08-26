@@ -96,7 +96,7 @@ curl -s "$LIFE_API_BASE/api/ops/logs/sessions?include_content=true"  # private
 
 ## Dashboard
 
-`http://127.0.0.1:8787/ops` — today spend vs budget, per-model, recent AI + HTTP.
+`http://localhost:8787/ops` — today spend vs budget, per-model, recent AI + HTTP.
 
 JSON:
 
