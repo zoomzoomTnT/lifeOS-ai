@@ -24,7 +24,7 @@ services:
       - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/actuator/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8787/actuator/health"]
       interval: 10s
       timeout: 3s
       retries: 10

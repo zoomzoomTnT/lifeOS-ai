@@ -116,35 +116,36 @@ jobs:
             '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
             > "$HOME/.openclaw/agents/main/sessions/ci.jsonl"
           docker compose up -d --wait --wait-timeout 90
-          curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
-          curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"life"'
-          curl -fsS http://127.0.0.1:8787/actuator/info | grep -q life-os-app
-          curl -fsS http://127.0.0.1:8787/v3/api-docs/api | grep -q '"openapi"'
-          curl -fsS http://127.0.0.1:8787/swagger-ui/index.html | grep -qi swagger
-          curl -fsS http://127.0.0.1:8787/ops/index.html | grep -q "Life OS ops"
-          AI=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/ai \
+          curl -fsS http://localhost:8787/actuator/health | grep -q '"status":"UP"'
+          curl -fsS http://localhost:8787/actuator/health | grep -q '"life"'
+          curl -fsS http://localhost:8787/actuator/db | grep -q ownerTimezone
+          curl -fsS http://localhost:8787/actuator/info | grep -q life-os-app
+          curl -fsS http://localhost:8787/v3/api-docs/api | grep -q '"openapi"'
+          curl -fsS http://localhost:8787/swagger-ui/index.html | grep -qi swagger
+          curl -fsS http://localhost:8787/ops/index.html | grep -q "Life OS ops"
+          AI=$(curl -fsS -X POST http://localhost:8787/api/ops/ai \
             -H 'Content-Type: application/json' \
             -H 'X-Life-Handle: owner' \
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"provider":"xai","model":"grok-4","purpose":"heartbeat","source":"app","prompt_tokens":1000,"completion_tokens":0}')
           echo "$AI"
           echo "$AI" | grep -q '0.003000'
-          SW=$(curl -fsS 'http://127.0.0.1:8787/api/ops/should-wake?lead_minutes=10')
+          SW=$(curl -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10')
           echo "$SW"
           echo "$SW" | grep -qi 'heartbeat_ok'
-          RUN=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/proactive/run \
+          RUN=$(curl -fsS -X POST http://localhost:8787/api/ops/proactive/run \
             -H 'Content-Type: application/json' -d '{}')
           echo "$RUN"
           echo "$RUN" | grep -qi 'skipped\|wake'
-          curl -fsS -X POST http://127.0.0.1:8787/api/receipts/lookup \
+          curl -fsS -X POST http://localhost:8787/api/receipts/lookup \
             -H 'Content-Type: application/json' \
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
-          curl -fsS http://127.0.0.1:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
-          ING=$(curl -fsS -X POST http://127.0.0.1:8787/api/ops/logs/ingest)
+          curl -fsS http://localhost:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
+          ING=$(curl -fsS -X POST http://localhost:8787/api/ops/logs/ingest)
           echo "$ING"
           echo "$ING" | grep -q 'session_rows'
-          META=$(curl -fsS 'http://127.0.0.1:8787/api/ops/logs/sessions?limit=5')
+          META=$(curl -fsS 'http://localhost:8787/api/ops/logs/sessions?limit=5')
           echo "$META"
           echo "$META" | grep -q 'openclaw_session'
           echo "$META" | grep -qv '秘密对话'

@@ -28,7 +28,7 @@ public class OpenClawClient {
             .connectTimeout(Duration.ofSeconds(3))
             .build();
 
-    @Value("${life.openclaw.base-url:http://127.0.0.1:18789}")
+    @Value("${life.openclaw.base-url:http://localhost:18789}")
     private String baseUrl;
 
     @Value("${life.openclaw.hook-token:}")
