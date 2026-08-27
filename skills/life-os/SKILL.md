@@ -1,9 +1,9 @@
 ---
 name: life-os
-description: Life OS via REST — WeChat 记账, 小票, 冰箱, 备忘, 持仓, and proactive pings on openclaw-weixin. Use when the user mentions life-os, life.db, 生活台账, 记账, 小票, 冰箱, 过期, 提醒我, 期权, or any life-* skill.
+description: lifeOS-ai Life OS via REST — WeChat 记账, 小票, 冰箱, 备忘, 持仓, and proactive pings on openclaw-weixin. Use when the user mentions life-os, life.db, 生活台账, 记账, 小票, 冰箱, 过期, 提醒我, 期权, or any life-* skill.
 metadata:
   type: workflow
-  version: "2.0"
+  version: "2.1"
   repo: zoomzoomTnT/lifeOS-ai
   api: "http://localhost:8787"
 ---
