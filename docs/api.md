@@ -260,13 +260,31 @@ Mark last_fired_at = now (after successful WeChat send).
 
 ## Stocks
 
+Trial only. No live quotes. Money here is **per-share price in the holding currency**, not integer cents.
+
 ### `GET /api/holdings`
+List the current handle's holdings (no events).
+
+### `GET /api/holdings/{id}`
+One holding plus `events`. 404 if missing or owned by someone else.
 
 ### `POST /api/holdings`
-Upsert by (owner, symbol, market).
+Upsert by `(owner, symbol, market)`. Symbol is uppercased. Default currency: US→USD, HK→HKD, CN→CNY.
+
+```json
+{ "symbol": "AAPL", "market": "US", "qty": 2, "avg_cost": 180.5, "currency": "USD" }
+```
+
+```json
+{ "id": 7, "symbol": "AAPL", "market": "US", "created": true }
+```
 
 ### `POST /api/holdings/{id}/events`
-Create options_expiry / earnings event + optional linked memo.
+Create `options_expiry` / `earnings` / `dividend` / `custom`. Optional `memo_id` from `/api/memos`.
+
+```json
+{ "kind": "options_expiry", "event_date": "2026-09-18", "notes": "weekly", "memo_id": 12 }
+```
 
 ---
 
@@ -356,4 +374,3 @@ Update the rate card so cost estimates match the invoice.
 ```
 
 Send the same `X-Request-Id` on the business API call and the `/api/ops/ai` report so rows correlate.
-

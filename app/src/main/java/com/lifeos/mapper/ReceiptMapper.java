@@ -12,10 +12,11 @@ import com.lifeos.web.dto.ReceiptResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
+import org.mapstruct.ReportingPolicy;
 
 import java.util.List;
 
-@Mapper(componentModel = MappingConstants.ComponentModel.SPRING, imports = {Names.class, ReceiptStatus.class})
+@Mapper(componentModel = MappingConstants.ComponentModel.SPRING, unmappedTargetPolicy = ReportingPolicy.IGNORE, imports = {Names.class, ReceiptStatus.class})
 public interface ReceiptMapper {
 
     @Mapping(target = "id", ignore = true)
@@ -29,6 +30,7 @@ public interface ReceiptMapper {
     @Mapping(target = "computedCents", source = "computedCents")
     @Mapping(target = "status", expression = "java(ReceiptStatus.PENDING_CONFIRM)")
     @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "rawOcrJson", ignore = true)
     Receipt toPending(ReceiptPreviewRequest request, long merchantId, long payerId,
                       String fingerprint, int totalCents, int computedCents);
 
@@ -55,7 +57,7 @@ public interface ReceiptMapper {
 
     default ReceiptPreviewResponse toDuplicate(Receipt existing) {
         return new ReceiptPreviewResponse(
-                "duplicate", null, existing.id(), existing.status(),
+                "duplicate", null, existing.getId(), existing.getStatus(),
                 "同一张小票已经记过了", null, null, null, null, null, null);
     }
 
@@ -72,6 +74,6 @@ public interface ReceiptMapper {
     }
 
     default ReceiptConfirmResponse toNotPending(Receipt receipt) {
-        return new ReceiptConfirmResponse(receipt.status(), receipt.id(), null, "not_pending");
+        return new ReceiptConfirmResponse(receipt.getStatus(), receipt.getId(), null, "not_pending");
     }
 }

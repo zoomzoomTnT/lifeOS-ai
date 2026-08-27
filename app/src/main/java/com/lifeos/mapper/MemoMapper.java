@@ -11,8 +11,9 @@ import java.util.List;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
+import org.mapstruct.ReportingPolicy;
 
-@Mapper(componentModel = MappingConstants.ComponentModel.SPRING, imports = {MemoKind.class, MemoStatus.class})
+@Mapper(componentModel = MappingConstants.ComponentModel.SPRING, unmappedTargetPolicy = ReportingPolicy.IGNORE, imports = {MemoKind.class, MemoStatus.class})
 public interface MemoMapper {
 
     @Mapping(target = "id", ignore = true)

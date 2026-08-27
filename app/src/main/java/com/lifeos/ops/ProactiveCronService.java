@@ -70,7 +70,7 @@ public class ProactiveCronService {
         @SuppressWarnings("unchecked")
         List<Memo> due = (List<Memo>) gate.get("due_memos");
         String ids = due == null ? "" : due.stream()
-                .map(m -> String.valueOf(m.id()))
+                .map(m -> String.valueOf(m.getId()))
                 .collect(Collectors.joining(","));
         return """
                 life-os proactive (woken by Spring cron, not heartbeat).

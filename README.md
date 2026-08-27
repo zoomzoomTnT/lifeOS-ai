@@ -9,6 +9,8 @@ Image: `ghcr.io/zoomzoomtnt/lifeos-ai:latest`
 
 记账 / 小票、冰箱、备忘（主动提醒）、持仓（试用）。
 
+OpenClaw skill 只住在本仓库 `skills/life-os/`。不要从其它仓库装 life.py / life-os-skills。
+
 ---
 
 ## 安装（换机器按这份来）
@@ -167,7 +169,7 @@ skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `X-Life-Handle
 |---|---|
 | `skills list` 没有 life-os | 路径不是 `.../skills/life-os/SKILL.md` |
 | 有文件但不进 prompt | `agents.defaults.skills` 写成了白名单且没写 `life-os`（删掉该数组即恢复全扫） |
-| 两个 skill 抢名 | 删掉旧目录 `rm -rf ~/.openclaw/workspace/skills/life-os-skills` |
+| 两个 skill 抢名 | 只留 `.../skills/life-os/`。删掉工作区里其它 life-* 目录 |
 | `enabled: false` | `skills.entries.life-os.enabled` 被关 |
 
 可选：不 sync、让 OpenClaw 直接读 git clone（`extraDirs` 优先级最低）：
@@ -357,11 +359,11 @@ curl -fsS http://localhost:8787/actuator/health
 ## Design
 
 - `schema.sql` 是可执行 schema。领域规则在 markdown。
-- 分层：`web`（request/response DTO + `ResponseEntity`）→ MapStruct → `service` 接口 → `repo` 接口 → `repo.jdbc`。
+- 分层：`web` DTO + `ResponseEntity` → MapStruct → `service` → `repo` → `repo.jdbc`。
+- Domain 是 class（`BaseEntity.id`），字段用 Spring Data JDBC 的 `@Table` / `@Column` / `@MappedCollection`。外键留 `Long` + `AggregateReference` helper。SQL 仍手写（SQLite `strftime`），没有上 Hibernate。
 - Bean 注入用 Lombok `@RequiredArgsConstructor`（一行，不手写构造器）。
 - CHECK 值用 enum（`eaten` / `discarded` / `in_stock`…），JSON 存库都是小写字符串。
 - 写入只走 Java REST。skill 只做视觉 / 意图 / 中文。
 - 主动提醒：Spring cron 扫库，到期才打 `/hooks/agent`。
 - 对话在 `ai_session_logs`，应用日志在 `app_logs`。
 - 校验失败走 `{error, message, details}`（`ApiExceptionHandler`）。
-

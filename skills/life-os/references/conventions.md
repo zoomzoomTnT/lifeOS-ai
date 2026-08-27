@@ -27,11 +27,11 @@ Pass current handle with every mutating call:
 
 ## Dedup
 
-Receipts dedupe on printed barcode + printed timestamp (server computes `fingerprint`).
+Receipts dedupe on barcode payload when present; otherwise merchant + printed time + footer total.
 
 - `barcode` — barcode digits, order id, ticket no. Strip spaces.
 - `printed_at` — time printed on the ticket, keep as-is.
-- `fingerprint` = sha256(`barcode|printed_at`)[:32] (done by app)
+- `fingerprint` = normalized barcode, or sha256(`merchant_norm|printed_at|total_cents`)[:32] when no barcode
 
 Always call `/api/receipts/preview` (or `/lookup`) before treating a ticket as new.
 
