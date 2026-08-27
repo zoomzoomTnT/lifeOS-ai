@@ -32,4 +32,10 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("error", "bad_request", "message", String.valueOf(ex.getMessage()), "details", Map.of()));
     }
+
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<?> notFound(NotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "not_found", "message", String.valueOf(ex.getMessage()), "details", Map.of()));
+    }
 }

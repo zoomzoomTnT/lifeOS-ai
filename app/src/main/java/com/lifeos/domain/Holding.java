@@ -35,7 +35,7 @@ public class Holding extends AuditedEntity {
     private String symbol;
 
     @Column(name = "market", nullable = false)
-    private String market;
+    private Market market;
 
     @Column(name = "name")
     private String name;

@@ -49,4 +49,14 @@ public final class DbEnumConverters {
     public static class LocationTagConv extends DbEnumConverter<LocationTag> {
         public LocationTagConv() { super(LocationTag.class); }
     }
+
+    @Converter(autoApply = true)
+    public static class MarketConv extends DbEnumConverter<Market> {
+        public MarketConv() { super(Market.class); }
+    }
+
+    @Converter(autoApply = true)
+    public static class StockEventKindConv extends DbEnumConverter<StockEventKind> {
+        public StockEventKindConv() { super(StockEventKind.class); }
+    }
 }

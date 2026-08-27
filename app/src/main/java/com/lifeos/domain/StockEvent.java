@@ -28,7 +28,7 @@ public class StockEvent extends BaseEntity {
     private Holding holding;
 
     @Column(name = "kind", nullable = false)
-    private String kind;
+    private StockEventKind kind;
 
     @Column(name = "event_date")
     private String eventDate;

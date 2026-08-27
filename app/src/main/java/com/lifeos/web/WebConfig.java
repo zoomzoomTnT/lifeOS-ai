@@ -5,10 +5,12 @@ import com.lifeos.domain.FoodCategory;
 import com.lifeos.domain.FridgeLocation;
 import com.lifeos.domain.FridgeResolveAction;
 import com.lifeos.domain.FridgeStatus;
+import com.lifeos.domain.Market;
 import com.lifeos.domain.MemoKind;
 import com.lifeos.domain.MemoStatus;
 import com.lifeos.domain.PersonRole;
 import com.lifeos.domain.ReceiptStatus;
+import com.lifeos.domain.StockEventKind;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.format.FormatterRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -26,6 +28,8 @@ public class WebConfig implements WebMvcConfigurer {
         register(registry, MemoKind.class);
         register(registry, MemoStatus.class);
         register(registry, PersonRole.class);
+        register(registry, Market.class);
+        register(registry, StockEventKind.class);
     }
 
     private static <E extends Enum<E> & DbEnum> void register(FormatterRegistry registry, Class<E> type) {
