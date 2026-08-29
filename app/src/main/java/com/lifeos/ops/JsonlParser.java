@@ -1,8 +1,8 @@
 package com.lifeos.ops;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -308,8 +308,7 @@ public final class JsonlParser {
         if (obj.has("thoughtSignature")) {
             obj.put("thoughtSignature", "[omitted]");
         }
-        List<String> keys = new ArrayList<>();
-        obj.fieldNames().forEachRemaining(keys::add);
+        List<String> keys = new ArrayList<>(obj.propertyNames());
         for (String k : keys) {
             JsonNode v = obj.get(k);
             if (v != null && v.isTextual() && looksLikeBinary(v.asText())
