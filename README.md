@@ -280,7 +280,7 @@ openclaw skills list
 ├── schema/migrations/          # 0002_ops, 0003_logs
 ├── docs/api.md
 ├── docs/logging.md
-├── app/                        # Spring Boot 3 + Java 21
+├── app/                        # Spring Boot 4.1 + Java 21
 ├── skills/life-os/             # 完整 OpenClaw skill
 └── .github/workflows/ci.yml    # 测试 + 推镜像，不部署到你的机器
 ```

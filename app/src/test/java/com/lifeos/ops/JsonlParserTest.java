@@ -1,6 +1,6 @@
 package com.lifeos.ops;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JsonlParserTest {
 
-    private final JsonlParser parser = new JsonlParser(new ObjectMapper());
+    private final JsonlParser parser = new JsonlParser(JsonMapper.builder().build());
 
     @Test
     void parsesSessionMessageWithContentArray() {
