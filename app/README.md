@@ -1,4 +1,4 @@
-# life-os-app (Spring Boot)
+# life-os-app (Spring Boot 4.1)
 
 Minimal REST backend for WeChat Life OS.
 
