@@ -18,20 +18,22 @@ OpenClaw skill 只住在本仓库 `skills/life-os/`。不要从其它仓库装 l
 
 这些只做一次。漏任何一项，主动提醒或日志入库会静默失败。
 
-首次装机仍是手动（`.env`、OpenClaw、微信插件）。之后 **merge `main` → `release/0.1.0`** 会跑 [CD](.github/workflows/cd.yml)：SSH 进机、`docker compose pull` + `up` 最新 GHCR 镜像、`skill-sync`。详情 [docs/cd.md](docs/cd.md)。
+首次装机仍是手动（`.env`、OpenClaw、微信插件）。之后 **merge `main` → `release/0.1.0`** 会跑 [CD](.github/workflows/cd.yml)：SSH 进机、只拷 `compose.yaml`、`docker compose pull` + `up` GHCR 镜像、`skill-sync`。**不在服务器上 git clone。** 详情 [docs/cd.md](docs/cd.md)。
 
 ### 0. 机器上先有的东西
 
-- Docker + Docker Compose
+- Docker Engine + Compose V2 插件（`docker compose version`，不是旧的 `docker-compose` 命令）
 - 已在跑的 **OpenClaw Gateway**（默认 `localhost:18789`）和 **openclaw-weixin**
-- 本机 clone 本仓库（compose 文件、`.env` 放这里）。CD 默认路径 `$HOME/lifeOS-ai`
+- CD 目录 `$HOME/lifeos`（`compose.yaml` + `.env` + `data/`）。不是 git 仓库
 
 ### 1. 环境变量
 
+本机开发可以 clone；生产机只要一份 `.env`：
+
 ```bash
-git clone https://github.com/zoomzoomTnT/lifeOS-ai.git
-cd lifeOS-ai
-cp env.example .env
+mkdir -p ~/lifeos/data
+# 从仓库拷一次 env.example，或自己建
+cp env.example ~/lifeos/.env
 ```
 
 生成钩子 token（**不要**复用 Gateway token）：
@@ -210,7 +212,7 @@ docker compose down
 只用已发布镜像（不本地 build）：
 
 ```bash
-LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest docker compose up -d
+LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest docker compose up -d --no-build
 docker compose --profile sync run --rm skill-sync
 ```
 
@@ -249,35 +251,28 @@ curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true'  # �
 
 ## 日常更新（CD）
 
-流程：PR → **`main`**（CI：schema / Maven / compose smoke，推 `ghcr.io/zoomzoomtnt/lifeos-ai:latest`）→ merge **`main` → `release/0.1.0`**（CD：打 `0.1.0` + `latest` 镜像并 SSH `docker compose up`）。
+流程：PR → **`main`**（CI）→ merge **`main` → `release/0.1.0`**（CD：打镜像 + 拷 compose 文件 + `docker compose up`）。
 
-以后发 0.2：从 `main` 建 `release/0.2.0`，往那条合。Git 不能同时存在 `release` 和 `release/0.1.0`，只用带版本号的名。
+CD **不** 在服务器上 `git clone`。Runner 上已经 checkout；只把 `docker-compose.yml` scp 成 `$HOME/lifeos/compose.yaml`。
 
-CD 用仓库 secrets `SERVER_IP` / `SERVER_UN` / `SERVER_PK`。服务器上：
-
-1. `git pull` `release/0.1.0` 到 `$HOME/lifeOS-ai`
-2. 备份 `data/life.db` → `data/backups/`
-3. `LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:<0.1.0|sha|latest>` `docker compose pull && up -d --wait`
-4. `docker compose --profile sync run --rm skill-sync`
+1. 备份 `$HOME/lifeos/data/life.db`
+2. `LIFE_IMAGE=... docker compose -f compose.yaml pull api`
+3. `docker compose -f compose.yaml up -d --no-build --wait`
+4. `docker compose -f compose.yaml --profile sync run --rm skill-sync`
 5. `curl /actuator/health` 必须 `UP`
 
-`.env` 和 `life.db` 不动。手动回滚：Actions → CD → Run workflow，`skip_build=true` + `image_tag=sha-<old>` 或 `0.1.0`。
+`.env` 和 `life.db` 不动。回滚：Actions → CD → Run workflow，`skip_build=true` + `image_tag=sha-<old>` 或 `0.1.0`。
 
-手动更新（不走 Actions）：
+手动：
 
 ```bash
-cd ~/lifeOS-ai
-git checkout release/0.1.0 && git pull
-./docker/deploy.sh
-# 或
-LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:0.1.0 docker compose pull
-docker compose up -d
-docker compose --profile sync run --rm skill-sync
+cd ~/lifeos
+LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:0.1.0 docker compose -f compose.yaml pull
+docker compose -f compose.yaml up -d --no-build
+docker compose -f compose.yaml --profile sync run --rm skill-sync
 ```
 
-若 GHCR 包第一次是 private：GitHub → Packages → `lifeos-ai` → 改成 Public（CD 也会用 `GITHUB_TOKEN` 在机器上 `docker login`）。
-
-更多可做的 CD 步骤见 [docs/cd.md](docs/cd.md)。
+更多见 [docs/cd.md](docs/cd.md)。
 
 ---
 
@@ -287,6 +282,7 @@ docker compose --profile sync run --rm skill-sync
 .
 ├── env.example                 # install 环境变量模板
 ├── Dockerfile                  # API + /opt/life-os-skill
+├── docker-compose.yml          # Compose V2 file（命令仍是 docker compose）
 ├── docker-compose.local.yml    # local profile：./local/life.db，不叫醒微信
 ├── local/                      # 调试用 db 目录（main 不提交 .db；分支 local 才跟踪）
 ├── docker/sync-skill.sh
@@ -326,12 +322,8 @@ Spring profile `local` 把库指到 **仓库里的** `local/life.db`，并且 **
 git checkout local
 git pull
 
-# 路径按你 server 上 compose 的 LIFE_DATA，默认是仓库 ./data/life.db
-scp you@SERVER:~/lifeOS-ai/data/life.db ./local/life.db
-# 或
-# scp you@SERVER:~/.openclaw/workspace/data/life.db ./local/life.db
+scp you@SERVER:~/lifeos/data/life.db ./local/life.db
 
-# 可选：把这份 dump 记在 local 分支，不要 merge 进 main
 git add -f local/life.db
 git commit -m "Refresh local debug db from server"
 ```
@@ -339,7 +331,7 @@ git commit -m "Refresh local debug db from server"
 WAL 文件一并拷（若 server 上 API 还开着，先停再拷，避免半截库）：
 
 ```bash
-scp you@SERVER:~/lifeOS-ai/data/life.db* ./local/
+scp you@SERVER:~/lifeos/data/life.db* ./local/
 ```
 
 ### 启动（Maven）
