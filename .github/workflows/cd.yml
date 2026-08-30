@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      rotate_hook_token:
+        description: "Mint a new OPENCLAW_HOOK_TOKEN and restart Gateway + API"
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: cd-production
@@ -112,13 +117,13 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:${TAG}"
 
-      - name: Copy compose file
+      - name: Copy compose + provision script
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml
+          source: docker-compose.yml,docker/provision-hook-token.sh
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -128,9 +133,8 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          script_stop: true
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,ROTATE_HOOK
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -142,11 +146,14 @@ jobs:
 
             mkdir -p "$DEPLOY_DIR/data/backups"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
+            cp /tmp/lifeos-cd/docker/provision-hook-token.sh "$DEPLOY_DIR/provision-hook-token.sh"
+            chmod +x "$DEPLOY_DIR/provision-hook-token.sh"
             cd "$DEPLOY_DIR"
 
-            if [ ! -f .env ]; then
-              echo "missing $DEPLOY_DIR/.env — create it once on the server, CD will not write secrets" >&2
-              exit 1
+            if [ "${ROTATE_HOOK:-}" = "true" ]; then
+              ./provision-hook-token.sh rotate
+            else
+              ./provision-hook-token.sh ensure
             fi
 
             if [ -f data/life.db ]; then
@@ -163,7 +170,11 @@ jobs:
             export LIFE_IMAGE="${IMAGE}:${TAG}"
             echo "LIFE_IMAGE=$LIFE_IMAGE"
             docker compose -f compose.yaml pull api
-            docker compose -f compose.yaml up -d --no-build --remove-orphans --wait --wait-timeout 120
+            if [ "${ROTATE_HOOK:-}" = "true" ]; then
+              docker compose -f compose.yaml up -d --no-build --force-recreate --remove-orphans --wait --wait-timeout 120 api
+            else
+              docker compose -f compose.yaml up -d --no-build --remove-orphans --wait --wait-timeout 120
+            fi
             docker compose -f compose.yaml --profile sync run --rm skill-sync
 
             curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
@@ -176,3 +187,4 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
           DEPLOY_TAG: ${{ steps.resolve.outputs.tag }}
+          ROTATE_HOOK: ${{ inputs.rotate_hook_token }}
