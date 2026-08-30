@@ -2,7 +2,8 @@ name: CD
 
 on:
   push:
-    branches: [release]
+    branches:
+      - "release/**"
   workflow_dispatch:
     inputs:
       image_tag:
@@ -16,7 +17,7 @@ on:
         default: false
 
 concurrency:
-  group: cd-release
+  group: cd-production
   cancel-in-progress: false
 
 permissions:
@@ -25,7 +26,6 @@ permissions:
 
 env:
   IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
-  SHORT_SHA: ${{ github.sha }}
 
 jobs:
   image:
@@ -34,6 +34,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_build != true }}
     outputs:
       tag: ${{ steps.tags.outputs.tag }}
+      version: ${{ steps.tags.outputs.version }}
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
@@ -62,8 +63,15 @@ jobs:
         run: |
           set -euo pipefail
           SHORT="$(echo '${{ github.sha }}' | cut -c1-7)"
+          REF='${{ github.ref_name }}'
+          VERSION="${REF#release/}"
+          if [ "$VERSION" = "$REF" ] || [ -z "$VERSION" ]; then
+            VERSION=release
+          fi
           echo "tag=sha-${SHORT}" >> "$GITHUB_OUTPUT"
           echo "short=${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         id: push
@@ -73,10 +81,11 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:sha-${{ steps.tags.outputs.short }}
-            ${{ env.IMAGE }}:release
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.version }}
             ${{ env.IMAGE }}:latest
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
             org.opencontainers.image.source=https://github.com/zoomzoomTnT/lifeOS-ai
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -87,8 +96,6 @@ jobs:
     needs: [image]
     if: ${{ always() && (needs.image.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.skip_build == true)) }}
     environment: production
-    env:
-      DEPLOY_IMAGE_TAG: ${{ inputs.image_tag || needs.image.outputs.tag || 'latest' }}
     steps:
       - name: Resolve image tag
         id: resolve
@@ -102,7 +109,7 @@ jobs:
             TAG=latest
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Deploying ${IMAGE}:${TAG}"
+          echo "Deploying ${IMAGE}:${TAG} from ${{ github.ref_name }}"
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.2
@@ -112,21 +119,22 @@ jobs:
           key: ${{ secrets.SERVER_PK }}
           script_stop: true
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,DEPLOY_SHA
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,DEPLOY_REF
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeOS-ai}"
             IMAGE="${IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai}"
             TAG="${DEPLOY_TAG}"
+            REF="${DEPLOY_REF:-release/0.1.0}"
 
             if [ ! -d "$DEPLOY_DIR/.git" ]; then
               mkdir -p "$(dirname "$DEPLOY_DIR")"
               git clone https://github.com/zoomzoomTnT/lifeOS-ai.git "$DEPLOY_DIR"
             fi
             cd "$DEPLOY_DIR"
-            git fetch origin release
-            git checkout release
-            git pull --ff-only origin release
+            git fetch origin "$REF"
+            git checkout -B "$REF" "origin/$REF"
+            git pull --ff-only origin "$REF"
 
             mkdir -p data/backups
             if [ -f data/life.db ]; then
@@ -141,7 +149,7 @@ jobs:
             fi
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
-            echo "LIFE_IMAGE=$LIFE_IMAGE"
+            echo "LIFE_IMAGE=$LIFE_IMAGE REF=$REF"
             docker compose pull api
             docker compose up -d --no-build --remove-orphans --wait --wait-timeout 120
             docker compose --profile sync run --rm skill-sync
@@ -156,4 +164,4 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
           DEPLOY_TAG: ${{ steps.resolve.outputs.tag }}
-          DEPLOY_SHA: ${{ github.sha }}
+          DEPLOY_REF: ${{ github.ref_name }}
