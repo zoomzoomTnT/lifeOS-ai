@@ -1,15 +1,19 @@
 # Continuous deploy
 
-Merge **`main` → `release`** (or push to `release`) to ship. CI on `main` still tests and publishes the image; CD on `release` SSHs to the OpenClaw host and runs `docker compose up`.
+Merge **`main` → `release/x.y.z`** (current: `release/0.1.0`) to ship. CI on `main` still tests and publishes the image; CD on `release/**` SSHs to the OpenClaw host and runs `docker compose up`.
+
+Git cannot hold both `release` and `release/0.1.0`. Use only versioned names. To cut 0.1.0: rename or delete the old `release` branch, then create `release/0.1.0` from `main`.
 
 ## Trigger
 
 | Event | What happens |
 |---|---|
-| Push / merge to `release` | Maven verify → build & push GHCR (`sha-<7>`, `release`, `latest`) → SSH deploy |
-| Actions → CD → Run workflow | Same, or set **skip_build** + **image_tag** to roll to an existing tag |
+| Push / merge to `release/**` (e.g. `release/0.1.0`) | Maven verify → build & push GHCR (`sha-<7>`, `0.1.0`, `latest`) → SSH deploy |
+| Actions → CD → Run workflow (from that branch) | Same, or set **skip_build** + **image_tag** to roll to an existing tag |
 
 Workflow: [`.github/workflows/cd.yml`](../.github/workflows/cd.yml)
+
+Next line: create `release/0.2.0` from `main` and merge there. Old `release/0.1.0` stays as the last 0.1 line.
 
 ## Secrets (repo Settings → Secrets and variables → Actions)
 
@@ -38,8 +42,8 @@ Host needs: `git`, Docker Engine + Compose plugin, outbound pull of `ghcr.io/zoo
 ## What this pipeline does today
 
 1. Gate on `mvn verify` so a red build never reaches the box.
-2. Push an immutable `sha-<short>` plus moving `release` / `latest` tags.
-3. Fast-forward the server clone to `release` (compose file + `sync-skill.sh`).
+2. Push an immutable `sha-<short>` plus moving `<version>` / `latest` tags (`0.1.0` from branch `release/0.1.0`).
+3. Fast-forward the server clone to the same `release/x.y.z` ref that triggered the run.
 4. Copy `data/life.db` → `data/backups/` (keep 10).
 5. `docker compose pull` + `up -d --no-build --wait` using that image.
 6. `skill-sync` so OpenClaw picks up the skill baked into the image.
@@ -51,14 +55,14 @@ Host needs: `git`, Docker Engine + Compose plugin, outbound pull of `ghcr.io/zoo
 
 Cheap next steps, not wired yet:
 
-- **GitHub Environment protection** — `production` is already referenced. Add required reviewers so a merge to `release` waits for you before SSH.
-- **Rollback** — re-run CD with `skip_build=true` and `image_tag=sha-<old>`.
+- **GitHub Environment protection** — `production` is already referenced. Add required reviewers so a merge to `release/*` waits for you before SSH.
+- **Rollback** — re-run CD with `skip_build=true` and `image_tag=sha-<old>` (or `0.1.0`).
 - **WeChat / OpenClaw notify** — POST `/hooks/agent` after health is green (or on failure).
 - **Production smoke** — hit `/api/ops/should-wake` and `/api/holdings` after deploy (read-only).
 - **Off-box DB backup** — scp/rclone `data/backups/` to object storage before pull.
 - **Compose file drift check** — fail if server `.env` is missing required keys from `env.example`.
 - **OpenClaw itself** — restart gateway only when `openclaw/` or skill files change.
-- **GitHub Release notes** — tag `vX.Y.Z` from `release` and attach the image digest.
+- **GitHub Release notes** — tag `vX.Y.Z` from `release/X.Y.Z` and attach the image digest.
 - **Package cleanup** — expire untagged GHCR images older than N days.
 - **Concurrency window** — pause Spring proactive cron (`LIFE_OPENCLAW_WAKE=false`) during the few seconds of container replace.
 
@@ -72,3 +76,4 @@ Do not add Watchtower while this workflow owns `compose up`; they will race.
 - [ ] `~/lifeOS-ai/.env` is already filled (tokens). CD will not create secrets
 - [ ] GHCR image is pullable (`docker pull ghcr.io/zoomzoomtnt/lifeos-ai:latest`)
 - [ ] Repo environment **production** exists (created on first CD run) and secrets are repo-scoped, not missing from the environment
+- [ ] Only versioned branches exist (`release/0.1.0`), not a bare `release` ref
