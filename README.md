@@ -1,7 +1,7 @@
 # lifeOS-ai
 
 [![CI](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/ci.yml)
-[![CD](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/cd.yml/badge.svg?branch=release)](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/cd.yml)
+[![CD](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/cd.yml/badge.svg?branch=release/0.1.0)](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/cd.yml)
 
 WeChat / OpenClaw 生活台账：一份 SQLite、Spring Boot REST、一层 OpenClaw skill。
 
@@ -18,7 +18,7 @@ OpenClaw skill 只住在本仓库 `skills/life-os/`。不要从其它仓库装 l
 
 这些只做一次。漏任何一项，主动提醒或日志入库会静默失败。
 
-首次装机仍是手动（`.env`、OpenClaw、微信插件）。之后 **merge `main` → `release`** 会跑 [CD](.github/workflows/cd.yml)：SSH 进机、`docker compose pull` + `up` 最新 GHCR 镜像、`skill-sync`。详情 [docs/cd.md](docs/cd.md)。
+首次装机仍是手动（`.env`、OpenClaw、微信插件）。之后 **merge `main` → `release/0.1.0`** 会跑 [CD](.github/workflows/cd.yml)：SSH 进机、`docker compose pull` + `up` 最新 GHCR 镜像、`skill-sync`。详情 [docs/cd.md](docs/cd.md)。
 
 ### 0. 机器上先有的东西
 
@@ -249,26 +249,28 @@ curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true'  # �
 
 ## 日常更新（CD）
 
-流程：PR → **`main`**（CI：schema / Maven / compose smoke，推 `ghcr.io/zoomzoomtnt/lifeos-ai:latest`）→ merge **`main` → `release`**（CD：再打一次镜像并 SSH `docker compose up`）。
+流程：PR → **`main`**（CI：schema / Maven / compose smoke，推 `ghcr.io/zoomzoomtnt/lifeos-ai:latest`）→ merge **`main` → `release/0.1.0`**（CD：打 `0.1.0` + `latest` 镜像并 SSH `docker compose up`）。
+
+以后发 0.2：从 `main` 建 `release/0.2.0`，往那条合。Git 不能同时存在 `release` 和 `release/0.1.0`，只用带版本号的名。
 
 CD 用仓库 secrets `SERVER_IP` / `SERVER_UN` / `SERVER_PK`。服务器上：
 
-1. `git pull` `release` 到 `$HOME/lifeOS-ai`
+1. `git pull` `release/0.1.0` 到 `$HOME/lifeOS-ai`
 2. 备份 `data/life.db` → `data/backups/`
-3. `LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:<sha|latest>` `docker compose pull && up -d --wait`
+3. `LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:<0.1.0|sha|latest>` `docker compose pull && up -d --wait`
 4. `docker compose --profile sync run --rm skill-sync`
 5. `curl /actuator/health` 必须 `UP`
 
-`.env` 和 `life.db` 不动。手动回滚：Actions → CD → Run workflow，`skip_build=true` + `image_tag=sha-<old>`。
+`.env` 和 `life.db` 不动。手动回滚：Actions → CD → Run workflow，`skip_build=true` + `image_tag=sha-<old>` 或 `0.1.0`。
 
 手动更新（不走 Actions）：
 
 ```bash
 cd ~/lifeOS-ai
-git checkout release && git pull
+git checkout release/0.1.0 && git pull
 ./docker/deploy.sh
 # 或
-LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest docker compose pull
+LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:0.1.0 docker compose pull
 docker compose up -d
 docker compose --profile sync run --rm skill-sync
 ```
@@ -298,7 +300,7 @@ docker compose --profile sync run --rm skill-sync
 ├── app/                        # Spring Boot 4.1 + Java 21
 ├── skills/life-os/             # 完整 OpenClaw skill
 ├── .github/workflows/ci.yml    # main：测试 + 推镜像
-└── .github/workflows/cd.yml    # release：推镜像 + SSH compose up
+└── .github/workflows/cd.yml    # release/x.y.z：推镜像 + SSH compose up
 ```
 
 ## Maven（不用 Docker 时）
