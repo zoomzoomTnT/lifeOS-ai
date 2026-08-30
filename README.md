@@ -1,6 +1,7 @@
 # lifeOS-ai
 
 [![CI](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/ci.yml)
+[![CD](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/cd.yml/badge.svg?branch=release)](https://github.com/zoomzoomTnT/lifeOS-ai/actions/workflows/cd.yml)
 
 WeChat / OpenClaw 生活台账：一份 SQLite、Spring Boot REST、一层 OpenClaw skill。
 
@@ -17,13 +18,13 @@ OpenClaw skill 只住在本仓库 `skills/life-os/`。不要从其它仓库装 l
 
 这些只做一次。漏任何一项，主动提醒或日志入库会静默失败。
 
-**CD 还没做。** GitHub Actions 只测 + 推 GHCR 镜像，不会 SSH 进你的机器。更新 skill / API 靠你在这台机上 `compose pull` + `skill-sync`（见文末「日常更新」）。
+首次装机仍是手动（`.env`、OpenClaw、微信插件）。之后 **merge `main` → `release`** 会跑 [CD](.github/workflows/cd.yml)：SSH 进机、`docker compose pull` + `up` 最新 GHCR 镜像、`skill-sync`。详情 [docs/cd.md](docs/cd.md)。
 
 ### 0. 机器上先有的东西
 
 - Docker + Docker Compose
 - 已在跑的 **OpenClaw Gateway**（默认 `localhost:18789`）和 **openclaw-weixin**
-- 本机 clone 本仓库（compose 文件、`.env` 放这里）
+- 本机 clone 本仓库（compose 文件、`.env` 放这里）。CD 默认路径 `$HOME/lifeOS-ai`
 
 ### 1. 环境变量
 
@@ -246,23 +247,35 @@ curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true'  # �
 
 ---
 
-## 日常更新（CD 以后再做）
+## 日常更新（CD）
 
-现在 **没有** 自动部署到你的 OpenClaw 机器。CI 在 `main` 上：测 schema / Maven / compose smoke，再推 `ghcr.io/zoomzoomtnt/lifeos-ai:latest`。
+流程：PR → **`main`**（CI：schema / Maven / compose smoke，推 `ghcr.io/zoomzoomtnt/lifeos-ai:latest`）→ merge **`main` → `release`**（CD：再打一次镜像并 SSH `docker compose up`）。
 
-你这台机更新：
+CD 用仓库 secrets `SERVER_IP` / `SERVER_UN` / `SERVER_PK`。服务器上：
+
+1. `git pull` `release` 到 `$HOME/lifeOS-ai`
+2. 备份 `data/life.db` → `data/backups/`
+3. `LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:<sha|latest>` `docker compose pull && up -d --wait`
+4. `docker compose --profile sync run --rm skill-sync`
+5. `curl /actuator/health` 必须 `UP`
+
+`.env` 和 `life.db` 不动。手动回滚：Actions → CD → Run workflow，`skip_build=true` + `image_tag=sha-<old>`。
+
+手动更新（不走 Actions）：
 
 ```bash
-cd lifeOS-ai
-docker compose pull
+cd ~/lifeOS-ai
+git checkout release && git pull
+./docker/deploy.sh
+# 或
+LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest docker compose pull
 docker compose up -d
 docker compose --profile sync run --rm skill-sync
-openclaw skills list
 ```
 
-以后要做的 CD（还没写）：自托管 runner 或 Watchtower 在这台机跑上面四行。不要把 SSH 私钥提交进仓库。
+若 GHCR 包第一次是 private：GitHub → Packages → `lifeos-ai` → 改成 Public（CD 也会用 `GITHUB_TOKEN` 在机器上 `docker login`）。
 
-若 GHCR 包第一次是 private：GitHub → Packages → `lifeos-ai` → 改成 Public。
+更多可做的 CD 步骤见 [docs/cd.md](docs/cd.md)。
 
 ---
 
@@ -275,14 +288,17 @@ openclaw skills list
 ├── docker-compose.local.yml    # local profile：./local/life.db，不叫醒微信
 ├── local/                      # 调试用 db 目录（main 不提交 .db；分支 local 才跟踪）
 ├── docker/sync-skill.sh
+├── docker/deploy.sh            # 服务器手动部署（与 CD 同步骤）
 ├── openclaw/openclaw.json      # heartbeat 0m + hooks（无密钥）
 ├── schema/schema.sql
 ├── schema/migrations/          # 0002_ops, 0003_logs
 ├── docs/api.md
 ├── docs/logging.md
+├── docs/cd.md                  # CD secrets / 触发 / 可扩展
 ├── app/                        # Spring Boot 4.1 + Java 21
 ├── skills/life-os/             # 完整 OpenClaw skill
-└── .github/workflows/ci.yml    # 测试 + 推镜像，不部署到你的机器
+├── .github/workflows/ci.yml    # main：测试 + 推镜像
+└── .github/workflows/cd.yml    # release：推镜像 + SSH compose up
 ```
 
 ## Maven（不用 Docker 时）
