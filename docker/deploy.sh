@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Manual / server-side deploy helper. CD runs the same steps over SSH.
-# Usage (on the OpenClaw host, from the clone):
-#   LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest ./docker/deploy.sh
+# Manual helper on the host. CD does the same over SSH (no git).
+# Usage, from $HOME/lifeos (compose.yaml + .env + data/):
+#   LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:latest ./deploy.sh
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="${DEPLOY_DIR:-$HOME/lifeos}"
 cd "$ROOT"
+
+command -v docker >/dev/null
+docker compose version
+
+FILE=compose.yaml
+if [ ! -f "$FILE" ] && [ -f docker-compose.yml ]; then
+  FILE=docker-compose.yml
+fi
 
 IMAGE="${LIFE_IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai:latest}"
 export LIFE_IMAGE="$IMAGE"
@@ -18,8 +26,8 @@ if [ -f data/life.db ]; then
   ls -1t data/backups/life.db.* 2>/dev/null | tail -n +11 | xargs -r rm -f
 fi
 
-docker compose pull api
-docker compose up -d --no-build --remove-orphans --wait --wait-timeout 120
-docker compose --profile sync run --rm skill-sync
+docker compose -f "$FILE" pull api
+docker compose -f "$FILE" up -d --no-build --remove-orphans --wait --wait-timeout 120
+docker compose -f "$FILE" --profile sync run --rm skill-sync
 curl -fsS http://127.0.0.1:${LIFE_API_PORT:-8787}/actuator/health
 echo "deployed $IMAGE"
