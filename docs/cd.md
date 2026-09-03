@@ -1,17 +1,32 @@
 # Continuous deploy
 
-Merge **`main` → `release/x.y.z`** (current: `release/0.1.0`) to ship. CI on `main` tests and can publish the image; CD on `release/**` SSHs to the host and runs **`docker compose`** (Compose V2 plugin, not the old `docker-compose` binary).
+Merge **`main` → `release/x.y.z`** (current: `release/0.1.0`) to ship. CI on `main` tests and can publish the image; CD on `release/**` SSHs to the host and runs **`docker compose`** (Compose V2 plugin).
 
-The server is **not** a git checkout. The runner already has the repo. CD only copies `docker-compose.yml` → `$HOME/lifeos/compose.yaml`, then `docker compose -f compose.yaml pull && up`. No `git clone` / `git pull` on the box.
+The server is **not** a git checkout. CD copies `docker-compose.yml` and `docker/ensure-hook-token.sh`, then `docker compose pull && up`. No token is baked into the GHCR image.
 
 ## Trigger
 
 | Event | What happens |
 |---|---|
-| Push / merge to `release/**` (e.g. `release/0.1.0`) | Maven verify → push GHCR (`sha-<7>`, `0.1.0`, `latest`) → scp compose → SSH `docker compose up` |
-| Actions → CD → Run workflow (from that branch) | Same, or **skip_build** + **image_tag** to roll to an existing tag |
+| Push / merge to `release/**` | Maven verify → push GHCR → scp compose + ensure script → ensure hook token → `docker compose up` |
+| Actions → CD → Run workflow | Same, or **skip_build** + **image_tag** to roll to an existing tag |
 
-Workflow: [`.github/workflows/cd.yml`](../.github/workflows/cd.yml)
+`workflow_dispatch` is a manual run of the same workflow (no git commit). Token logic is identical to a merge.
+
+## Hook token (`OPENCLAW_HOOK_TOKEN`)
+
+Opaque shared secret. OpenClaw does not expire it. CD **does not rotate** on deploy.
+
+Every deploy, on the host:
+
+1. If `~/lifeos/.env` already has a non-empty `OPENCLAW_HOOK_TOKEN`, reuse it.
+2. Else mint `secrets.token_urlsafe(32)`, create/upsert `.env` (`chmod 600`).
+3. `openclaw config set hooks.enabled true`
+4. `openclaw config set hooks.token "<same value>"`
+
+No edits to `openclaw.json`. No `gateway restart` (`hooks.*` hot-applies). Recreate the API container only on **first mint** so compose injects the new env.
+
+Does not invent `OPENCLAW_GATEWAY_TOKEN` or WeChat credentials.
 
 ## Secrets
 
@@ -21,41 +36,17 @@ Workflow: [`.github/workflows/cd.yml`](../.github/workflows/cd.yml)
 | `SERVER_UN` | SSH user |
 | `SERVER_PK` | Private key PEM / OpenSSH |
 
-Optional: set env `DEPLOY_DIR` on the server (default `$HOME/lifeos`).
+Optional host env `DEPLOY_DIR` (default `$HOME/lifeos`).
 
 ## Server layout (no git)
 
 ```
-$HOME/lifeos/              # not a clone
-  compose.yaml             # overwritten each CD from the repo compose file
-  .env                     # you create once; CD never writes this
-  data/life.db             # SQLite volume
-  data/backups/            # last 10 copies before a replace
-~/.openclaw/               # already installed; skill-sync writes workspace/skills/life-os
+$HOME/lifeos/
+  compose.yaml
+  ensure-hook-token.sh
+  .env                 # CD may create/upsert OPENCLAW_HOOK_TOKEN only
+  data/life.db
+  data/backups/
 ```
 
-Host needs: Docker Engine + **Compose V2 plugin** (`docker compose version`), outbound pull of `ghcr.io/zoomzoomtnt/lifeos-ai`, OpenClaw already running. Not required: `git`, a copy of this repository.
-
-If the GHCR package is private, make it Public (Packages → lifeos-ai) or keep the job `docker login`.
-
-## What this pipeline does today
-
-1. `mvn verify` on the runner.
-2. Push `sha-<short>` + `<version>` + `latest`.
-3. scp `docker-compose.yml` to `/tmp/lifeos-cd` (Actions runner checkout only).
-4. On the host: copy that file to `$HOME/lifeos/compose.yaml`.
-5. Backup `data/life.db` if present.
-6. `docker compose -f compose.yaml pull api`
-7. `docker compose -f compose.yaml up -d --no-build --wait`
-8. `docker compose -f compose.yaml --profile sync run --rm skill-sync`
-9. `curl /actuator/health` must be `UP`.
-
-`--no-build` means the host never compiles the Dockerfile (that would need a source tree).
-
-## First-time server checklist
-
-- [ ] `ssh -i <key> $SERVER_UN@$SERVER_IP` works
-- [ ] `docker compose version` works without sudo (plugin, not `docker-compose`)
-- [ ] `mkdir -p ~/lifeos && cp env.example ~/lifeos/.env` and fill tokens **once**
-- [ ] GHCR image is pullable
-- [ ] OpenClaw is already installed; CD does not install it
+Host needs: Docker Engine + Compose V2 plugin, `openclaw` on PATH for the SSH user.
