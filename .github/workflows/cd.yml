@@ -146,6 +146,31 @@ jobs:
             chmod +x "$DEPLOY_DIR/ensure-hook-token.sh"
             cd "$DEPLOY_DIR"
 
+            if [ ! -f .env ]; then
+              echo "missing $DEPLOY_DIR/.env" >&2
+              exit 1
+            fi
+            OPENCLAW_HOME="$(python3 -c '
+import pathlib
+p = pathlib.Path(".env")
+val = ""
+for raw in p.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if line.startswith("OPENCLAW_HOME="):
+        val = line.split("=", 1)[1].strip().strip("\"").strip("\x27")
+print(val)
+')"
+            if [ -z "$OPENCLAW_HOME" ]; then
+              echo "OPENCLAW_HOME is empty in $DEPLOY_DIR/.env — set an absolute existing directory" >&2
+              exit 1
+            fi
+            if [ ! -d "$OPENCLAW_HOME" ]; then
+              echo "OPENCLAW_HOME=$OPENCLAW_HOME does not exist on the host (CD will not create it)" >&2
+              exit 1
+            fi
+            export OPENCLAW_HOME
+            echo "OPENCLAW_HOME=$OPENCLAW_HOME"
+
             ENSURE_OUT="$(./ensure-hook-token.sh)"
             echo "$ENSURE_OUT"
             MINTED=0
@@ -164,17 +189,16 @@ jobs:
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
             echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED"
-            docker compose -f compose.yaml pull api || docker compose -f compose.yaml pull
-            # podman-compose has no --wait / --wait-timeout; poll health instead
+
+            # podman-compose 1.0.6: no --profile, no --wait, no --wait-timeout.
+            # --remove-orphans is optional; --force-recreate after first mint.
+            docker compose -f compose.yaml pull || true
             if [ "$MINTED" = "1" ]; then
-              docker compose -f compose.yaml up -d --no-build --force-recreate --remove-orphans api \
-                || docker compose -f compose.yaml up -d --no-build --force-recreate api
+              docker compose -f compose.yaml up -d --no-build --force-recreate
             else
-              docker compose -f compose.yaml up -d --no-build --remove-orphans \
-                || docker compose -f compose.yaml up -d --no-build
+              docker compose -f compose.yaml up -d --no-build
             fi
-            docker compose -f compose.yaml --profile sync run --rm skill-sync \
-              || docker compose -f compose.yaml run --rm skill-sync || true
+            docker compose -f compose.yaml run --rm skill-sync
 
             ok=0
             for i in $(seq 1 30); do
