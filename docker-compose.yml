@@ -21,7 +21,7 @@ services:
       LIFE_OPENCLAW_FILE_LOG: ${LIFE_OPENCLAW_FILE_LOG:-}
     volumes:
       - ${LIFE_DATA:-./data}:/data
-      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw:ro
+      - ${OPENCLAW_HOME}:/openclaw:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8787/actuator/health"]
@@ -44,5 +44,5 @@ services:
       OPENCLAW_SYNC_ROOT: /openclaw
       LIFE_SKILL_SRC: /opt/life-os-skill
     volumes:
-      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw
+      - ${OPENCLAW_HOME}:/openclaw
     restart: "no"
