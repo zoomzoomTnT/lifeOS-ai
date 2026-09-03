@@ -24,17 +24,16 @@ gen_token() {
 
 read_env_token() {
   [[ -f "$ENVF" ]] || return 0
-  awk -F= '
-    $1 == "OPENCLAW_HOOK_TOKEN" {
-      v=$2
-      for (i=3; i<=NF; i++) v=v "=" $i
-      gsub(/\r$/, "", v)
-      gsub(/^"|"$/, "", v)
-      gsub(/^['\''']|['\''']$/, "", v)
-      if (v != "") print v
-      exit
-    }
-  ' "$ENVF"
+  local line
+  line="$(grep -E '^OPENCLAW_HOOK_TOKEN=' "$ENVF" | tail -n1 || true)"
+  [[ -n "$line" ]] || return 0
+  line="${line#OPENCLAW_HOOK_TOKEN=}"
+  line="${line%$'\r'}"
+  if [[ "$line" == \"*\" ]]; then
+    line="${line#\"}"
+    line="${line%\"}"
+  fi
+  printf '%s\n' "$line"
 }
 
 upsert_env() {
