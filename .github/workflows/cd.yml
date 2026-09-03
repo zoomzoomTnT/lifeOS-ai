@@ -112,13 +112,13 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:${TAG}"
 
-      - name: Copy compose file
+      - name: Copy compose + ensure script
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml
+          source: docker-compose.yml,docker/ensure-hook-token.sh
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -128,7 +128,6 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          script_stop: true
           command_timeout: 15m
           envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG
           script: |
@@ -136,18 +135,21 @@ jobs:
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
             IMAGE="${IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai}"
             TAG="${DEPLOY_TAG}"
+            export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
             command -v docker >/dev/null
             docker compose version
 
             mkdir -p "$DEPLOY_DIR/data/backups"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
+            cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
+            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh"
             cd "$DEPLOY_DIR"
 
-            if [ ! -f .env ]; then
-              echo "missing $DEPLOY_DIR/.env — create it once on the server, CD will not write secrets" >&2
-              exit 1
-            fi
+            ENSURE_OUT="$(./ensure-hook-token.sh)"
+            echo "$ENSURE_OUT"
+            MINTED=0
+            echo "$ENSURE_OUT" | grep -q '^MINTED=1$' && MINTED=1
 
             if [ -f data/life.db ]; then
               STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -161,9 +163,13 @@ jobs:
             fi
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
-            echo "LIFE_IMAGE=$LIFE_IMAGE"
+            echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED"
             docker compose -f compose.yaml pull api
-            docker compose -f compose.yaml up -d --no-build --remove-orphans --wait --wait-timeout 120
+            if [ "$MINTED" = "1" ]; then
+              docker compose -f compose.yaml up -d --no-build --force-recreate --remove-orphans --wait --wait-timeout 120 api
+            else
+              docker compose -f compose.yaml up -d --no-build --remove-orphans --wait --wait-timeout 120
+            fi
             docker compose -f compose.yaml --profile sync run --rm skill-sync
 
             curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
