@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ensure OPENCLAW_HOOK_TOKEN exists on the host and matches Gateway hooks.token.
-# Also writes OPENCLAW_HOME as an absolute path (Compose cannot nest ${HOME}).
+# Does not set OPENCLAW_HOME — that must already be an absolute path in .env.
 # Opaque shared secret: no TTL. Mint only when .env has none.
 # Aligns Gateway via `openclaw config set` (no json edit, no gateway restart).
 # Prints MINTED=0|1 on stdout.
@@ -22,21 +22,19 @@ gen_token() {
   fi
 }
 
-read_env_key() {
-  local key="$1"
+read_env_token() {
   [[ -f "$ENVF" ]] || return 0
-  python3 - "$ENVF" "$key" <<'PY'
+  python3 - "$ENVF" <<'PY'
 import sys
-path, key = sys.argv[1], sys.argv[2]
+path = sys.argv[1]
 try:
     lines = open(path, encoding="utf-8").read().splitlines()
 except OSError:
     sys.exit(0)
 val = ""
-prefix = key + "="
 for raw in lines:
     line = raw.strip()
-    if not line or line.startswith("#") or not line.startswith(prefix):
+    if not line or line.startswith("#") or not line.startswith("OPENCLAW_HOOK_TOKEN="):
         continue
     val = line.split("=", 1)[1].strip().strip('"').strip("'")
 print(val)
@@ -79,7 +77,7 @@ os.chmod(path, 0o600)
 PY
 }
 
-TOKEN="$(read_env_key OPENCLAW_HOOK_TOKEN || true)"
+TOKEN="$(read_env_token || true)"
 MINTED=0
 if [[ -z "$TOKEN" ]]; then
   TOKEN="$(gen_token)"
@@ -90,16 +88,6 @@ else
 fi
 
 upsert_env OPENCLAW_HOOK_TOKEN "$TOKEN"
-
-HOME_PATH="$(read_env_key OPENCLAW_HOME || true)"
-if [[ -z "$HOME_PATH" || "$HOME_PATH" == *'$'* || "$HOME_PATH" != /* ]]; then
-  HOME_PATH="${OPENCLAW_HOME:-$HOME/.openclaw}"
-  if [[ "$HOME_PATH" != /* ]]; then
-    HOME_PATH="$HOME/.openclaw"
-  fi
-fi
-upsert_env OPENCLAW_HOME "$HOME_PATH"
-echo "OPENCLAW_HOME=$HOME_PATH" >&2
 
 if ! command -v openclaw >/dev/null; then
   echo "openclaw not on PATH; wrote $ENVF only. Run: openclaw config set hooks.token <token>" >&2
