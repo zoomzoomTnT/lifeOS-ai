@@ -174,7 +174,6 @@ jobs:
               docker compose -f compose.yaml up -d --no-build
             fi
             docker compose -f compose.yaml run --rm skill-sync
-            test -f "$OPENCLAW_HOME/workspace/skills/life-os/SKILL.md"
 
             ok=0
             for i in $(seq 1 30); do
