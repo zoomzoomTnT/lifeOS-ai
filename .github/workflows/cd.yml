@@ -187,9 +187,13 @@ jobs:
             curl -fsS http://127.0.0.1:8787/actuator/info || true
             docker compose -f compose.yaml ps || true
             docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
-            echo "waiting 15s for OpenClaw to pick up synced skills"
+
+            command -v openclaw >/dev/null
+            echo "restarting OpenClaw gateway after skill-sync"
+            openclaw gateway restart
+            echo "waiting 15s after gateway restart"
             sleep 15
-            command -v openclaw >/dev/null && openclaw skills list || true
+            openclaw skills list
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
