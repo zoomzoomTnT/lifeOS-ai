@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Ensure OPENCLAW_HOOK_TOKEN exists on the host and matches Gateway hooks.token.
-# Opaque shared secret: no TTL, no JWT, no DB. Mint only when .env has none.
-# Writes config via `openclaw config set` (does not edit openclaw.json, no gateway restart).
-#
-# Prints MINTED=0|1 on stdout for the caller (compose recreate when first mint).
+# Opaque shared secret: no TTL. Mint only when .env has none.
+# Aligns Gateway via `openclaw config set` (no json edit, no gateway restart).
+# Prints MINTED=0|1 on stdout.
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -24,41 +23,57 @@ gen_token() {
 
 read_env_token() {
   [[ -f "$ENVF" ]] || return 0
-  awk -F= '
-    $1 == "OPENCLAW_HOOK_TOKEN" {
-      v=$2
-      for (i=3; i<=NF; i++) v=v "=" $i
-      gsub(/\r$/, "", v)
-      gsub(/^"|"$/, "", v)
-      gsub(/^['\''']|['\''']$/, "", v)
-      if (v != "") print v
-      exit
-    }
-  ' "$ENVF"
+  python3 - "$ENVF" <<'PY'
+import sys
+path = sys.argv[1]
+try:
+    lines = open(path, encoding="utf-8").read().splitlines()
+except OSError:
+    sys.exit(0)
+val = ""
+for raw in lines:
+    line = raw.strip()
+    if not line or line.startswith("#") or not line.startswith("OPENCLAW_HOOK_TOKEN="):
+        continue
+    val = line.split("=", 1)[1].strip().strip("\"").strip("'")
+print(val)
+PY
 }
 
 upsert_env() {
-  local key="$1" val="$2" tmp
-  tmp="$(mktemp)"
-  if [[ -f "$ENVF" ]]; then
-    awk -F= -v k="$key" -v val="$val" '
-      BEGIN { done=0 }
-      $1 == k { print k "=" val; done=1; next }
-      { print }
-      END { if (!done) print k "=" val }
-    ' "$ENVF" > "$tmp"
-  else
-    cat > "$tmp" <<EOF
-LIFE_API_PORT=8787
-LIFE_DATA=./data
-OPENCLAW_GATEWAY=http://host.docker.internal:18789
-LIFE_OPENCLAW_WAKE=true
-LIFE_WEIXIN_CHANNEL=openclaw-weixin
-${key}=${val}
-EOF
-  fi
-  mv "$tmp" "$ENVF"
-  chmod 600 "$ENVF"
+  local key="$1" val="$2"
+  python3 - "$ENVF" "$key" "$val" <<'PY'
+import os, sys
+path, key, val = sys.argv[1], sys.argv[2], sys.argv[3]
+defaults = [
+    "LIFE_API_PORT=8787",
+    "LIFE_DATA=./data",
+    "OPENCLAW_GATEWAY=http://host.docker.internal:18789",
+    "LIFE_OPENCLAW_WAKE=true",
+    "LIFE_WEIXIN_CHANNEL=openclaw-weixin",
+]
+lines = []
+if os.path.exists(path):
+    lines = open(path, encoding="utf-8").read().splitlines()
+else:
+    lines = list(defaults)
+found = False
+out = []
+prefix = key + "="
+for line in lines:
+    if line.startswith(prefix) or line.startswith(key + " ="):
+        out.append(f"{key}={val}")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={val}")
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    f.write("\n".join(out) + "\n")
+os.replace(tmp, path)
+os.chmod(path, 0o600)
+PY
 }
 
 TOKEN="$(read_env_token || true)"
