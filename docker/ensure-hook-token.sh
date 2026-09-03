@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Ensure OPENCLAW_HOOK_TOKEN exists on the host and matches Gateway hooks.token.
+# Does not set OPENCLAW_HOME — that must already be an absolute path in .env.
 # Opaque shared secret: no TTL. Mint only when .env has none.
 # Aligns Gateway via `openclaw config set` (no json edit, no gateway restart).
 # Prints MINTED=0|1 on stdout.
@@ -35,7 +36,7 @@ for raw in lines:
     line = raw.strip()
     if not line or line.startswith("#") or not line.startswith("OPENCLAW_HOOK_TOKEN="):
         continue
-    val = line.split("=", 1)[1].strip().strip("\"").strip("'")
+    val = line.split("=", 1)[1].strip().strip('"').strip("'")
 print(val)
 PY
 }
