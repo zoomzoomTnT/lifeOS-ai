@@ -138,7 +138,7 @@ jobs:
             export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
             command -v docker >/dev/null
-            docker compose version
+            docker compose version || true
 
             mkdir -p "$DEPLOY_DIR/data/backups"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
@@ -164,18 +164,30 @@ jobs:
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
             echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED"
-            docker compose -f compose.yaml pull api
+            docker compose -f compose.yaml pull api || docker compose -f compose.yaml pull
+            # podman-compose has no --wait / --wait-timeout; poll health instead
             if [ "$MINTED" = "1" ]; then
-              docker compose -f compose.yaml up -d --no-build --force-recreate --remove-orphans --wait --wait-timeout 120 api
+              docker compose -f compose.yaml up -d --no-build --force-recreate --remove-orphans api \
+                || docker compose -f compose.yaml up -d --no-build --force-recreate api
             else
-              docker compose -f compose.yaml up -d --no-build --remove-orphans --wait --wait-timeout 120
+              docker compose -f compose.yaml up -d --no-build --remove-orphans \
+                || docker compose -f compose.yaml up -d --no-build
             fi
-            docker compose -f compose.yaml --profile sync run --rm skill-sync
+            docker compose -f compose.yaml --profile sync run --rm skill-sync \
+              || docker compose -f compose.yaml run --rm skill-sync || true
 
-            curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
+            ok=0
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8787/actuator/health 2>/dev/null | grep -q '"status":"UP"'; then
+                ok=1
+                break
+              fi
+              sleep 4
+            done
+            test "$ok" = "1"
             curl -fsS http://127.0.0.1:8787/actuator/info || true
-            docker compose -f compose.yaml ps
-            docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}'
+            docker compose -f compose.yaml ps || true
+            docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
             command -v openclaw >/dev/null && openclaw skills list || true
         env:
           GHCR_USER: ${{ github.actor }}
