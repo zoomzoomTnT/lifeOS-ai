@@ -21,13 +21,16 @@ Every deploy, on the host:
 
 1. If `~/lifeos/.env` already has a non-empty `OPENCLAW_HOOK_TOKEN`, reuse it.
 2. Else mint `secrets.token_urlsafe(32)`, create/upsert `.env` (`chmod 600`).
-3. Write `OPENCLAW_HOME` as an **absolute** path (`$HOME/.openclaw` resolved). Compose cannot nest `${HOME}` in a default — that produced `volume [${HOME/.openclaw}] not defined`.
-4. `openclaw config set hooks.enabled true`
-5. `openclaw config set hooks.token "<same value>"`
+3. `openclaw config set hooks.enabled true`
+4. `openclaw config set hooks.token "<same value>"`
 
-No edits to `openclaw.json`. No `gateway restart` (`hooks.*` hot-applies). Recreate the API container only on **first mint** so compose injects the new env.
+No edits to `openclaw.json`. No `gateway restart`. Recreate the API container only on **first mint**.
 
-Does not invent `OPENCLAW_GATEWAY_TOKEN` or WeChat credentials.
+Does not invent `OPENCLAW_GATEWAY_TOKEN`, WeChat credentials, or `OPENCLAW_HOME`.
+
+## `OPENCLAW_HOME`
+
+Required in `~/lifeos/.env`. Absolute path only. Compose binds `${OPENCLAW_HOME}` with **no default**. Set it once on the server; CD will not write it.
 
 ## Secrets
 
@@ -45,7 +48,7 @@ Optional host env `DEPLOY_DIR` (default `$HOME/lifeos`).
 $HOME/lifeos/
   compose.yaml
   ensure-hook-token.sh
-  .env                 # OPENCLAW_HOOK_TOKEN + absolute OPENCLAW_HOME
+  .env                 # you set OPENCLAW_HOME; CD may upsert OPENCLAW_HOOK_TOKEN
   data/life.db
   data/backups/
 ```
