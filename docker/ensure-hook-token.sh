@@ -98,7 +98,8 @@ if ! command -v openclaw >/dev/null; then
 fi
 
 openclaw config set hooks.enabled true
+openclaw config set hooks.path /hooks
 openclaw config set hooks.token "$TOKEN"
-echo "aligned Gateway hooks.token via config set (no json edit, no restart)" >&2
+echo "aligned Gateway hooks.enabled path token via config set (no json edit, no restart)" >&2
 echo "MINTED=$MINTED"
 echo "OPENCLAW_HOME=$OPENCLAW_HOME"
