@@ -15,8 +15,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Wakes the OpenClaw agent via inbound hooks (no OpenClaw heartbeat).
- * POST {gateway}/hooks/agent
+ * POST the Life OS custom webhook on the Gateway:
+ *   {base}{hooks.path}/{hook-name}  →  default POST /hooks/life-os
+ *
+ * Mapping (hooks.mappings) owns action/name/sessionMode/deliver/channel.
+ * This client sends message + to (+ optional model).
  */
 @Component
 @RequiredArgsConstructor
@@ -34,33 +37,41 @@ public class OpenClawClient {
     @Value("${life.openclaw.hook-token:}")
     private String hookToken;
 
+    @Value("${life.openclaw.hooks-path:/hooks}")
+    private String hooksPath;
+
+    @Value("${life.openclaw.hook-name:life-os}")
+    private String hookName;
+
     @Value("${life.openclaw.channel:openclaw-weixin}")
     private String channel;
 
     @Value("${life.openclaw.model:}")
     private String model;
 
+    public String hookUrl() {
+        return trimSlash(baseUrl) + normalizePath(hooksPath) + "/" + hookName;
+    }
+
     public Map<String, Object> wakeProactive(String message, String to) {
         Map<String, Object> out = new LinkedHashMap<>();
+        String url = hookUrl();
+        out.put("url", url);
         if (hookToken == null || hookToken.isBlank()) {
             out.put("ok", false);
             out.put("skipped", "OPENCLAW_HOOK_TOKEN unset");
-            log.warn("skip OpenClaw wake: OPENCLAW_HOOK_TOKEN unset");
+            log.warn("skip OpenClaw webhook: OPENCLAW_HOOK_TOKEN unset");
             return out;
         }
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("message", message);
-            body.put("name", "life-os-proactive");
-            body.put("sessionMode", "isolated");
-            body.put("deliver", true);
-            body.put("channel", channel);
             if (to != null && !to.isBlank()) body.put("to", to);
             if (model != null && !model.isBlank()) body.put("model", model);
             body.put("timeoutSeconds", 90);
 
             String json = mapper.writeValueAsString(body);
-            HttpRequest req = HttpRequest.newBuilder(URI.create(trimSlash(baseUrl) + "/hooks/agent"))
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(15))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + hookToken)
@@ -70,13 +81,23 @@ public class OpenClawClient {
             out.put("ok", res.statusCode() >= 200 && res.statusCode() < 300);
             out.put("status", res.statusCode());
             out.put("body", truncate(res.body()));
-            log.info("OpenClaw /hooks/agent status={}", res.statusCode());
+            log.info("OpenClaw {} status={} channel={}", url, res.statusCode(), channel);
         } catch (Exception e) {
             out.put("ok", false);
             out.put("error", e.getMessage());
-            log.warn("OpenClaw wake failed: {}", e.getMessage());
+            log.warn("OpenClaw webhook failed: {}", e.getMessage());
         }
         return out;
+    }
+
+    static String normalizePath(String raw) {
+        if (raw == null || raw.isBlank() || "/".equals(raw.trim())) {
+            return "/hooks";
+        }
+        String p = raw.trim();
+        if (!p.startsWith("/")) p = "/" + p;
+        while (p.endsWith("/") && p.length() > 1) p = p.substring(0, p.length() - 1);
+        return p;
     }
 
     private static String trimSlash(String s) {
