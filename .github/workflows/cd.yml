@@ -151,8 +151,11 @@ jobs:
             echo "$ENSURE_OUT"
             MINTED=0
             echo "$ENSURE_OUT" | grep -q '^MINTED=1$' && MINTED=1
-            eval "$(echo "$ENSURE_OUT" | grep -E '^OPENCLAW_HOME=')"
-            export OPENCLAW_HOME
+            eval "$(echo "$ENSURE_OUT" | grep -E '^(OPENCLAW_HOME|OPENCLAW_STATE_DIR|OPENCLAW_CONFIG_PATH)=')"
+            # .env OPENCLAW_HOME is the state dir for compose. CLI must not see it as Unix HOME.
+            export OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-$OPENCLAW_HOME}"
+            export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
+            unset OPENCLAW_HOME
 
             if [ -f data/life.db ]; then
               STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -166,7 +169,8 @@ jobs:
             fi
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
-            echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED OPENCLAW_HOME=${OPENCLAW_HOME:-}"
+            echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR:-}"
+            echo "openclaw config file=$(openclaw config file)"
 
             command -v openclaw >/dev/null
             openclaw config validate
