@@ -28,6 +28,8 @@ life:
   openclaw:
     enabled: ${LIFE_OPENCLAW_WAKE:true}
     base-url: ${OPENCLAW_GATEWAY:http://localhost:18789}
+    # Gateway webhook prefix = hooks.path (docs name Webhooks; there is no webhooks.path)
+    hooks-path: ${LIFE_OPENCLAW_HOOKS_PATH:/hooks}
     hook-token: ${OPENCLAW_HOOK_TOKEN:}
     channel: ${LIFE_WEIXIN_CHANNEL:openclaw-weixin}
     model: ${LIFE_PROACTIVE_MODEL:}

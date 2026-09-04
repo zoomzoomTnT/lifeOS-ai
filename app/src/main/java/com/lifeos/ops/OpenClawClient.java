@@ -15,8 +15,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Wakes the OpenClaw agent via inbound hooks (no OpenClaw heartbeat).
- * POST {gateway}/hooks/agent
+ * Wakes OpenClaw via Gateway <em>webhook</em> ingress (docs name: Webhooks).
+ * Config keys are {@code hooks.*}; HTTP prefix is {@code hooks.path} (default {@code /hooks}).
+ * There is no {@code webhooks.path}. Route used here is {@code POST {path}/agent}
+ * (isolated turn + channel deliver). {@code POST {path}/wake} is the main-session
+ * heartbeat nudge and is unused because {@code heartbeat.every=0m}.
  */
 @Component
 @RequiredArgsConstructor
@@ -30,6 +33,10 @@ public class OpenClawClient {
 
     @Value("${life.openclaw.base-url:http://localhost:18789}")
     private String baseUrl;
+
+    /** Must match Gateway {@code hooks.path}. Default {@code /hooks}. */
+    @Value("${life.openclaw.hooks-path:/hooks}")
+    private String hooksPath;
 
     @Value("${life.openclaw.hook-token:}")
     private String hookToken;
@@ -48,6 +55,7 @@ public class OpenClawClient {
             log.warn("skip OpenClaw wake: OPENCLAW_HOOK_TOKEN unset");
             return out;
         }
+        String url = agentUrl();
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("message", message);
@@ -60,7 +68,7 @@ public class OpenClawClient {
             body.put("timeoutSeconds", 90);
 
             String json = mapper.writeValueAsString(body);
-            HttpRequest req = HttpRequest.newBuilder(URI.create(trimSlash(baseUrl) + "/hooks/agent"))
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(15))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + hookToken)
@@ -69,14 +77,32 @@ public class OpenClawClient {
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             out.put("ok", res.statusCode() >= 200 && res.statusCode() < 300);
             out.put("status", res.statusCode());
+            out.put("url", url);
             out.put("body", truncate(res.body()));
-            log.info("OpenClaw /hooks/agent status={}", res.statusCode());
+            log.info("OpenClaw webhook {} status={}", url, res.statusCode());
         } catch (Exception e) {
             out.put("ok", false);
+            out.put("url", url);
             out.put("error", e.getMessage());
-            log.warn("OpenClaw wake failed: {}", e.getMessage());
+            log.warn("OpenClaw wake failed url={}: {}", url, e.getMessage());
         }
         return out;
+    }
+
+    String agentUrl() {
+        return trimSlash(baseUrl) + normalizePath(hooksPath) + "/agent";
+    }
+
+    static String normalizePath(String path) {
+        if (path == null || path.isBlank() || "/".equals(path.trim())) {
+            return "/hooks";
+        }
+        String p = path.trim();
+        if (!p.startsWith("/")) p = "/" + p;
+        while (p.endsWith("/") && p.length() > 1) {
+            p = p.substring(0, p.length() - 1);
+        }
+        return p;
     }
 
     private static String trimSlash(String s) {
