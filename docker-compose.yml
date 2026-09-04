@@ -17,11 +17,13 @@ services:
       OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN:-}
       LIFE_WEIXIN_CHANNEL: ${LIFE_WEIXIN_CHANNEL:-openclaw-weixin}
       LIFE_PROACTIVE_MODEL: ${LIFE_PROACTIVE_MODEL:-}
+      OPENCLAW_HOOKS_PATH: ${OPENCLAW_HOOKS_PATH:-/hooks}
+      OPENCLAW_HOOK_NAME: ${OPENCLAW_HOOK_NAME:-life-os}
       LIFE_OPENCLAW_HOME: /openclaw
       LIFE_OPENCLAW_FILE_LOG: ${LIFE_OPENCLAW_FILE_LOG:-}
     volumes:
       - ${LIFE_DATA:-./data}:/data
-      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw:ro
+      - ${OPENCLAW_HOME}:/openclaw:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8787/actuator/health"]
@@ -44,5 +46,5 @@ services:
       OPENCLAW_SYNC_ROOT: /openclaw
       LIFE_SKILL_SRC: /opt/life-os-skill
     volumes:
-      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw
+      - ${OPENCLAW_HOME}:/openclaw
     restart: "no"

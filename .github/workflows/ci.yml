@@ -74,11 +74,14 @@ jobs:
       packages: write
     env:
       IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
+      OPENCLAW_HOME: /home/runner/.openclaw
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate compose file
-        run: docker compose -f docker-compose.yml config --quiet
+        run: |
+          mkdir -p "$OPENCLAW_HOME"
+          docker compose -f docker-compose.yml config --quiet
 
       - uses: docker/setup-buildx-action@v3
 
@@ -109,12 +112,13 @@ jobs:
           set -euo pipefail
           export LIFE_IMAGE=lifeos-ai:ci
           export LIFE_OPENCLAW_WAKE=false
+          export OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
           mkdir -p data
-          mkdir -p "$HOME/.openclaw/agents/main/sessions"
+          mkdir -p "$OPENCLAW_HOME/agents/main/sessions"
           printf '%s\n' \
             '{"type":"session","timestamp":"2026-08-26T00:00:00Z","id":"ci-sess"}' \
             '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
-            > "$HOME/.openclaw/agents/main/sessions/ci.jsonl"
+            > "$OPENCLAW_HOME/agents/main/sessions/ci.jsonl"
           docker compose up -d --wait --wait-timeout 90
           curl -fsS http://localhost:8787/actuator/health | grep -q '"status":"UP"'
           curl -fsS http://localhost:8787/actuator/health | grep -q '"life"'
@@ -150,8 +154,8 @@ jobs:
           echo "$META" | grep -q 'openclaw_session'
           echo "$META" | grep -qv '秘密对话'
           docker compose --profile sync run --rm skill-sync
-          grep -q 'name: life-os' "$HOME/.openclaw/workspace/skills/life-os/SKILL.md"
-          test -f "$HOME/.openclaw/workspace/HEARTBEAT.md"
+          grep -q 'name: life-os' "$OPENCLAW_HOME/workspace/skills/life-os/SKILL.md"
+          test -f "$OPENCLAW_HOME/workspace/HEARTBEAT.md"
           docker compose down
 
       - name: Login to GHCR

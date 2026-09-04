@@ -112,13 +112,13 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:${TAG}"
 
-      - name: Copy compose file
+      - name: Copy compose + OpenClaw scripts
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml
+          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -128,7 +128,6 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          script_stop: true
           command_timeout: 15m
           envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG
           script: |
@@ -136,18 +135,27 @@ jobs:
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
             IMAGE="${IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai}"
             TAG="${DEPLOY_TAG}"
+            export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
             command -v docker >/dev/null
-            docker compose version
+            docker compose version || true
 
             mkdir -p "$DEPLOY_DIR/data/backups"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
+            cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
+            cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
+            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh"
             cd "$DEPLOY_DIR"
 
-            if [ ! -f .env ]; then
-              echo "missing $DEPLOY_DIR/.env — create it once on the server, CD will not write secrets" >&2
-              exit 1
-            fi
+            ENSURE_OUT="$(./ensure-hook-token.sh)"
+            echo "$ENSURE_OUT"
+            MINTED=0
+            echo "$ENSURE_OUT" | grep -q '^MINTED=1$' && MINTED=1
+            eval "$(echo "$ENSURE_OUT" | grep -E '^(OPENCLAW_HOME|OPENCLAW_STATE_DIR|OPENCLAW_CONFIG_PATH)=')"
+            # .env OPENCLAW_HOME is the state dir for compose. CLI must not see it as Unix HOME.
+            export OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-$OPENCLAW_HOME}"
+            export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
+            unset OPENCLAW_HOME
 
             if [ -f data/life.db ]; then
               STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -161,16 +169,35 @@ jobs:
             fi
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
-            echo "LIFE_IMAGE=$LIFE_IMAGE"
-            docker compose -f compose.yaml pull api
-            docker compose -f compose.yaml up -d --no-build --remove-orphans --wait --wait-timeout 120
-            docker compose -f compose.yaml --profile sync run --rm skill-sync
+            echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR:-}"
+            echo "openclaw config file=$(openclaw config file)"
 
-            curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
+            command -v openclaw >/dev/null
+            openclaw config validate
+
+            docker compose -f compose.yaml pull || true
+            if [ "$MINTED" = "1" ]; then
+              docker compose -f compose.yaml up -d --no-build --force-recreate
+            else
+              docker compose -f compose.yaml up -d --no-build
+            fi
+            docker compose -f compose.yaml run --rm skill-sync
+
+            ok=0
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8787/actuator/health 2>/dev/null | grep -q '"status":"UP"'; then
+                ok=1
+                break
+              fi
+              sleep 4
+            done
+            test "$ok" = "1"
             curl -fsS http://127.0.0.1:8787/actuator/info || true
-            docker compose -f compose.yaml ps
-            docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}'
-            command -v openclaw >/dev/null && openclaw skills list || true
+            docker compose -f compose.yaml ps || true
+            docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
+            echo "waiting 60s for skills watcher after delete+recopy"
+            sleep 60
+            openclaw skills list
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

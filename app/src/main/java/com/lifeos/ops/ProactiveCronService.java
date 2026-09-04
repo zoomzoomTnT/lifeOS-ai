@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -18,6 +19,12 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ProactiveCronService {
+
+    static final String PING_MESSAGE = """
+            life-os webhook ping (manual).
+            Reply exactly 「钩子 OK」 on openclaw-weixin. One short Chinese message.
+            Do not use vision. Do not reply HEARTBEAT_OK. Do not POST /api/memos.
+            """;
 
     private final WakeService wakeService;
     private final OpenClawClient openClawClient;
@@ -66,6 +73,33 @@ public class ProactiveCronService {
         return Map.of("ok", ok, "wake", true, "openclaw", hook, "to", to == null ? "" : to);
     }
 
+    /**
+     * Always POST the Life OS webhook. Skips due-memo gate and proactive lock
+     * so a WeChat ping can be tested when nothing is due.
+     */
+    public Map<String, Object> ping(Map<String, Object> body) {
+        Map<String, Object> req = body == null ? Map.of() : body;
+        String to = stringVal(req.get("to"));
+        if (to == null || to.isBlank()) {
+            to = people.findOwnerHandle().orElse(null);
+        }
+        String message = stringVal(req.get("message"));
+        if (message == null || message.isBlank()) {
+            message = PING_MESSAGE;
+        }
+        Map<String, Object> hook = openClawClient.wakeProactive(message, to);
+        boolean ok = Boolean.TRUE.equals(hook.get("ok"));
+        events.insert("ops", "webhook_ping", 1L, "ops", null, ok ? "ok" : "failed");
+        log.info("webhook ping ok={} to={} url={}", ok, to, hook.get("url"));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", ok);
+        out.put("wake", true);
+        out.put("forced", true);
+        out.put("to", to == null ? "" : to);
+        out.put("openclaw", hook);
+        return out;
+    }
+
     private String prompt(Map<String, Object> gate) {
         @SuppressWarnings("unchecked")
         List<Memo> due = (List<Memo>) gate.get("due_memos");
@@ -98,5 +132,9 @@ public class ProactiveCronService {
                   value=excluded.value,
                   updated_at=excluded.updated_at
                 """, lockMinutes);
+    }
+
+    private static String stringVal(Object v) {
+        return v == null ? null : String.valueOf(v);
     }
 }

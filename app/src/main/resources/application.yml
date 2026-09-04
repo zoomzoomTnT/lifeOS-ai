@@ -29,6 +29,8 @@ life:
     enabled: ${LIFE_OPENCLAW_WAKE:true}
     base-url: ${OPENCLAW_GATEWAY:http://localhost:18789}
     hook-token: ${OPENCLAW_HOOK_TOKEN:}
+    hooks-path: ${OPENCLAW_HOOKS_PATH:/hooks}
+    hook-name: ${OPENCLAW_HOOK_NAME:life-os}
     channel: ${LIFE_WEIXIN_CHANNEL:openclaw-weixin}
     model: ${LIFE_PROACTIVE_MODEL:}
     home: ${LIFE_OPENCLAW_HOME:}
