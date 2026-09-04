@@ -68,8 +68,8 @@ That writes `$OPENCLAW_HOME/workspace/skills/life-os` and `HEARTBEAT.md`.
 
 
 1. Run the Spring Boot app so the API is listening (`docker compose up -d`).
-2. Merge `openclaw/openclaw.json` (`heartbeat.every=0m`, `hooks.enabled`). Set `OPENCLAW_HOOK_TOKEN`.
-3. Java cron wakes this skill via `POST /hooks/agent` only when memos are due. Do not create a 30m model heartbeat.
+2. Merge `openclaw/openclaw.json` (`heartbeat.every=0m`, webhook ingress `hooks.enabled` + `hooks.path=/hooks`). Set `OPENCLAW_HOOK_TOKEN`.
+3. Java cron wakes this skill via Gateway webhook `POST /hooks/agent` only when memos are due. Do not use `/hooks/wake` or a 30m model heartbeat.
 4. Vision model required for receipt photos only, never for proactive.
 
 ## Backup

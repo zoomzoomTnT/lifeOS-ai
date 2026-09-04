@@ -2,7 +2,8 @@
 
 **Do not run an OpenClaw model heartbeat.** `heartbeat.every = 0m` in versioned `openclaw/openclaw.json`.
 
-Java is the clock. When a memo is actually due, Spring cron reverse-calls OpenClaw:
+Java is the clock. When a memo is actually due, Spring cron reverse-calls OpenClaw
+**webhook** ingress (`hooks.*` config, default prefix `/hooks`):
 
 ```
 Spring @Scheduled every minute
@@ -10,13 +11,15 @@ Spring @Scheduled every minute
   if wake → POST $OPENCLAW_GATEWAY/hooks/agent  (one isolated skill turn)
 ```
 
+There is no `/webhooks/*` route and no `webhooks.path` key. See repo `docs/webhooks.md`.
+
 ## Wake sources (allowed)
 
 | Source | Cost | Use |
 |---|---|---|
 | Spring `ProactiveCronService` → `/hooks/agent` | one model call when due | options, expiry, stale receipt |
 | User message | normal | 记账 / 小票 |
-| OpenClaw heartbeat | **off** (`every: 0m`) | do not re-enable |
+| `/hooks/wake` or OpenClaw heartbeat | **off** | do not re-enable; wake is main-session only |
 
 Exact minute (美东周五 8:25) works because Java polls every minute and only fires when `due_at` is within 10 minutes.
 
