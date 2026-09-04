@@ -10,6 +10,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -51,6 +53,29 @@ public class OpenClawClient {
 
     public String hookUrl() {
         return trimSlash(baseUrl) + normalizePath(hooksPath) + "/" + hookName;
+    }
+
+    /** Same secret as Gateway hooks.token. Empty configured token → reject. */
+    public boolean hookTokenMatches(String authorization, String openclawTokenHeader) {
+        String presented = presentedToken(authorization, openclawTokenHeader);
+        if (hookToken == null || hookToken.isBlank() || presented == null) return false;
+        byte[] a = hookToken.getBytes(StandardCharsets.UTF_8);
+        byte[] b = presented.getBytes(StandardCharsets.UTF_8);
+        return MessageDigest.isEqual(a, b);
+    }
+
+    static String presentedToken(String authorization, String openclawTokenHeader) {
+        if (authorization != null) {
+            String v = authorization.trim();
+            if (v.length() >= 7 && v.regionMatches(true, 0, "Bearer ", 0, 7)) {
+                String tok = v.substring(7).trim();
+                if (!tok.isEmpty()) return tok;
+            }
+        }
+        if (openclawTokenHeader != null && !openclawTokenHeader.isBlank()) {
+            return openclawTokenHeader.trim();
+        }
+        return null;
     }
 
     public Map<String, Object> wakeProactive(String message, String to) {

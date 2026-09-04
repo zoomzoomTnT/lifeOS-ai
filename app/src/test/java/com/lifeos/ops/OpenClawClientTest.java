@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OpenClawClientTest {
@@ -56,6 +57,25 @@ class OpenClawClientTest {
         assertTrue(body.get().contains("\"message\":\"hello\""));
         assertTrue(body.get().contains("\"to\":\"wxid_test\""));
         assertTrue(String.valueOf(res.get("url")).endsWith("/hooks/life-os"));
+    }
+
+    @Test
+    void hookTokenMatchesBearerAndOpenClawHeader() {
+        OpenClawClient client = new OpenClawClient(new ObjectMapper());
+        ReflectionTestUtils.setField(client, "hookToken", "hook-secret");
+        assertTrue(client.hookTokenMatches("Bearer hook-secret", null));
+        assertTrue(client.hookTokenMatches("bearer hook-secret", null));
+        assertTrue(client.hookTokenMatches(null, "hook-secret"));
+        assertFalse(client.hookTokenMatches("Bearer other", null));
+        assertFalse(client.hookTokenMatches(null, null));
+        assertFalse(client.hookTokenMatches("hook-secret", null));
+    }
+
+    @Test
+    void hookTokenRejectsWhenUnset() {
+        OpenClawClient client = new OpenClawClient(new ObjectMapper());
+        ReflectionTestUtils.setField(client, "hookToken", "");
+        assertFalse(client.hookTokenMatches("Bearer anything", null));
     }
 
     @Test

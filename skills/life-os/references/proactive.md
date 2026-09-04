@@ -46,8 +46,10 @@ The prompt will say `life-os webhook ping`. Then:
 curl -s "$LIFE_API_BASE/api/ops/should-wake?lead_minutes=10"
 # due-memo path (no-op if nothing is due)
 curl -s -X POST "$LIFE_API_BASE/api/ops/proactive/run" -H 'Content-Type: application/json' -d '{"force":true}'
-# always fires WeChat
-curl -s -X POST "$LIFE_API_BASE/api/ops/webhook/ping" -H 'Content-Type: application/json' -d '{}'
+# always fires WeChat — same token as hooks.token
+curl -s -X POST "$LIFE_API_BASE/api/ops/webhook/ping" \
+  -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
+  -H 'Content-Type: application/json' -d '{}'
 ```
 
 Optional body: `{ "to": "<weixin peer id>", "message": "…" }`.
