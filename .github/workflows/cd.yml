@@ -168,6 +168,12 @@ jobs:
             echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED OPENCLAW_HOME=${OPENCLAW_HOME:-}"
 
             command -v openclaw >/dev/null
+            HOOK_TOKEN="$(grep -E '^OPENCLAW_HOOK_TOKEN=' .env | tail -n1 | cut -d= -f2-)"
+            HOOK_TOKEN="${HOOK_TOKEN#\"}"
+            HOOK_TOKEN="${HOOK_TOKEN%\"}"
+            openclaw config set hooks.enabled true
+            openclaw config set hooks.path /hooks
+            openclaw config set hooks.token "$HOOK_TOKEN"
             openclaw config set skills.load.watch true
 
             docker compose -f compose.yaml pull || true
