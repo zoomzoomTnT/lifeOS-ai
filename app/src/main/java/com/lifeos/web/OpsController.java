@@ -73,6 +73,12 @@ public class OpsController {
         return ResponseEntity.ok(proactiveCronService.run(force));
     }
 
+    /** Always invoke the Gateway Life OS webhook and deliver to WeChat. */
+    @PostMapping("/webhook/ping")
+    public ResponseEntity<?> webhookPing(@RequestBody(required = false) Map<String, Object> body) {
+        return ResponseEntity.ok(proactiveCronService.ping(body));
+    }
+
     @PostMapping("/logs/ingest")
     public ResponseEntity<?> ingestLogs() {
         return ResponseEntity.ok(logIngestService.run());
