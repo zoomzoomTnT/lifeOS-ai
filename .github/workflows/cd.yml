@@ -112,13 +112,13 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:${TAG}"
 
-      - name: Copy compose + ensure script
+      - name: Copy compose + OpenClaw config script
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml,docker/ensure-hook-token.sh
+          source: docker-compose.yml,docker/openclaw-config.sh
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -142,11 +142,11 @@ jobs:
 
             mkdir -p "$DEPLOY_DIR/data/backups"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
-            cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
-            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh"
+            cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
+            chmod +x "$DEPLOY_DIR/openclaw-config.sh"
             cd "$DEPLOY_DIR"
 
-            ENSURE_OUT="$(./ensure-hook-token.sh)"
+            ENSURE_OUT="$(./openclaw-config.sh)"
             echo "$ENSURE_OUT"
             MINTED=0
             echo "$ENSURE_OUT" | grep -q '^MINTED=1$' && MINTED=1
