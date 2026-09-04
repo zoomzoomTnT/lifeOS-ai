@@ -46,11 +46,12 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 | 变量 | 必填 | 作用 |
 |---|---|---|
-| `OPENCLAW_HOOK_TOKEN` | **是** | Spring 调 `POST /hooks/agent`。必须等于 `openclaw.json` 的 `hooks.token` |
+| `OPENCLAW_HOOK_TOKEN` | **是** | Spring 调 Gateway **webhook** `POST /hooks/agent`。必须等于 `hooks.token`（不是 `webhooks.token`） |
 | `OPENCLAW_GATEWAY_TOKEN` | **是** | Gateway 自身 auth |
 | `OPENCLAW_GATEWAY` | Docker 默认即可 | compose 默认 `http://host.docker.internal:18789` |
 | `LIFE_OPENCLAW_WAKE` | 默认 `true` | `false` = 只扫库、不叫醒模型（CI 用） |
-| `LIFE_WEIXIN_CHANNEL` | 默认 `openclaw-weixin` | `/hooks/agent` 的 `channel` |
+| `LIFE_WEIXIN_CHANNEL` | 默认 `openclaw-weixin` | `POST {hooks.path}/agent` 的 `channel` |
+| `LIFE_OPENCLAW_HOOKS_PATH` | 默认 `/hooks` | 必须等于 Gateway `hooks.path`。没有 `webhooks.path` |
 | `LIFE_PROACTIVE_MODEL` | 可选 | 主动提醒用的便宜文本模型；空 = Gateway 默认 |
 | `LIFE_API_PORT` | 默认 `8787` | 宿主机端口 |
 | `LIFE_DATA` | 默认 `./data` | `life.db` 目录，**备份这个文件夹** |
@@ -66,7 +67,11 @@ export OPENCLAW_HOOK_TOKEN='和 .env 相同'
 export OPENCLAW_GATEWAY_TOKEN='原来的 gateway token'
 ```
 
-### 2. OpenClaw 钩子（`~/.openclaw/openclaw.json`）
+### 2. OpenClaw webhook 入口（配置键仍是 `hooks.*`）
+
+OpenClaw 文档把这项功能叫 **[Webhooks](https://docs.openclaw.ai/automation/webhook)**。
+配置命名空间和 URL 前缀仍是 `hooks.*` / `/hooks`。**不要**写 `webhooks.enabled` 或把 path 设成 `/webhooks`。
+`openclaw hooks` 是另一套（内部 `HOOK.md`），和 HTTP 入口无关。路径与路由见 [docs/webhooks.md](docs/webhooks.md)。
 
 仓库模板：[openclaw/openclaw.json](openclaw/openclaw.json)（无密钥）。**合并**进你现有的配置，微信插件 / 模型 key 留在本地。
 
@@ -135,7 +140,7 @@ curl -sS -X POST http://localhost:18789/hooks/agent \
 | 400 | `channel` / `to` 只填了一个 |
 | 容器连不上 | 要用 `host.docker.internal:18789`，Gateway 听 `localhost:18789` |
 
-官方字段：[Automations / hooks](https://docs.openclaw.ai/automation/cron-jobs)。
+官方字段：[Webhooks](https://docs.openclaw.ai/automation/webhook)（config = `hooks.*`）。设计说明：[docs/webhooks.md](docs/webhooks.md)。
 
 ### 3. Skill 自动加载
 
@@ -243,7 +248,7 @@ curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true'  # �
 - [ ] `skill-sync` 之后存在 `~/.openclaw/workspace/skills/life-os/SKILL.md`
 - [ ] `openclaw skills list` 有 `life-os`
 - [ ] `curl /actuator/health` 且 `"status":"UP"`
-- [ ] `POST /api/ops/proactive/run` 没到期时 `wake=false`；到期时 Gateway 出现 `/hooks/agent`
+- [ ] `POST /api/ops/proactive/run` 没到期时 `wake=false`；到期时 Gateway 出现 `POST /hooks/agent`（不是 `/hooks/wake`，也不是 `/webhooks/*`）
 - [ ] `POST /api/ops/logs/ingest` 的 `session_rows` 会涨
 - [ ] `./data/life.db` 纳入备份
 
@@ -293,6 +298,7 @@ docker compose -f compose.yaml --profile sync run --rm skill-sync
 ├── docs/api.md
 ├── docs/logging.md
 ├── docs/cd.md                  # CD secrets / 触发 / 可扩展
+├── docs/webhooks.md            # OpenClaw webhook 入口：hooks.path + /hooks/agent
 ├── app/                        # Spring Boot 4.1 + Java 21
 ├── skills/life-os/             # 完整 OpenClaw skill
 ├── .github/workflows/ci.yml    # main：测试 + 推镜像
@@ -374,6 +380,6 @@ curl -fsS http://localhost:8787/actuator/health
 - Bean 注入用 Lombok `@RequiredArgsConstructor`（一行，不手写构造器）。
 - CHECK 值用 enum（`eaten` / `discarded` / `in_stock`…），JSON 存库都是小写字符串。
 - 写入只走 Java REST。skill 只做视觉 / 意图 / 中文。
-- 主动提醒：Spring cron 扫库，到期才打 `/hooks/agent`。
+- 主动提醒：Spring cron 扫库，到期才打 Gateway webhook `POST /hooks/agent`。
 - 对话在 `ai_session_logs`，应用日志在 `app_logs`。
 - 校验失败走 `{error, message, details}`（`ApiExceptionHandler`）。
