@@ -21,10 +21,17 @@ Every deploy, on the host:
 
 1. If `~/lifeos/.env` already has a non-empty `OPENCLAW_HOOK_TOKEN`, reuse it.
 2. Else mint `secrets.token_urlsafe(32)`, create/upsert `.env` (`chmod 600`).
-3. `openclaw config set hooks.enabled true`
-4. `openclaw config set hooks.token "<same value>"`
+3. `docker/openclaw-config.sh` runs `openclaw config set` (echoed, token redacted):
+   - `hooks.enabled true`
+   - `hooks.path /hooks`
+   - `hooks.token <same value>`
+   - `hooks.mappings` → custom webhook `POST /hooks/life-os` (`action=agent`, deliver to `openclaw-weixin`)
+   - `skills.load.watch true`
+4. Script then `openclaw config get`s the non-secret keys so the CD log shows what landed.
 
-No edits to `openclaw.json`. No `gateway restart`. Recreate the API container only on **first mint**.
+No direct edits to `openclaw.json`. No `gateway restart`. Recreate the API container only on **first mint**.
+
+Do **not** enable `plugins.entries.webhooks` for this. That plugin is TaskFlow CRUD and does not start an agent or send WeChat.
 
 Does not invent `OPENCLAW_GATEWAY_TOKEN`, WeChat credentials, or `OPENCLAW_HOME`.
 
