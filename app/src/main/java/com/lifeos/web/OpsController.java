@@ -1,10 +1,12 @@
 package com.lifeos.web;
 
 import com.lifeos.ops.LogIngestService;
+import com.lifeos.ops.OpenClawClient;
 import com.lifeos.ops.OpsService;
 import com.lifeos.ops.ProactiveCronService;
 import com.lifeos.ops.WakeService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,6 +28,7 @@ public class OpsController {
     private final WakeService wakeService;
     private final ProactiveCronService proactiveCronService;
     private final LogIngestService logIngestService;
+    private final OpenClawClient openClawClient;
 
     @PostMapping("/ai")
     public ResponseEntity<?> recordAi(@RequestBody Map<String, Object> body,
@@ -75,7 +78,15 @@ public class OpsController {
 
     /** Always invoke the Gateway Life OS webhook and deliver to WeChat. */
     @PostMapping("/webhook/ping")
-    public ResponseEntity<?> webhookPing(@RequestBody(required = false) Map<String, Object> body) {
+    public ResponseEntity<?> webhookPing(
+            @RequestBody(required = false) Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "x-openclaw-token", required = false) String openclawToken) {
+        if (!openClawClient.hookTokenMatches(authorization, openclawToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization: Bearer <OPENCLAW_HOOK_TOKEN> required"));
+        }
         return ResponseEntity.ok(proactiveCronService.ping(body));
     }
 
