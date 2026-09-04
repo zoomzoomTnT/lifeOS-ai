@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ensure OPENCLAW_HOOK_TOKEN exists on the host and matches Gateway hooks.token.
+# Ensure OPENCLAW_HOOK_TOKEN exists and align Gateway hooks + skills watch.
 # Requires OPENCLAW_HOME in .env to be an existing absolute directory (does not create it).
 # Prints MINTED=0|1 and OPENCLAW_HOME=... on stdout.
 set -euo pipefail
@@ -91,15 +91,17 @@ fi
 upsert_env OPENCLAW_HOOK_TOKEN "$TOKEN"
 
 if ! command -v openclaw >/dev/null; then
-  echo "openclaw not on PATH; wrote $ENVF only. Run: openclaw config set hooks.token <token>" >&2
+  echo "openclaw not on PATH; wrote $ENVF only" >&2
   echo "MINTED=$MINTED"
   echo "OPENCLAW_HOME=$OPENCLAW_HOME"
   exit 0
 fi
 
 openclaw config set hooks.enabled true
-openclaw config set hooks.path /hooks
+openclaw config set hooks.path "/hooks"
 openclaw config set hooks.token "$TOKEN"
-echo "aligned Gateway hooks.enabled path token via config set (no json edit, no restart)" >&2
+openclaw config set skills.load.watch true
+echo "set hooks.enabled=true hooks.path=/hooks hooks.token=<redacted> skills.load.watch=true" >&2
+openclaw config get hooks.path >&2 || true
 echo "MINTED=$MINTED"
 echo "OPENCLAW_HOME=$OPENCLAW_HOME"
