@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Ensure OPENCLAW_HOOK_TOKEN in ~/lifeos/.env, then apply OpenClaw config.
-# Requires OPENCLAW_HOME in .env to be an existing absolute directory.
-# Prints MINTED=0|1 and OPENCLAW_HOME=... on stdout.
+# Requires OPENCLAW_HOME in .env to be an existing absolute STATE directory.
+# Prints MINTED=0|1, OPENCLAW_HOME=..., OPENCLAW_STATE_DIR=..., OPENCLAW_CONFIG_PATH=...
+# OPENCLAW_HOME on stdout is the compose volume path. Do not export it to the CLI.
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -67,17 +68,23 @@ os.chmod(path, 0o600)
 PY
 }
 
-HOME_PATH="$(read_env_key OPENCLAW_HOME || true)"
-if [[ -z "$HOME_PATH" ]]; then
-  echo "OPENCLAW_HOME is empty in $ENVF — set an absolute existing directory" >&2
+STATE_PATH="$(read_env_key OPENCLAW_HOME || true)"
+if [[ -z "$STATE_PATH" ]]; then
+  echo "OPENCLAW_HOME is empty in $ENVF — set an absolute existing state directory" >&2
   exit 1
 fi
-if [[ ! -d "$HOME_PATH" ]]; then
-  echo "OPENCLAW_HOME=$HOME_PATH does not exist on the host (CD will not create it)" >&2
+if [[ ! -d "$STATE_PATH" ]]; then
+  echo "OPENCLAW_HOME=$STATE_PATH does not exist on the host (CD will not create it)" >&2
   exit 1
 fi
-export OPENCLAW_HOME="$HOME_PATH"
-echo "OPENCLAW_HOME=$OPENCLAW_HOME" >&2
+
+# Compose volume = state dir. CLI must see STATE_DIR / CONFIG_PATH, not OPENCLAW_HOME.
+export OPENCLAW_STATE_DIR="$STATE_PATH"
+export OPENCLAW_CONFIG_PATH="$STATE_PATH/openclaw.json"
+unset OPENCLAW_HOME
+echo "OPENCLAW_HOME=$STATE_PATH (state dir; not exported to CLI)" >&2
+echo "OPENCLAW_STATE_DIR=$OPENCLAW_STATE_DIR" >&2
+echo "OPENCLAW_CONFIG_PATH=$OPENCLAW_CONFIG_PATH" >&2
 
 TOKEN="$(read_env_key OPENCLAW_HOOK_TOKEN || true)"
 MINTED=0
@@ -94,10 +101,14 @@ upsert_env OPENCLAW_HOOK_TOKEN "$TOKEN"
 if ! command -v openclaw >/dev/null; then
   echo "openclaw not on PATH; wrote $ENVF only" >&2
   echo "MINTED=$MINTED"
-  echo "OPENCLAW_HOME=$OPENCLAW_HOME"
+  echo "OPENCLAW_HOME=$STATE_PATH"
+  echo "OPENCLAW_STATE_DIR=$STATE_PATH"
+  echo "OPENCLAW_CONFIG_PATH=$STATE_PATH/openclaw.json"
   exit 0
 fi
 
 "$HERE/openclaw-config.sh" "$TOKEN"
 echo "MINTED=$MINTED"
-echo "OPENCLAW_HOME=$OPENCLAW_HOME"
+echo "OPENCLAW_HOME=$STATE_PATH"
+echo "OPENCLAW_STATE_DIR=$STATE_PATH"
+echo "OPENCLAW_CONFIG_PATH=$STATE_PATH/openclaw.json"

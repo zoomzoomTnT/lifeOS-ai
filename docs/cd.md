@@ -21,13 +21,14 @@ Every deploy, on the host:
 
 1. If `~/lifeos/.env` already has a non-empty `OPENCLAW_HOOK_TOKEN`, reuse it.
 2. Else mint `secrets.token_urlsafe(32)`, create/upsert `.env` (`chmod 600`).
-3. `docker/openclaw-config.sh` runs `openclaw config set` (echoed, token redacted):
+3. `docker/openclaw-config.sh` binds CLI paths, then runs `openclaw config set` (echoed, token redacted):
    - `hooks.enabled true`
    - `hooks.path /hooks`
    - `hooks.token <same value>`
    - `hooks.mappings` → custom webhook `POST /hooks/life-os` (`action=agent`, deliver to `openclaw-weixin`)
    - `skills.load.watch true`
 4. Script then `openclaw config get`s the non-secret keys so the CD log shows what landed.
+5. Log line `openclaw config file=` must be `$OPENCLAW_HOME/openclaw.json`, never `$OPENCLAW_HOME/.openclaw/openclaw.json`.
 
 No direct edits to `openclaw.json`. No `gateway restart`. Recreate the API container only on **first mint**.
 
@@ -37,7 +38,14 @@ Does not invent `OPENCLAW_GATEWAY_TOKEN`, WeChat credentials, or `OPENCLAW_HOME`
 
 ## `OPENCLAW_HOME`
 
-Required in `~/lifeos/.env`. Absolute path only. Compose binds `${OPENCLAW_HOME}` with **no default**. Set it once on the server; CD will not write it.
+Required in `~/lifeos/.env`. Absolute path only — this is the OpenClaw **state directory** (usually `~/.openclaw`), used as the compose volume. Compose binds `${OPENCLAW_HOME}` with **no default**. Set it once on the server; CD will not write it.
+
+Do **not** export that value as `OPENCLAW_HOME` into the OpenClaw CLI. The CLI treats `OPENCLAW_HOME` as Unix `$HOME` and resolves config to `$OPENCLAW_HOME/.openclaw/openclaw.json`. CD instead exports:
+
+- `OPENCLAW_STATE_DIR=$OPENCLAW_HOME`
+- `OPENCLAW_CONFIG_PATH=$OPENCLAW_HOME/openclaw.json`
+
+and unsets `OPENCLAW_HOME` before `openclaw config set|get|validate` and `openclaw skills list`.
 
 ## Secrets
 
