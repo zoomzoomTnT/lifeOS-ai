@@ -64,4 +64,77 @@ class SchemaInitializerSqliteTest {
         assertThat(count(jdbc, "SELECT COUNT(*) FROM model_prices WHERE notes='estimate; prefer invoice / TokenHub'")).isEqualTo(1);
         assertThat(count(jdbc, "SELECT COUNT(*) FROM schema_migrations WHERE name='0004_session_v3'")).isEqualTo(1);
     }
+
+    /** Captures this class's log output during one run. */
+    private static java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> logsOf(ThrowingRunnable r) throws Exception {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(SchemaInitializer.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> app =
+                new ch.qos.logback.core.read.ListAppender<>();
+        app.start();
+        logger.addAppender(app);
+        try {
+            r.run();
+        } finally {
+            logger.detachAppender(app);
+        }
+        return app.list;
+    }
+
+    interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    private static java.util.List<String> warnings(java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> events) {
+        return events.stream().filter(e -> e.getLevel().isGreaterOrEqual(ch.qos.logback.classic.Level.WARN))
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    @Test
+    void freshStartLogsNoWarnings() throws Exception {
+        JdbcTemplate jdbc = sqlite();
+        assertThat(warnings(logsOf(() -> runInit(jdbc)))).isEmpty();
+        assertThat(warnings(logsOf(() -> runInit(jdbc)))).as("re-run (duplicate columns are expected)").isEmpty();
+    }
+
+    /** Like Turso's legacy HTTP endpoint: PRAGMA writes are refused. */
+    static final class NoPragmaWrites extends JdbcTemplate {
+        NoPragmaWrites(JdbcTemplate real) {
+            super(real.getDataSource());
+        }
+
+        @Override
+        public void execute(String sql) {
+            if (sql.strip().toUpperCase().startsWith("PRAGMA") && sql.contains("=")) {
+                throw new org.springframework.jdbc.UncategorizedSQLException("execute", sql, new java.sql.SQLException(
+                        "Protocol error: interactive transactions are not supported for legacy HTTP protocol"));
+            }
+            super.execute(sql);
+        }
+    }
+
+    @Test
+    void freshStartOnAServerThatRefusesPragmaWritesStillBuildsTheSchemaWithoutWarnings() throws Exception {
+        JdbcTemplate jdbc = new NoPragmaWrites(sqlite());
+        java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> events = logsOf(() -> runInit(jdbc));
+        assertThat(warnings(events)).isEmpty();
+        assertThat(events).extracting(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .anyMatch(m -> m.contains("PRAGMA not supported") && m.contains("foreign_keys"))
+                .anyMatch(m -> m.contains("PRAGMA not supported") && m.contains("journal_mode"));
+        assertThat(count(jdbc, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='merchants'")).isEqualTo(1);
+        assertThat(count(jdbc, "SELECT COUNT(*) FROM model_prices")).isEqualTo(7);
+    }
+
+    @Test
+    void unexpectedStatementFailureFailsStartup() throws Exception {
+        Path script = Files.createTempFile("lifeos-bad-", ".sql");
+        Files.writeString(script, "CREATE TABLE people (id INTEGER PRIMARY KEY);\nINSERT INTO no_such_table VALUES (1);\n");
+        JdbcTemplate jdbc = sqlite();
+        SchemaInitializer init = new SchemaInitializer(jdbc, new DefaultResourceLoader());
+        ReflectionTestUtils.setField(init, "schemaPath", script.toUri().toString());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> init.run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("INSERT INTO no_such_table")
+                .hasMessageContaining("no such table");
+    }
 }

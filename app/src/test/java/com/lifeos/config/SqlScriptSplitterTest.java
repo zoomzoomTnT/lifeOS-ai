@@ -107,4 +107,51 @@ class SqlScriptSplitterTest {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
+
+    @Test
+    void caseEndInsideTriggerBodyDoesNotEndTheTrigger() {
+        List<String> out = SqlScriptSplitter.split("""
+                CREATE TRIGGER t1 AFTER INSERT ON a BEGIN
+                  UPDATE a SET x = CASE WHEN NEW.y > 0 THEN 'p;os' ELSE 'neg' END;
+                  UPDATE a SET z = 1;
+                END;
+                SELECT 1;
+                """);
+        assertThat(out).hasSize(2);
+        assertThat(out.get(0)).startsWith("CREATE TRIGGER t1").contains("UPDATE a SET z = 1").endsWith("END");
+        assertThat(out.get(1)).isEqualTo("SELECT 1");
+    }
+
+    @Test
+    void nestedCaseInsideTriggerBody() {
+        List<String> out = SqlScriptSplitter.split("""
+                CREATE TEMP TRIGGER t2 BEFORE UPDATE ON a BEGIN
+                  SELECT CASE NEW.k WHEN 1 THEN (CASE WHEN NEW.v IS NULL THEN RAISE(ABORT, 'end;') END) ELSE 0 END;
+                  /* END; in a comment */ UPDATE a SET "end" = 2 -- END;
+                  ;
+                END;
+                SELECT CASE WHEN 1 THEN 'x' END;
+                """);
+        assertThat(out).hasSize(2);
+        assertThat(out.get(0)).contains("UPDATE a SET \"end\" = 2").endsWith("END");
+        assertThat(out.get(1)).startsWith("SELECT CASE");
+    }
+
+    @Test
+    void unclosedQuoteBracketOrCommentIsAnError() {
+        for (String bad : List.of("SELECT 'abc;\nSELECT 2;", "SELECT \"x;", "SELECT `x;", "SELECT [x;",
+                "SELECT 1; /* never closed; SELECT 2;")) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> SqlScriptSplitter.split(bad))
+                    .as(bad).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unterminated");
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> SqlScriptSplitter.split("x\nSELECT 'oops"))
+                .hasMessageContaining("line 2");
+    }
+
+    @Test
+    void unclosedTriggerBodyIsAnError() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> SqlScriptSplitter.split(
+                        "CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE a SET x = CASE WHEN 1 THEN 2 END;"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("TRIGGER");
+    }
 }

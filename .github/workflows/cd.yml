@@ -229,7 +229,12 @@ jobs:
               fi
               sleep 4
             done
-            test "$ok" = "1"
+            if [ "$ok" != "1" ]; then
+              echo "::error::lifeos-api did not become healthy within 120s"
+              docker compose -f compose.yaml ps || true
+              docker compose -f compose.yaml logs --no-color --tail=200 api || docker logs --tail=200 lifeos-api || true
+              exit 1
+            fi
             curl -fsS http://127.0.0.1:8787/actuator/info || true
             docker compose -f compose.yaml ps || true
             docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
