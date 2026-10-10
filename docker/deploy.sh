@@ -7,8 +7,16 @@ set -euo pipefail
 ROOT="${DEPLOY_DIR:-$HOME/lifeos}"
 cd "$ROOT"
 
-command -v docker >/dev/null
-docker compose version
+if ! command -v docker >/dev/null 2>&1; then
+  echo "docker not found (PATH=$PATH). Install Docker Engine + Compose V2 plugin (docs/cd.md#server-prerequisites)." >&2
+  exit 1
+fi
+if ! docker compose version; then
+  echo "'docker compose' (Compose V2) not available. Install the docker-compose-plugin." >&2
+  exit 1
+fi
+# compose mounts this empty dir when OPENCLAW_HOME is unset (OpenClaw off)
+mkdir -p openclaw-disabled
 
 FILE=compose.yaml
 if [ ! -f "$FILE" ] && [ -f docker-compose.yml ]; then

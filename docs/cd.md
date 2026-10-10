@@ -77,3 +77,34 @@ $HOME/lifeos/
 ```
 
 Host needs: Docker Engine + Compose V2 plugin, `openclaw` on PATH for the SSH user.
+
+## Server prerequisites
+
+A fresh host needs, for the SSH user CD logs in as:
+
+- Docker Engine running, with the **Compose V2 plugin** (`docker compose version` works; not legacy `docker-compose`)
+- the user can talk to the daemon without sudo (`docker info` works; user in the `docker` group)
+- `curl` (health check)
+
+CD preflight prints `preflight: ...` lines and fails with an `::error::` naming the missing piece.
+
+Alibaba Cloud Linux 3 / CentOS / RHEL-like:
+
+```bash
+sudo dnf -y install dnf-plugins-core curl
+sudo dnf -y install dnf-plugin-releasever-adapter --repo alinux3-plus   # Alibaba Cloud Linux 3 only
+sudo dnf config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"   # then log out/in
+docker compose version && docker info >/dev/null && echo OK
+```
+
+Ubuntu / Debian:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"   # then log out/in
+docker compose version && docker info >/dev/null && echo OK
+```

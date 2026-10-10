@@ -140,10 +140,25 @@ jobs:
             [ -n "${TURSO_DATABASE_URL:-}" ] || unset TURSO_DATABASE_URL
             [ -n "${TURSO_AUTH_TOKEN:-}" ] || unset TURSO_AUTH_TOKEN
 
-            command -v docker >/dev/null
-            docker compose version || true
+            # Preflight: fail loudly (a bare `command -v docker` under set -e exits 1 with no output).
+            echo "preflight: host=$(hostname) user=$(id -un) groups=$(id -Gn)"
+            if [ -r /etc/os-release ]; then ( . /etc/os-release; echo "preflight: os=${PRETTY_NAME:-unknown}" ); fi
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "::error::docker not found on server (PATH=$PATH). Install Docker Engine + Compose V2 plugin (see docs/cd.md#server-prerequisites)." >&2
+              exit 1
+            fi
+            echo "preflight: docker=$(command -v docker)"
+            if ! docker compose version; then
+              echo "::error::'docker compose' (Compose V2) not available on server. Install the docker-compose-plugin (see docs/cd.md#server-prerequisites)." >&2
+              exit 1
+            fi
+            if ! docker info >/dev/null 2>&1; then
+              echo "::error::docker daemon not reachable as $(id -un). Run: sudo systemctl enable --now docker && sudo usermod -aG docker $(id -un) (then reconnect)." >&2
+              exit 1
+            fi
+            command -v curl >/dev/null 2>&1 || { echo "::error::curl not found on server (needed for health check)." >&2; exit 1; }
 
-            mkdir -p "$DEPLOY_DIR/data/backups"
+            mkdir -p "$DEPLOY_DIR/data/backups" "$DEPLOY_DIR/openclaw-disabled"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
             cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
             cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
