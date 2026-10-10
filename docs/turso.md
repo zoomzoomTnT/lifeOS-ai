@@ -98,9 +98,11 @@ errors read `PRAGMA foreign_keys=ON refused by the server...` or
    Both test classes must pass (0 skipped). Do not point these tests at the live database: they
    create and drop tables.
 
-2. **Read-only foreign-key check on the live database.** Writes since `bf5ce57` relied only on
-   Turso's default `foreign_keys=1` and were never checked by us; the new driver enforces FKs on
-   every statement, so existing orphans would make related writes fail later:
+2. **Read-only foreign-key check on the live database.** Writes since `bf5ce57` went through the
+   old driver without our PRAGMA, so whether hosted Turso enforced FKs for them is **unverified**
+   (Turso documents `foreign_keys` as OFF by default; PR #26's startup check only logs what it
+   reads; the smoke test above confirms the new driver's behaviour, not the past). The new driver
+   enforces FKs on every statement, so existing orphans would make related writes fail later:
 
    ```bash
    turso db shell lifeos-ai "PRAGMA foreign_key_check"          # no output = OK
@@ -125,11 +127,11 @@ Redeploy the previous image without rebuilding: Actions → **CD** → *Run work
 `sha-<first 7 chars of the commit>`; check the tag exists in GHCR / the bf5ce57 CD run).
 Or: `gh workflow run cd.yml --ref release/0.1.0 -f skip_build=true -f image_tag=sha-bf5ce57`.
 
-**Caveat:** the old image's DBeaver driver only accepts `jdbc:dbeaver:libsql:...` or `libsql://...`
-URLs, not the `jdbc:libsql:https://...` form now in `vars.TURSO_DATABASE_URL`. Before a rollback,
-set the repo variable to `jdbc:dbeaver:libsql:https://lifeos-ai-zoomzoomtnt.aws-ap-northeast-1.turso.io`
-(this driver accepts that form too, so it can also stay that way permanently). No data step is
-needed: both versions use the same database and schema.
+URL form: `vars.TURSO_DATABASE_URL` is `jdbc:dbeaver:libsql:https://lifeos-ai-zoomzoomtnt.aws-ap-northeast-1.turso.io`
+(checked 2026-10-11). Both the old DBeaver driver and this driver accept that form, so a rollback
+needs no variable change. Don't switch it to the `jdbc:libsql:https://...` form while a rollback
+may still be needed: the old image's DBeaver driver does not accept it. No data step is needed:
+both versions use the same database and schema.
 
 ### Legacy `data/life.db`
 

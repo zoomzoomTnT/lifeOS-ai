@@ -27,6 +27,9 @@ public class SchemaInitializer implements ApplicationRunner {
     @Value("${life.schema-path:classpath:schema.sql}")
     private String schemaPath;
 
+    @Value("${spring.datasource.url:}")
+    private String datasourceUrl;
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         Integer count = jdbc.queryForObject(
@@ -52,7 +55,14 @@ public class SchemaInitializer implements ApplicationRunner {
         Resource resource = resourceLoader.getResource(location);
         String sql = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
         // Not sql.split(";"): that broke statements with ';' in a comment or string literal.
+        boolean libSql = ForeignKeyCheck.isLibSql(datasourceUrl);
         for (String s : SqlScriptSplitter.split(sql)) {
+            if (libSql && isPragma(s)) {
+                // libSQL: the driver enables foreign_keys on every stream; journal_mode is the
+                // server's (sqld rejects it as an unsupported statement). Don't send script PRAGMAs.
+                log.debug("Not sent on libSQL (handled by driver/server): {}", abbreviate(s));
+                continue;
+            }
             try {
                 jdbc.execute(s);
             } catch (Exception e) {
@@ -76,6 +86,10 @@ public class SchemaInitializer implements ApplicationRunner {
      * endpoint rejects {@code PRAGMA foreign_keys = ON} / {@code journal_mode = WAL} from
      * schema.sql). Returns why it is expected, or null.
      */
+    static boolean isPragma(String stmt) {
+        return stmt.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA");
+    }
+
     static String expectedFailure(String stmt, Exception e) {
         String msg = String.valueOf(e.getMessage()).toLowerCase(java.util.Locale.ROOT);
         Throwable c = e.getCause();
