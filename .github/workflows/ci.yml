@@ -113,7 +113,9 @@ jobs:
           export LIFE_IMAGE=lifeos-ai:ci
           export LIFE_OPENCLAW_WAKE=false
           export OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
-          mkdir -p data
+          # No Turso token in CI: run against a throwaway SQLite file via the local overlay.
+          export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+          mkdir -p local
           mkdir -p "$OPENCLAW_HOME/agents/main/sessions"
           printf '%s\n' \
             '{"type":"session","timestamp":"2026-08-26T00:00:00Z","id":"ci-sess"}' \
