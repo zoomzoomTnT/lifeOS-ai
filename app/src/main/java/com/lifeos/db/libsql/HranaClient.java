@@ -30,30 +30,46 @@ final class HranaClient {
 
     static final JsonMapper JSON = JsonMapper.builder().build();
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(30);
+
+    /** Shared by all connections (one connection pool / executor per JVM, not per JDBC connection). */
+    private static final HttpClient HTTPS = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+    /**
+     * Plain http: no h2c upgrade. sqld's h2c handling breaks the JDK client's "Upgrade: h2c" + POST
+     * body (request hangs). https negotiates HTTP/2 via ALPN.
+     */
+    private static final HttpClient PLAIN_HTTP = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT)
+            .version(HttpClient.Version.HTTP_1_1).build();
 
     private final String baseUrl;
     private final String authToken;
     private final HttpClient http;
-    private volatile Duration requestTimeout = Duration.ofSeconds(30);
+    private volatile Duration requestTimeout = DEFAULT_REQUEST_TIMEOUT;
+
+    /** The server no longer knows the stream (expired or invalid baton): nothing on it was committed. */
+    static final class StreamGoneException extends SQLException {
+        StreamGoneException(String msg) {
+            super(msg, "08003");
+        }
+    }
 
     HranaClient(String baseUrl, String authToken) {
         this.baseUrl = baseUrl;
         this.authToken = authToken;
-        HttpClient.Builder b = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT);
-        if (baseUrl.startsWith("http://")) {
-            // Plain http: no h2c upgrade. sqld's h2c handling breaks the JDK client's
-            // "Upgrade: h2c" + POST body (request hangs). https negotiates HTTP/2 via ALPN.
-            b.version(HttpClient.Version.HTTP_1_1);
-        }
-        this.http = b.build();
+        this.http = baseUrl.startsWith("http://") ? PLAIN_HTTP : HTTPS;
+    }
+
+    Duration requestTimeout() {
+        return requestTimeout;
     }
 
     String baseUrl() {
         return baseUrl;
     }
 
+    /** null / zero / negative = back to the default. */
     void setRequestTimeout(Duration d) {
-        if (d != null && !d.isZero() && !d.isNegative()) requestTimeout = d;
+        requestTimeout = d == null || d.isZero() || d.isNegative() ? DEFAULT_REQUEST_TIMEOUT : d;
     }
 
     /** Result of one pipeline call. {@code baton == null} means the server closed the stream. */
@@ -76,7 +92,10 @@ final class HranaClient {
         }
 
         static SQLException error(JsonNode r, String sql) {
-            JsonNode e = r.path("error");
+            return errorOf(r.path("error"), sql);
+        }
+
+        static SQLException errorOf(JsonNode e, String sql) {
             String msg = e.path("message").asString("unknown libSQL error");
             String code = e.path("code").asString(null);
             return new SQLException(msg + (sql == null ? "" : " [" + abbreviate(sql) + "]"), sqlState(code));
@@ -116,6 +135,9 @@ final class HranaClient {
                     + "). Check TURSO_AUTH_TOKEN: it must be a valid token for this database. "
                     + abbreviate(resp.body()), "28000");
         }
+        if (baton != null && status == 400 && looksLikeStreamGone(resp.body())) {
+            throw new StreamGoneException("libSQL stream is gone on " + base + ": " + abbreviate(resp.body()));
+        }
         if (status / 100 != 2) {
             throw new SQLException("libSQL HTTP " + status + " from " + base + ": " + abbreviate(resp.body()),
                     baton != null ? "08003" : "08001");
@@ -142,6 +164,33 @@ final class HranaClient {
 
     static ObjectNode execute(String sql) {
         return execute(sql, List.of());
+    }
+
+    /** Turso: {"code":"STREAM_EXPIRED"...}; sqld: "Received an invalid baton". */
+    static boolean looksLikeStreamGone(String body) {
+        String b = body == null ? "" : body.toLowerCase(java.util.Locale.ROOT);
+        return b.contains("stream_expired") || b.contains("stream expired") || b.contains("expired")
+                || b.contains("invalid baton") || b.contains("baton");
+    }
+
+    /** Hrana batch step; {@code okStep} = only run if that earlier step succeeded (null = always). */
+    static ObjectNode step(ObjectNode executeRequest, Integer okStep) {
+        ObjectNode st = JSON.createObjectNode();
+        st.set("stmt", executeRequest.path("stmt"));
+        if (okStep != null) {
+            ObjectNode cond = st.putObject("condition");
+            cond.put("type", "ok");
+            cond.put("step", okStep);
+        }
+        return st;
+    }
+
+    static ObjectNode batch(List<ObjectNode> steps) {
+        ObjectNode req = JSON.createObjectNode();
+        req.put("type", "batch");
+        ArrayNode a = req.putObject("batch").putArray("steps");
+        steps.forEach(a::add);
+        return req;
     }
 
     static ObjectNode close() {

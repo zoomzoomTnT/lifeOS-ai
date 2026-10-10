@@ -68,4 +68,19 @@ class SqlScriptTest {
         assertEquals(expected, creates);
         assertTrue(stmts.stream().anyMatch(x -> x.startsWith("CREATE TABLE merchants")));
     }
+
+    @Test
+    void caseEndInsideATriggerDoesNotEndTheTrigger() {
+        List<String> s = SqlScript.split("""
+                CREATE TRIGGER trg AFTER INSERT ON t BEGIN
+                  UPDATE t SET a = CASE WHEN NEW.x > 0 THEN 'pos;itive' ELSE 'neg' END;
+                  UPDATE t SET b = CASE NEW.y WHEN 1 THEN (CASE WHEN 1 THEN 2 END) ELSE 0 END;
+                END;
+                SELECT CASE WHEN 1 THEN 'x' END;
+                """);
+        assertEquals(2, s.size(), s.toString());
+        assertTrue(s.get(0).endsWith("END"));
+        assertTrue(s.get(0).contains("UPDATE t SET b"));
+        assertTrue(s.get(1).startsWith("SELECT CASE"));
+    }
 }
