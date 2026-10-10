@@ -30,3 +30,5 @@ life.db
 .env.*
 *.pem
 openclaw/openclaw.local.json
+# compose mounts this empty dir when OPENCLAW_HOME is unset (OpenClaw off)
+openclaw-disabled/

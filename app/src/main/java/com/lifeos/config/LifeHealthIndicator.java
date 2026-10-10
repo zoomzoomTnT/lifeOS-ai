@@ -17,6 +17,9 @@ public class LifeHealthIndicator implements HealthIndicator {
     @Value("${info.app.version:0.1.0}")
     private String version;
 
+    @Value(OpenClawSwitch.VALUE)
+    private boolean openclawEnabled = true;
+
     @Override
     public Health health() {
         try {
@@ -24,6 +27,7 @@ public class LifeHealthIndicator implements HealthIndicator {
             return Health.up()
                     .withDetail("db", "ok")
                     .withDetail("version", version)
+                    .withDetail("openclaw", openclawEnabled ? "enabled" : "disabled")
                     .build();
         } catch (Exception e) {
             return Health.down()

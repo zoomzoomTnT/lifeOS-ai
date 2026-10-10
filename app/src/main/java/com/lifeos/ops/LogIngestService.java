@@ -1,11 +1,11 @@
 package com.lifeos.ops;
 
 import tools.jackson.databind.ObjectMapper;
+import com.lifeos.config.OpenClawSwitch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -22,6 +22,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+/**
+ * OpenClaw log ingest (session JSONL + gateway logs) and the log list queries.
+ * Ingest is a no-op when OPENCLAW_ENABLED=false; the list queries keep working on stored rows.
+ * Scheduling lives in {@link OpenClawLogIngestJob}.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -39,12 +44,17 @@ public class LogIngestService {
     @Value("${life.openclaw.file-log:}")
     private String fileLogDir;
 
-    @Scheduled(fixedDelayString = "${life.logs.ingest-ms:120000}")
-    public void tick() {
-        run();
+    @Value(OpenClawSwitch.VALUE)
+    private boolean openclawEnabled = true;
+
+    public boolean enabled() {
+        return openclawEnabled;
     }
 
     public Map<String, Object> run() {
+        if (!openclawEnabled) {
+            return Map.of("ok", true, "skipped", "OPENCLAW_ENABLED=false");
+        }
         int app = 0, session = 0, files = 0, aiCalls = 0;
         Path home = resolveHome();
         List<Path> sessionFiles = new ArrayList<>();

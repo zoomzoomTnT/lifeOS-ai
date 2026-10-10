@@ -10,6 +10,11 @@
 # Bind STATE_DIR + CONFIG_PATH and unset OPENCLAW_HOME before any config set.
 set -euo pipefail
 
+# OpenClaw master switch: OPENCLAW_ENABLED=false -> nothing to do.
+case "$(printf '%s' "${OPENCLAW_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')" in
+  false|0|no|off) echo "OPENCLAW_ENABLED=false: skipping OpenClaw config" >&2; exit 0 ;;
+esac
+
 TOKEN="${1:?usage: openclaw-config.sh <hooks-token>}"
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 

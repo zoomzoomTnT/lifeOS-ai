@@ -160,6 +160,32 @@ jobs:
           test -f "$OPENCLAW_HOME/workspace/HEARTBEAT.md"
           docker compose down
 
+      - name: Compose smoke test (OPENCLAW_ENABLED=false, no OPENCLAW_* vars)
+        run: |
+          set -euo pipefail
+          unset OPENCLAW_HOME
+          export LIFE_IMAGE=lifeos-ai:ci
+          export OPENCLAW_ENABLED=false
+          export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+          mkdir -p local
+          docker compose up -d --wait --wait-timeout 90
+          H=$(curl -fsS http://localhost:8787/actuator/health)
+          echo "$H"
+          echo "$H" | grep -q '"status":"UP"'
+          echo "$H" | grep -q '"openclaw":"disabled"'
+          for p in /api/ops/webhook/ping /api/ops/proactive/run /api/ops/logs/ingest; do
+            code=$(curl -s -o /tmp/oc.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "http://localhost:8787$p")
+            cat /tmp/oc.json; echo
+            test "$code" = "404"
+            grep -q openclaw_disabled /tmp/oc.json
+          done
+          curl -fsS -X POST http://localhost:8787/api/memos -H 'Content-Type: application/json' \
+            -d '{"title":"ci no openclaw","kind":"reminder"}' | grep -q '"id"'
+          curl -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10' | grep -qi 'wake'
+          docker compose --profile sync run --rm skill-sync 2>&1 | grep -q 'skipping skill sync'
+          docker compose logs api | grep -qi 'OpenClaw webhook' && { echo "unexpected OpenClaw call"; exit 1; } || true
+          docker compose down
+
       - name: Login to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3

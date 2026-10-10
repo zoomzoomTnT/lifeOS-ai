@@ -1,5 +1,6 @@
 package com.lifeos.ops;
 
+import com.lifeos.config.ConditionalOnOpenClaw;
 import com.lifeos.domain.Memo;
 import com.lifeos.repo.EventRepository;
 import com.lifeos.repo.PersonRepository;
@@ -15,8 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/** Wakes OpenClaw when memos are due. Not created (no cron) when OPENCLAW_ENABLED=false. */
 @Slf4j
 @Service
+@ConditionalOnOpenClaw
 @RequiredArgsConstructor
 public class ProactiveCronService {
 

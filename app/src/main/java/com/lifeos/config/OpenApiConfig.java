@@ -15,6 +15,9 @@ public class OpenApiConfig {
     @Value("${info.app.version:0.1.0}")
     private String version;
 
+    @Value(OpenClawSwitch.VALUE)
+    private boolean openclawEnabled = true;
+
     @Bean
     public OpenAPI lifeOsOpenApi() {
         return new OpenAPI()
@@ -22,13 +25,17 @@ public class OpenApiConfig {
                         .title("lifeOS-ai")
                         .version(version)
                         .description("Life OS REST. Money = integer cents. Times = UTC ISO with Z. "
-                                + "Mutations need header X-Life-Handle (WeChat peer id)."))
+                                + "Mutations need header X-Life-Handle ("
+                                + (openclawEnabled ? "WeChat peer id" : "the caller's people.handle") + ")."
+                                + (openclawEnabled ? "" : " OpenClaw integration is off (OPENCLAW_ENABLED=false).")))
                 .addSecurityItem(new SecurityRequirement().addList("X-Life-Handle"))
                 .components(new Components().addSecuritySchemes("X-Life-Handle",
                         new SecurityScheme()
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)
                                 .name("X-Life-Handle")
-                                .description("people.handle / OpenClaw WeChat peer id")));
+                                .description(openclawEnabled
+                                        ? "people.handle / OpenClaw WeChat peer id"
+                                        : "people.handle of the caller")));
     }
 }

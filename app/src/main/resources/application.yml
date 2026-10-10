@@ -26,11 +26,17 @@ spring:
       # Each statement is its own HTTP request, so connection-scoped PRAGMAs do not persist.
       connection-init-sql: "PRAGMA foreign_keys=ON"
 
+# OpenClaw master switch. OPENCLAW_ENABLED=false turns off every OpenClaw integration (webhook
+# client, proactive cron wake, webhook ping, OpenClaw log ingest). REST API + database keep working.
+lifeos:
+  openclaw:
+    enabled: ${OPENCLAW_ENABLED:true}
+
 life:
   owner-timezone: Asia/Tokyo
   schema-path: classpath:schema.sql   # or external path
   openclaw:
-    enabled: ${LIFE_OPENCLAW_WAKE:true}
+    enabled: ${LIFE_OPENCLAW_WAKE:true}   # cron wake only; ignored when OPENCLAW_ENABLED=false
     base-url: ${OPENCLAW_GATEWAY:http://localhost:18789}
     hook-token: ${OPENCLAW_HOOK_TOKEN:}
     hooks-path: ${OPENCLAW_HOOKS_PATH:/hooks}
