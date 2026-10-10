@@ -15,7 +15,6 @@ public final class SqlScript {
     private SqlScript() {}
 
     private static final Pattern TRIGGER = Pattern.compile("^CREATE\\s+(TEMP\\s+|TEMPORARY\\s+)?TRIGGER\\b");
-    private static final Pattern ENDS_WITH_END = Pattern.compile("\\bEND$");
 
     public static List<String> split(String script) {
         List<String> out = new ArrayList<>();
@@ -67,9 +66,56 @@ public final class SqlScript {
         return out;
     }
 
-    /** Inside a trigger body until the statement text ends with END. */
+    /**
+     * Inside a trigger body until the BEGIN ... END block is closed. CASE ... END expressions
+     * inside the body nest, so they do not end it.
+     */
     private static boolean isOpenTrigger(String stmt) {
         String u = stmt.toUpperCase(Locale.ROOT);
-        return TRIGGER.matcher(u).find() && !ENDS_WITH_END.matcher(u).find();
+        if (!TRIGGER.matcher(u).find()) return false;
+        int depth = 0;
+        boolean inBody = false;
+        for (String w : words(u)) {
+            switch (w) {
+                case "BEGIN" -> {
+                    if (!inBody) {
+                        inBody = true;
+                        depth = 1;
+                    }
+                }
+                case "CASE" -> {
+                    if (inBody) depth++;
+                }
+                case "END" -> {
+                    if (inBody && --depth == 0) return false;
+                }
+                default -> { }
+            }
+        }
+        return true;
+    }
+
+    /** Bare words of a statement, skipping quoted strings and identifiers. */
+    private static List<String> words(String u) {
+        List<String> out = new ArrayList<>();
+        int n = u.length();
+        int i = 0;
+        while (i < n) {
+            char ch = u.charAt(i);
+            if (ch == '\'' || ch == '"' || ch == '`' || ch == '[') {
+                char close = ch == '[' ? ']' : ch;
+                int j = i + 1;
+                while (j < n && u.charAt(j) != close) j++;
+                i = j + 1;
+            } else if (Character.isLetter(ch) || ch == '_') {
+                int j = i;
+                while (j < n && (Character.isLetterOrDigit(u.charAt(j)) || u.charAt(j) == '_')) j++;
+                out.add(u.substring(i, j));
+                i = j;
+            } else {
+                i++;
+            }
+        }
+        return out;
     }
 }

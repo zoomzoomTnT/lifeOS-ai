@@ -94,40 +94,64 @@ final class LibSqlConnection {
             throw new SQLException("Transaction was aborted (" + txAborted + "); roll back before running: "
                     + HranaClient.abbreviate(sql), "25000");
         }
-        List<ObjectNode> reqs = new ArrayList<>(5);
-        boolean begin = !txOpen;
-        if (begin) {
-            reqs.add(HranaClient.execute(FK_PRAGMA));
-            reqs.add(HranaClient.execute(readOnly ? "BEGIN DEFERRED" : "BEGIN IMMEDIATE"));
+        if (!txOpen) {
+            return beginWith(sql, exec);
         }
-        int stmtIdx = reqs.size();
-        reqs.add(exec);
-        reqs.add(HranaClient.getAutocommit());
-
         HranaClient.Pipeline p;
         try {
-            p = client.pipeline(baton, streamBaseUrl, reqs);
+            p = client.pipeline(baton, streamBaseUrl, List.of(exec, HranaClient.getAutocommit()));
         } catch (SQLException e) {
-            if (!begin) abortTx("HTTP request failed mid-transaction: " + e.getMessage());
+            abortTx((e instanceof HranaClient.StreamGoneException ? "stream expired: " : "HTTP request failed mid-transaction: ")
+                    + e.getMessage());
             throw e;
         }
-        if (begin) {
-            if (!p.ok(1)) {
-                SQLException e = HranaClient.Pipeline.error(p.result(1), "BEGIN");
-                closeStreamQuietly(p.baton(), p.baseUrl());
-                throw e;
-            }
-            txOpen = true;
+        trackStream(p, p.ok(1) && p.result(1).path("response").path("is_autocommit").asBoolean(false));
+        return StmtResult.from(p.stmtResult(0, sql));
+    }
+
+    /**
+     * First statement of a transaction: ONE request with a Hrana batch
+     * {@code [PRAGMA foreign_keys=ON, BEGIN ... if PRAGMA ok, <stmt> if BEGIN ok]}. The statement only runs when
+     * BEGIN succeeded, so a failed BEGIN can never let the statement auto-commit on its own.
+     */
+    private StmtResult beginWith(String sql, ObjectNode exec) throws SQLException {
+        String beginSql = readOnly ? "BEGIN DEFERRED" : "BEGIN IMMEDIATE";
+        ObjectNode batch = HranaClient.batch(List.of(
+                HranaClient.step(HranaClient.execute(FK_PRAGMA), null),
+                HranaClient.step(HranaClient.execute(beginSql), 0),
+                HranaClient.step(exec, 1)));
+        HranaClient.Pipeline p = client.pipeline(null, null, List.of(batch, HranaClient.getAutocommit()));
+        if (!p.ok(0)) {
+            closeStreamQuietly(p.baton(), p.baseUrl());
+            throw HranaClient.Pipeline.error(p.result(0), beginSql);
         }
+        tools.jackson.databind.JsonNode res = p.result(0).path("response").path("result");
+        tools.jackson.databind.JsonNode beginErr = res.path("step_errors").path(1);
+        if (beginErr.isObject()) {
+            closeStreamQuietly(p.baton(), p.baseUrl());
+            throw HranaClient.Pipeline.errorOf(beginErr, beginSql);
+        }
+        txOpen = true;
+        trackStream(p, p.ok(1) && p.result(1).path("response").path("is_autocommit").asBoolean(false));
+        tools.jackson.databind.JsonNode stmtErr = res.path("step_errors").path(2);
+        if (stmtErr.isObject()) {
+            throw HranaClient.Pipeline.errorOf(stmtErr, sql);
+        }
+        tools.jackson.databind.JsonNode stmtRes = res.path("step_results").path(2);
+        if (!stmtRes.isObject()) {
+            throw new SQLException("libSQL batch did not run the statement: " + HranaClient.abbreviate(sql));
+        }
+        return StmtResult.from(stmtRes);
+    }
+
+    private void trackStream(HranaClient.Pipeline p, boolean serverInAutocommit) {
         baton = p.baton();
         if (p.baseUrl() != null) streamBaseUrl = p.baseUrl();
         if (baton == null) {
             abortTx("server closed the stream");
-        } else if (p.ok(stmtIdx + 1)
-                && p.result(stmtIdx + 1).path("response").path("is_autocommit").asBoolean(false)) {
+        } else if (serverInAutocommit) {
             abortTx("server rolled the transaction back");
         }
-        return StmtResult.from(p.stmtResult(stmtIdx, sql));
     }
 
     private void abortTx(String why) {
@@ -186,6 +210,11 @@ final class LibSqlConnection {
         HranaClient.Pipeline p;
         try {
             p = client.pipeline(b, base, List.of(HranaClient.execute("COMMIT"), HranaClient.close()));
+        } catch (HranaClient.StreamGoneException e) {
+            // The server no longer has the stream (expired / invalid baton): COMMIT never ran and the
+            // server discarded the open transaction. Definitely not committed.
+            throw new SQLException("COMMIT failed, transaction rolled back (stream expired on the server): "
+                    + e.getMessage(), "40000", e);
         } catch (SQLException e) {
             throw new SQLException("COMMIT outcome unknown (HTTP failure): " + e.getMessage(), "08007", e);
         }
@@ -400,8 +429,11 @@ final class LibSqlConnection {
     }
 
     public void setNetworkTimeout(Executor executor, int ms) {
-        networkTimeoutMs = ms;
-        if (ms > 0) client.setRequestTimeout(Duration.ofMillis(ms));
+        // 0 = no explicit timeout: back to the driver default. (Hikari sets its validation timeout
+        // around isValid() and then restores the original value, 0; ignoring 0 used to leave every
+        // later statement with Hikari's 5 s validation timeout.)
+        networkTimeoutMs = Math.max(0, ms);
+        client.setRequestTimeout(ms > 0 ? Duration.ofMillis(ms) : null);
     }
 
     public Map<String, Class<?>> getTypeMap() {

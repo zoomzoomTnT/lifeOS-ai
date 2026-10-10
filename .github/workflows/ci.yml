@@ -50,8 +50,14 @@ jobs:
         image: ghcr.io/tursodatabase/libsql-server:v0.24.32
         ports:
           - 8080:8080
+      # Second, untouched server: SqliteToLibsqlRealServerTest migrates into an EMPTY database.
+      sqld-migrate:
+        image: ghcr.io/tursodatabase/libsql-server:v0.24.32
+        ports:
+          - 8081:8080
     env:
       LIBSQL_TEST_URL: jdbc:libsql:http://localhost:8080
+      LIBSQL_MIGRATION_TEST_URL: jdbc:libsql:http://localhost:8081
     steps:
       - uses: actions/checkout@v4
 
@@ -63,12 +69,14 @@ jobs:
 
       - name: Wait for sqld
         run: |
-          for i in $(seq 1 30); do
-            curl -fsS http://localhost:8080/health >/dev/null 2>&1 && exit 0
-            sleep 2
+          for port in 8080 8081; do
+            ok=0
+            for i in $(seq 1 30); do
+              if curl -fsS "http://localhost:$port/health" >/dev/null 2>&1; then ok=1; break; fi
+              sleep 2
+            done
+            if [ "$ok" != 1 ]; then echo "sqld on $port did not become healthy" >&2; exit 1; fi
           done
-          echo "sqld did not become healthy" >&2
-          exit 1
 
       - name: Test and package
         working-directory: app

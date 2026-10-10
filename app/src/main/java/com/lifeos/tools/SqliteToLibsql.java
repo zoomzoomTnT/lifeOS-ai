@@ -1,5 +1,6 @@
 package com.lifeos.tools;
 
+import com.lifeos.config.SqlScript;
 import com.lifeos.db.libsql.LibSqlHttpDriver;
 import com.lifeos.db.libsql.LibSqlUrl;
 import org.sqlite.SQLiteConfig;
@@ -33,19 +34,33 @@ import java.util.Set;
  * </pre>
  * (docker/migrate-sqlite-to-turso.sh wraps this using the app image.)
  *
- * Steps, in ONE target transaction: create missing tables (source DDL) → optionally wipe →
- * copy rows (multi-row INSERTs, explicit ids) → carry sqlite_sequence → create missing
- * indexes/views/triggers → verify row counts and {@code PRAGMA foreign_key_check} → COMMIT
- * (or ROLLBACK for --dry-run / any problem). Foreign keys are checked at commit
- * ({@code PRAGMA defer_foreign_keys}), so table order does not matter.
+ * Steps, in ONE target transaction: create the app schema (schema.sql) objects the target lacks
+ * — so an old file missing e.g. {@code merchants} still yields a complete database — plus any
+ * source-only tables (source DDL) → clear seed rows the source replaces (or wiped rows) → copy rows
+ * (multi-row INSERTs, explicit ids) → carry sqlite_sequence → create missing source indexes /
+ * views / triggers → verify row counts and {@code PRAGMA foreign_key_check} → COMMIT (or ROLLBACK
+ * for --dry-run / any problem). Foreign keys are checked at commit
+ * ({@code PRAGMA defer_foreign_keys}), so table order does not matter. The source is read in one
+ * read transaction (consistent snapshot).
  *
- * Safety: refuses a non-empty target unless {@code --wipe-target}; refuses when a source column
- * is missing in an existing target table. Stop the app (or point it elsewhere) while migrating:
- * a concurrent writer can make the server time this transaction out (it then rolls back cleanly).
+ * Safety: migrate BEFORE cutover into an empty database. A non-empty target is refused unless
+ * {@code --wipe-target}, and wiping is only allowed by itself when the target holds nothing but the
+ * app's seed rows; otherwise the exact non-empty counts must be confirmed with
+ * {@code --confirm-target-counts} (re-checked under the write lock). Refuses when a source column is
+ * missing in the target table. Stop the app while migrating.
  */
 public final class SqliteToLibsql {
 
-    public record Options(Path source, String targetUrl, String token, boolean dryRun, boolean wipeTarget) {}
+    /**
+     * @param confirmTargetCounts with --wipe-target on a target holding more than seed rows: the
+     *                            exact non-empty row counts the operator confirmed (table → rows), or null
+     */
+    public record Options(Path source, String targetUrl, String token, boolean dryRun, boolean wipeTarget,
+                          Map<String, Long> confirmTargetCounts) {
+        public Options(Path source, String targetUrl, String token, boolean dryRun, boolean wipeTarget) {
+            this(source, targetUrl, token, dryRun, wipeTarget, null);
+        }
+    }
 
     public record TableReport(String table, long sourceRows, long targetRowsBefore, long targetRowsAfter) {}
 
@@ -83,18 +98,30 @@ public final class SqliteToLibsql {
               target URL : --target-url or env TURSO_DATABASE_URL (jdbc:libsql:https://<db>-<org>.turso.io)
               auth token : env TURSO_AUTH_TOKEN
               --dry-run    do everything, verify, then ROLL BACK
-              --wipe-target  delete existing rows of the copied tables first (e.g. the seed rows the app
-                             wrote when it started against an empty database)""";
+              --wipe-target  replace rows already in the target. Allowed by itself only when the target
+                             holds nothing but the app's seed rows (owner, settings, model prices).
+              --confirm-target-counts t1=N,t2=M
+                             with --wipe-target: required when the target holds more than seed rows;
+                             must list exactly the target's non-empty tables and row counts (the abort
+                             message prints the current value). Those rows are DELETED.
+
+            Migrate BEFORE cutover: stop the old API, migrate into the new (empty) database, then
+            deploy. Never wipe a database the new app is already writing to.""";
 
     static Options parse(String[] args) {
         Path source = null;
         String url = System.getenv("TURSO_DATABASE_URL");
         boolean dry = false;
         boolean wipe = false;
+        Map<String, Long> confirm = null;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--dry-run" -> dry = true;
                 case "--wipe-target" -> wipe = true;
+                case "--confirm-target-counts" -> {
+                    if (i + 1 >= args.length) throw new IllegalArgumentException("--confirm-target-counts needs a value");
+                    confirm = parseCounts(args[++i]);
+                }
                 case "--target-url" -> {
                     if (i + 1 >= args.length) throw new IllegalArgumentException("--target-url needs a value");
                     url = args[++i];
@@ -108,7 +135,27 @@ public final class SqliteToLibsql {
         }
         if (source == null) throw new IllegalArgumentException("source SQLite file is required");
         if (url == null || url.isBlank()) throw new IllegalArgumentException("no target: set TURSO_DATABASE_URL or --target-url");
-        return new Options(source, url, System.getenv("TURSO_AUTH_TOKEN"), dry, wipe);
+        if (confirm != null && !wipe) throw new IllegalArgumentException("--confirm-target-counts only makes sense with --wipe-target");
+        return new Options(source, url, System.getenv("TURSO_AUTH_TOKEN"), dry, wipe, confirm);
+    }
+
+    static Map<String, Long> parseCounts(String v) {
+        Map<String, Long> m = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (String kv : v.split(",")) {
+            if (kv.isBlank()) continue;
+            int eq = kv.indexOf('=');
+            if (eq <= 0) throw new IllegalArgumentException("bad --confirm-target-counts entry: " + kv);
+            try {
+                m.put(kv.substring(0, eq).strip(), Long.parseLong(kv.substring(eq + 1).strip()));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("bad --confirm-target-counts entry: " + kv);
+            }
+        }
+        return m;
+    }
+
+    static String formatCounts(Map<String, Long> m) {
+        return String.join(",", m.entrySet().stream().map(e -> e.getKey() + "=" + e.getValue()).toList());
     }
 
     // ------------------------------------------------------------------------------------------
@@ -123,7 +170,13 @@ public final class SqliteToLibsql {
              Connection dst = openTarget(o.targetUrl(), o.token())) {
             out.println("source: " + o.source());
             out.println("target: " + displayTarget(o.targetUrl()) + (o.dryRun() ? "  (DRY RUN)" : ""));
-            return migrate(src, dst, o, out);
+            // One read transaction on the source: a consistent snapshot even if something still writes it.
+            src.setAutoCommit(false);
+            try {
+                return migrate(src, dst, o, out);
+            } finally {
+                src.rollback();
+            }
         }
     }
 
@@ -142,55 +195,136 @@ public final class SqliteToLibsql {
 
     private record SchemaObject(String type, String name, String table, String sql) {}
 
+    /** What the app runs on an empty database (SchemaInitializer): schema.sql, then the migrations. */
+    static final String[] APP_SCRIPTS = {"/schema.sql", "/migrations/0002_ops.sql",
+            "/migrations/0003_logs.sql", "/migrations/0004_session_v3.sql"};
+
+    /**
+     * The app's schema and seed rows, materialised in a private in-memory SQLite exactly the way
+     * the app initialises an empty database (statement errors ignored like SchemaInitializer does,
+     * e.g. duplicate columns; PRAGMAs skipped).
+     */
+    static Connection appReference() throws Exception {
+        Connection mem = DriverManager.getConnection("jdbc:sqlite::memory:");
+        try (Statement st = mem.createStatement()) {
+            for (String script : APP_SCRIPTS) {
+                try (var in = SqliteToLibsql.class.getResourceAsStream(script)) {
+                    if (in == null) throw new java.io.IOException(script + " not on the classpath");
+                    for (String x : SqlScript.split(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8))) {
+                        if (x.toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA")) continue;
+                        try {
+                            st.execute(x);
+                        } catch (SQLException e) {
+                            // additive migrations repeat columns schema.sql already has
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            mem.close();
+            throw e;
+        }
+        return mem;
+    }
+
     private static List<TableReport> migrate(Connection src, Connection dst, Options o, PrintStream out)
+            throws Exception {
+        try (Connection app = appReference()) {
+            return migrate(src, dst, app, o, out);
+        }
+    }
+
+    private static List<TableReport> migrate(Connection src, Connection dst, Connection app, Options o, PrintStream out)
             throws Exception {
         List<SchemaObject> srcObjects = schema(src);
         List<SchemaObject> srcTables = srcObjects.stream().filter(x -> x.type().equals("table")).toList();
         Set<String> dstNames = new LinkedHashSet<>();
         for (SchemaObject x : schema(dst)) dstNames.add(x.name().toLowerCase());
 
+        // The app schema (as the app would create it) and the seed rows it writes.
+        List<SchemaObject> appObjects = schema(app);
+        Map<String, Long> seed = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, List<String>> appColumns = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (SchemaObject t : appObjects) {
+            if (!t.type().equals("table")) continue;
+            appColumns.put(t.name(), columns(app, t.name()));
+            seed.put(t.name(), count(app, t.name()));
+        }
+
         // --- pre-checks (read-only) ---
         Map<String, List<String>> columns = new LinkedHashMap<>();
-        Map<String, Long> before = new LinkedHashMap<>();
         List<String> problems = new ArrayList<>();
         for (SchemaObject t : srcTables) {
             List<String> srcCols = columns(src, t.name());
             columns.put(t.name(), srcCols);
-            if (dstNames.contains(t.name().toLowerCase())) {
-                Set<String> dstCols = new LinkedHashSet<>();
-                for (String c : columns(dst, t.name())) dstCols.add(c.toLowerCase());
-                List<String> missing = srcCols.stream().filter(c -> !dstCols.contains(c.toLowerCase())).toList();
+            List<String> targetCols = dstNames.contains(t.name().toLowerCase()) ? columns(dst, t.name())
+                    : appColumns.get(t.name()); // null: created from the source DDL
+            if (targetCols != null) {
+                Set<String> tc = new LinkedHashSet<>();
+                for (String c : targetCols) tc.add(c.toLowerCase());
+                List<String> missing = srcCols.stream().filter(c -> !tc.contains(c.toLowerCase())).toList();
                 if (!missing.isEmpty()) problems.add(t.name() + ": target lacks columns " + missing);
-                before.put(t.name(), count(dst, t.name()));
-            } else {
-                before.put(t.name(), 0L);
             }
         }
         if (!problems.isEmpty()) {
             throw new MigrationException("schema mismatch: " + String.join("; ", problems));
         }
-        List<String> nonEmpty = before.entrySet().stream().filter(e -> e.getValue() > 0)
-                .map(e -> e.getKey() + "=" + e.getValue()).toList();
-        if (!nonEmpty.isEmpty() && !o.wipeTarget()) {
-            throw new MigrationException("target is not empty (" + String.join(", ", nonEmpty)
-                    + "). Re-run with --wipe-target to replace those rows with the source data.");
+        Map<String, Long> before = targetCounts(dst);
+        Map<String, Long> nonEmpty = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        before.forEach((t, n) -> { if (n > 0) nonEmpty.put(t, n); });
+        if (!nonEmpty.isEmpty()) {
+            if (!o.wipeTarget()) {
+                throw new MigrationException("target is not empty (" + formatCounts(nonEmpty)
+                        + "). Migrate into an empty database before cutover. If these rows may be replaced, "
+                        + "re-run with --wipe-target.");
+            }
+            boolean seedOnly = nonEmpty.entrySet().stream().allMatch(e -> e.getValue() <= seed.getOrDefault(e.getKey(), 0L));
+            boolean confirmed = o.confirmTargetCounts() != null && new java.util.TreeMap<>(o.confirmTargetCounts()).equals(nonEmpty)
+                    && o.confirmTargetCounts().keySet().stream().allMatch(nonEmpty::containsKey);
+            if (!seedOnly && !confirmed) {
+                throw new MigrationException("--wipe-target refused: the target holds more than the app's seed rows ("
+                        + formatCounts(nonEmpty) + "), e.g. data written after a deploy, which would be DELETED. "
+                        + "If that is really intended, add: --confirm-target-counts " + formatCounts(nonEmpty));
+            }
         }
 
         // --- one transaction ---
         dst.setAutoCommit(false);
         boolean committed = false;
         try (Statement st = dst.createStatement()) {
-            st.execute("PRAGMA defer_foreign_keys=ON");
+            st.execute("PRAGMA defer_foreign_keys=ON"); // also takes the write lock (BEGIN IMMEDIATE)
+            if (!targetCounts(dst).equals(before)) {
+                throw new MigrationException("target changed while preparing (is the app running against it?)");
+            }
+            // 1. the app schema first: tables the source lacks (e.g. merchants on an old file) exist afterwards
+            Set<String> createdNow = new LinkedHashSet<>();
+            for (SchemaObject t : appObjects) {
+                if (!t.type().equals("table") || dstNames.contains(t.name().toLowerCase())) continue;
+                st.execute(t.sql());
+                dstNames.add(t.name().toLowerCase());
+                createdNow.add(t.name().toLowerCase());
+                copyRows(app, dst, t.name(), appColumns.get(t.name())); // seed rows
+            }
+            for (SchemaObject x : appObjects) {
+                if (!x.type().equals("table") && !dstNames.contains(x.name().toLowerCase())) {
+                    st.execute(x.sql());
+                    dstNames.add(x.name().toLowerCase());
+                }
+            }
+            if (!createdNow.isEmpty()) out.println("created app schema tables: " + createdNow);
+            // 2. source-only tables (not in the app schema) from the source DDL
             for (SchemaObject t : srcTables) {
                 if (!dstNames.contains(t.name().toLowerCase())) {
                     st.execute(t.sql());
-                    out.println("created table " + t.name());
+                    dstNames.add(t.name().toLowerCase());
+                    out.println("created table " + t.name() + " (source DDL)");
                 }
             }
-            if (o.wipeTarget()) {
-                for (SchemaObject t : srcTables) st.executeUpdate("DELETE FROM " + q(t.name()));
-                if (exists(dst, "sqlite_sequence")) {
-                    for (SchemaObject t : srcTables) {
+            // 3. clear what the source replaces: our own fresh seed rows, or (checked above) wiped rows
+            for (SchemaObject t : srcTables) {
+                if (createdNow.contains(t.name().toLowerCase()) || (o.wipeTarget() && before.getOrDefault(t.name(), 0L) > 0)) {
+                    st.executeUpdate("DELETE FROM " + q(t.name()));
+                    if (exists(dst, "sqlite_sequence")) {
                         try (PreparedStatement ps = dst.prepareStatement("DELETE FROM sqlite_sequence WHERE name = ?")) {
                             ps.setString(1, t.name());
                             ps.executeUpdate();
@@ -206,6 +340,7 @@ public final class SqliteToLibsql {
             for (SchemaObject x : srcObjects) {
                 if (!x.type().equals("table") && !dstNames.contains(x.name().toLowerCase())) {
                     st.execute(x.sql());
+                    dstNames.add(x.name().toLowerCase());
                 }
             }
 
@@ -215,7 +350,7 @@ public final class SqliteToLibsql {
             for (SchemaObject t : srcTables) {
                 long s = count(src, t.name());
                 long d = count(dst, t.name());
-                report.add(new TableReport(t.name(), s, before.get(t.name()), d));
+                report.add(new TableReport(t.name(), s, before.getOrDefault(t.name(), 0L), d));
                 if (s != d) mismatches.add(t.name() + " source=" + s + " target=" + d);
             }
             if (!mismatches.isEmpty()) throw new MigrationException("row counts differ: " + mismatches);
@@ -245,6 +380,15 @@ public final class SqliteToLibsql {
                 }
             }
         }
+    }
+
+    /** Row counts of the target's tables (all existing user tables, not only the copied ones). */
+    private static Map<String, Long> targetCounts(Connection dst) throws SQLException {
+        Map<String, Long> m = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (SchemaObject t : schema(dst)) {
+            if (t.type().equals("table")) m.put(t.name(), count(dst, t.name()));
+        }
+        return m;
     }
 
     private static List<SchemaObject> schema(Connection c) throws SQLException {

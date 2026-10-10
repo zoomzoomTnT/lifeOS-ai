@@ -15,6 +15,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -29,7 +30,14 @@ class SqliteToLibsqlTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        source = TestDb.createPlain();
+        source = richSource();
+        targetFile = Files.createTempFile("lifeos-target-", ".db");
+        target = new FakeTursoServer(targetFile);
+    }
+
+    /** A source like a real life.db: app schema plus data across FK-linked tables. */
+    static Path richSource() throws Exception {
+        Path source = TestDb.createPlain();
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + source); Statement st = c.createStatement()) {
             st.execute("PRAGMA foreign_keys=ON");
             st.execute("INSERT INTO people (id, handle, display_name, role) VALUES (2, 'wx-bob', 'Bob', 'member')");
@@ -45,8 +53,7 @@ class SqliteToLibsqlTest {
                 st.execute("INSERT INTO http_requests (method, path, status, latency_ms) VALUES ('GET', '/p" + i + "', 200, " + i + ")");
             }
         }
-        targetFile = Files.createTempFile("lifeos-target-", ".db");
-        target = new FakeTursoServer(targetFile);
+        return source;
     }
 
     @AfterEach
@@ -91,12 +98,62 @@ class SqliteToLibsqlTest {
         SqliteToLibsql.MigrationException e = assertThrows(SqliteToLibsql.MigrationException.class,
                 () -> SqliteToLibsql.run(opts(false, false), out));
         assertTrue(e.getMessage().contains("--wipe-target"), e.getMessage());
+    }
 
-        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + targetFile)) {
-            c.createStatement().execute("INSERT INTO http_requests (method, path) VALUES ('GET', '/extra')");
+    @Test
+    void wipeTargetRefusesNonSeedRowsUnlessTheExactCountsAreConfirmed() throws Exception {
+        Files.delete(targetFile);
+        Files.copy(TestDb.createPlain(), targetFile); // app started on it ...
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + targetFile)) { // ... and wrote data
+            c.createStatement().execute("INSERT INTO http_requests (method, path) VALUES ('GET', '/after-deploy')");
+            c.createStatement().execute("INSERT INTO people (id, handle, display_name, role) VALUES (9, 'wx-new', 'New', 'member')");
         }
-        SqliteToLibsql.run(opts(false, true), out);
+        SqliteToLibsql.MigrationException e = assertThrows(SqliteToLibsql.MigrationException.class,
+                () -> SqliteToLibsql.run(opts(false, true), out));
+        assertTrue(e.getMessage().contains("more than the app's seed rows"), e.getMessage());
+        assertEquals(1, q(targetFile, "SELECT COUNT(*) FROM http_requests WHERE path = '/after-deploy'"), "nothing deleted");
+        String flag = e.getMessage().substring(e.getMessage().indexOf("--confirm-target-counts ") + 24).strip();
+        assertTrue(flag.contains("http_requests=1"), flag);
+
+        // wrong / partial confirmation: still refused
+        Map<String, Long> wrong = SqliteToLibsql.parseCounts(flag.replace("http_requests=1", "http_requests=2"));
+        assertThrows(SqliteToLibsql.MigrationException.class, () -> SqliteToLibsql.run(
+                new SqliteToLibsql.Options(source, target.url(), "t", false, true, wrong), out));
+        assertThrows(SqliteToLibsql.MigrationException.class, () -> SqliteToLibsql.run(
+                new SqliteToLibsql.Options(source, target.url(), "t", false, true, Map.of("http_requests", 1L)), out));
+        assertEquals(1, q(targetFile, "SELECT COUNT(*) FROM http_requests WHERE path = '/after-deploy'"));
+
+        // exact confirmation: replaced by the source
+        SqliteToLibsql.run(SqliteToLibsql.parse(new String[]{source.toString(), "--target-url", target.url(),
+                "--wipe-target", "--confirm-target-counts", flag}), out);
         assertEquals(1200, q(targetFile, "SELECT COUNT(*) FROM http_requests"));
+        assertEquals(0, q(targetFile, "SELECT COUNT(*) FROM people WHERE handle = 'wx-new'"));
+    }
+
+    @Test
+    void sourceMissingTablesStillYieldsTheFullAppSchema() throws Exception {
+        Path old = Files.createTempFile("lifeos-old-", ".db");
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + old); Statement st = c.createStatement()) {
+            st.execute("CREATE TABLE people (id INTEGER PRIMARY KEY, handle TEXT NOT NULL UNIQUE, display_name TEXT, role TEXT)");
+            st.execute("INSERT INTO people VALUES (1, 'owner', 'Owner', 'owner'), (2, 'wx-bob', 'Bob', 'member')");
+            st.execute("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT NOT NULL, action TEXT NOT NULL)");
+            st.execute("INSERT INTO events (domain, action) VALUES ('system', 'boot')");
+        }
+        try {
+            SqliteToLibsql.run(new SqliteToLibsql.Options(old, target.url(), "t", false, false), out);
+            assertEquals(2, q(targetFile, "SELECT COUNT(*) FROM people"));
+            assertEquals(1, q(targetFile, "SELECT COUNT(*) FROM events"));
+            // tables the old file never had exist, with the app's seed rows
+            assertEquals(1, q(targetFile, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'merchants'"));
+            assertEquals(1, q(targetFile, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_merchants_name_norm'"));
+            assertEquals(q(TestDb.createPlain(), "SELECT COUNT(*) FROM model_prices"), q(targetFile, "SELECT COUNT(*) FROM model_prices"));
+            assertTrue(q(targetFile, "SELECT COUNT(*) FROM model_prices") > 0);
+            Path ref = TestDb.createPlain();
+            assertEquals(q(ref, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'"),
+                    q(targetFile, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'"));
+        } finally {
+            Files.deleteIfExists(old);
+        }
     }
 
     @Test
