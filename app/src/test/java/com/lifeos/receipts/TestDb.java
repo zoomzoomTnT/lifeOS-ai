@@ -10,10 +10,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Creates a SQLite file with the app schema plus test-only failure triggers. */
-final class TestDb {
+public final class TestDb {
     private TestDb() {}
 
-    static Path create() throws Exception {
+    public static Path create() throws Exception {
         Path file = Files.createTempFile("lifeos-test-", ".db");
         Files.delete(file);
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + file); Statement st = c.createStatement()) {

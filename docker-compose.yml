@@ -14,6 +14,8 @@ services:
       TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:-jdbc:dbeaver:libsql:https://lifeos-ai-zoomzoomtnt.aws-ap-northeast-1.turso.io}
       TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
       LIFE_API_PORT: "8787"
+      # OpenClaw master switch (false = REST API + DB only, no OpenClaw calls/ingest/cron wake)
+      OPENCLAW_ENABLED: ${OPENCLAW_ENABLED:-true}
       LIFE_OPENCLAW_WAKE: ${LIFE_OPENCLAW_WAKE:-true}
       OPENCLAW_GATEWAY: ${OPENCLAW_GATEWAY:-http://host.docker.internal:18789}
       OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN:-}
@@ -24,7 +26,8 @@ services:
       LIFE_OPENCLAW_HOME: /openclaw
       LIFE_OPENCLAW_FILE_LOG: ${LIFE_OPENCLAW_FILE_LOG:-}
     volumes:
-      - ${OPENCLAW_HOME}:/openclaw:ro
+      # OPENCLAW_HOME may be unset when OpenClaw is off; an empty local dir is mounted instead.
+      - ${OPENCLAW_HOME:-./openclaw-disabled}:/openclaw:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8787/actuator/health"]
@@ -45,7 +48,8 @@ services:
     entrypoint: ["/app/sync-skill.sh"]
     environment:
       OPENCLAW_SYNC_ROOT: /openclaw
+      OPENCLAW_ENABLED: ${OPENCLAW_ENABLED:-true}
       LIFE_SKILL_SRC: /opt/life-os-skill
     volumes:
-      - ${OPENCLAW_HOME}:/openclaw
+      - ${OPENCLAW_HOME:-./openclaw-disabled}:/openclaw
     restart: "no"

@@ -4,6 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import com.lifeos.config.ConditionalOnOpenClaw;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -22,8 +23,10 @@ import java.util.Map;
  *
  * Mapping (hooks.mappings) owns action/name/sessionMode/deliver/channel.
  * This client sends message + to (+ optional model).
+ * Not created when OPENCLAW_ENABLED=false.
  */
 @Component
+@ConditionalOnOpenClaw
 @RequiredArgsConstructor
 @Slf4j
 public class OpenClawClient {

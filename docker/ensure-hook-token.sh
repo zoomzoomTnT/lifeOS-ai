@@ -5,6 +5,11 @@
 # OPENCLAW_HOME on stdout is the compose volume path. Do not export it to the CLI.
 set -euo pipefail
 
+# OpenClaw master switch: OPENCLAW_ENABLED=false -> nothing to do.
+case "$(printf '%s' "${OPENCLAW_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')" in
+  false|0|no|off) echo "OPENCLAW_ENABLED=false: skipping hook token + OpenClaw config" >&2; echo "MINTED=0"; exit 0 ;;
+esac
+
 DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
 ENVF="$DEPLOY_DIR/.env"
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"

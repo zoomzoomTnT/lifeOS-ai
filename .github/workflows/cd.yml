@@ -129,7 +129,7 @@ jobs:
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -150,15 +150,32 @@ jobs:
             chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh"
             cd "$DEPLOY_DIR"
 
-            ENSURE_OUT="$(./ensure-hook-token.sh)"
-            echo "$ENSURE_OUT"
+            # OpenClaw master switch: GitHub repo variable OPENCLAW_ENABLED (default true).
+            # Saved into .env so the container (and manual deploy.sh runs) see the same value.
+            OC="$(printf '%s' "${OPENCLAW_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')"
+            case "$OC" in false|0|no|off) OC=false ;; *) OC=true ;; esac
+            export OPENCLAW_ENABLED="$OC"
+            ( umask 077; touch .env )
+            if grep -q '^OPENCLAW_ENABLED=' .env; then
+              sed -i "s/^OPENCLAW_ENABLED=.*/OPENCLAW_ENABLED=$OC/" .env
+            else
+              echo "OPENCLAW_ENABLED=$OC" >> .env
+            fi
+            echo "OPENCLAW_ENABLED=$OC"
+
             MINTED=0
-            echo "$ENSURE_OUT" | grep -q '^MINTED=1$' && MINTED=1
-            eval "$(echo "$ENSURE_OUT" | grep -E '^(OPENCLAW_HOME|OPENCLAW_STATE_DIR|OPENCLAW_CONFIG_PATH)=')"
-            # .env OPENCLAW_HOME is the state dir for compose. CLI must not see it as Unix HOME.
-            export OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-$OPENCLAW_HOME}"
-            export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
-            unset OPENCLAW_HOME
+            if [ "$OC" = "true" ]; then
+              ENSURE_OUT="$(./ensure-hook-token.sh)"
+              echo "$ENSURE_OUT"
+              echo "$ENSURE_OUT" | grep -q '^MINTED=1$' && MINTED=1
+              eval "$(echo "$ENSURE_OUT" | grep -E '^(OPENCLAW_HOME|OPENCLAW_STATE_DIR|OPENCLAW_CONFIG_PATH)=')"
+              # .env OPENCLAW_HOME is the state dir for compose. CLI must not see it as Unix HOME.
+              export OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-$OPENCLAW_HOME}"
+              export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
+              unset OPENCLAW_HOME
+            else
+              echo "OpenClaw disabled: skipping hook token, OpenClaw config, skill sync"
+            fi
 
             if [ -f data/life.db ]; then
               STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -173,10 +190,11 @@ jobs:
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
             echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR:-}"
-            echo "openclaw config file=$(openclaw config file)"
-
-            command -v openclaw >/dev/null
-            openclaw config validate
+            if [ "$OC" = "true" ]; then
+              echo "openclaw config file=$(openclaw config file)"
+              command -v openclaw >/dev/null
+              openclaw config validate
+            fi
 
             docker compose -f compose.yaml pull || true
             if [ "$MINTED" = "1" ]; then
@@ -184,7 +202,9 @@ jobs:
             else
               docker compose -f compose.yaml up -d --no-build
             fi
-            docker compose -f compose.yaml run --rm skill-sync
+            if [ "$OC" = "true" ]; then
+              docker compose -f compose.yaml run --rm skill-sync
+            fi
 
             ok=0
             for i in $(seq 1 30); do
@@ -198,9 +218,11 @@ jobs:
             curl -fsS http://127.0.0.1:8787/actuator/info || true
             docker compose -f compose.yaml ps || true
             docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
-            echo "waiting 60s for skills watcher after delete+recopy"
-            sleep 60
-            openclaw skills list
+            if [ "$OC" = "true" ]; then
+              echo "waiting 60s for skills watcher after delete+recopy"
+              sleep 60
+              openclaw skills list
+            fi
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -208,3 +230,4 @@ jobs:
           DEPLOY_TAG: ${{ steps.resolve.outputs.tag }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}

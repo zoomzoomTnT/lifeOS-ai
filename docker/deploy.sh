@@ -15,6 +15,16 @@ if [ ! -f "$FILE" ] && [ -f docker-compose.yml ]; then
   FILE=docker-compose.yml
 fi
 
+# OpenClaw master switch: env, else .env, else true.
+if [ -z "${OPENCLAW_ENABLED:-}" ] && [ -f .env ]; then
+  OPENCLAW_ENABLED="$(sed -n 's/^OPENCLAW_ENABLED=//p' .env | tail -n 1)"
+fi
+case "$(printf '%s' "${OPENCLAW_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')" in
+  false|0|no|off) OPENCLAW_ENABLED=false ;;
+  *) OPENCLAW_ENABLED=true ;;
+esac
+export OPENCLAW_ENABLED
+
 IMAGE="${LIFE_IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai:latest}"
 export LIFE_IMAGE="$IMAGE"
 
@@ -28,6 +38,10 @@ fi
 
 docker compose -f "$FILE" pull api
 docker compose -f "$FILE" up -d --no-build --remove-orphans --wait --wait-timeout 120
-docker compose -f "$FILE" --profile sync run --rm skill-sync
+if [ "$OPENCLAW_ENABLED" = "true" ]; then
+  docker compose -f "$FILE" --profile sync run --rm skill-sync
+else
+  echo "OPENCLAW_ENABLED=false: skipping skill sync"
+fi
 curl -fsS http://127.0.0.1:${LIFE_API_PORT:-8787}/actuator/health
 echo "deployed $IMAGE"

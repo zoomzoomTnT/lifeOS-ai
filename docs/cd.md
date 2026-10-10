@@ -47,6 +47,14 @@ Do **not** export that value as `OPENCLAW_HOME` into the OpenClaw CLI. The CLI t
 
 and unsets `OPENCLAW_HOME` before `openclaw config set|get|validate` and `openclaw skills list`.
 
+## OpenClaw switch (`OPENCLAW_ENABLED`)
+
+Repo **variable** (Settings → Secrets and variables → Actions → Variables), not a secret.
+Unset or `true` = current behavior. `false` = the deploy skips `ensure-hook-token.sh`,
+`openclaw config validate`, the `skill-sync` run and `openclaw skills list`; the value is written to
+`~/lifeos/.env` and passed to the container, where it turns off every OpenClaw integration in the app.
+`OPENCLAW_HOME` / `OPENCLAW_HOOK_TOKEN` are not needed then. Re-run CD after changing it.
+
 ## Secrets
 
 | Name | Use |
