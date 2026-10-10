@@ -118,7 +118,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh,docker/migrate-sqlite-to-turso.sh
+          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -136,7 +136,7 @@ jobs:
             IMAGE="${IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai}"
             TAG="${DEPLOY_TAG}"
             export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-            # Empty variable/secret -> fall back to TURSO_* in $DEPLOY_DIR/.env
+            # Empty secret -> fall back to TURSO_* in $DEPLOY_DIR/.env
             [ -n "${TURSO_DATABASE_URL:-}" ] || unset TURSO_DATABASE_URL
             [ -n "${TURSO_AUTH_TOKEN:-}" ] || unset TURSO_AUTH_TOKEN
 
@@ -158,37 +158,18 @@ jobs:
             fi
             command -v curl >/dev/null 2>&1 || { echo "::error::curl not found on server (needed for health check)." >&2; exit 1; }
 
-            # Preflight, before anything on the host changes: the app has NO default database URL
-            # any more, so make sure this deploy gets one explicitly. Fails here (old container
-            # keeps running) instead of after `compose up`.
-            env_file_value() { [ -f "$DEPLOY_DIR/.env" ] && grep -E "^$1=" "$DEPLOY_DIR/.env" | tail -n 1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//' || true; }
-            EFFECTIVE_DB_URL="${TURSO_DATABASE_URL:-$(env_file_value TURSO_DATABASE_URL)}"
-            EFFECTIVE_DB_TOKEN="${TURSO_AUTH_TOKEN:-$(env_file_value TURSO_AUTH_TOKEN)}"
-            DB_URL_SOURCE="repo variable/secret"
-            [ -n "${TURSO_DATABASE_URL:-}" ] || DB_URL_SOURCE="$DEPLOY_DIR/.env"
-            if [ -z "$EFFECTIVE_DB_URL" ]; then
-              echo "::error::TURSO_DATABASE_URL is not set: set repo variable (or secret) TURSO_DATABASE_URL, or put it in $DEPLOY_DIR/.env. Nothing on the host was changed."
+            # Preflight: the app has no default database URL, so this deploy must get one
+            # (repo variable/secret, else $DEPLOY_DIR/.env). Fails before anything changes.
+            if [ -z "${TURSO_DATABASE_URL:-}" ] && ! grep -qE '^TURSO_DATABASE_URL=.+' "$DEPLOY_DIR/.env" 2>/dev/null; then
+              echo "::error::TURSO_DATABASE_URL is not set: set repo variable TURSO_DATABASE_URL or put it in $DEPLOY_DIR/.env. Nothing on the host was changed."
               exit 1
             fi
-            # Hand it to compose explicitly (compose.yaml has no default any more).
-            export TURSO_DATABASE_URL="$EFFECTIVE_DB_URL"
-            if [ -n "$EFFECTIVE_DB_TOKEN" ]; then export TURSO_AUTH_TOKEN="$EFFECTIVE_DB_TOKEN"; fi
-            case "$EFFECTIVE_DB_URL" in
-              *authToken=*) : ;;  # token embedded in the URL
-              *https://*|*libsql://*)
-                if [ -z "$EFFECTIVE_DB_TOKEN" ]; then
-                  echo "::error::TURSO_AUTH_TOKEN is not set (secret or $DEPLOY_DIR/.env)"
-                  exit 1
-                fi ;;
-            esac
-            echo "database: $(echo "$EFFECTIVE_DB_URL" | sed 's/[?].*//') (from $DB_URL_SOURCE)"
 
             mkdir -p "$DEPLOY_DIR/data/backups" "$DEPLOY_DIR/openclaw-disabled"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
             cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
             cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
-            cp /tmp/lifeos-cd/docker/migrate-sqlite-to-turso.sh "$DEPLOY_DIR/migrate-sqlite-to-turso.sh"
-            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh" "$DEPLOY_DIR/migrate-sqlite-to-turso.sh"
+            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh"
             cd "$DEPLOY_DIR"
 
             # OpenClaw master switch: GitHub repo variable OPENCLAW_ENABLED (default true).
@@ -218,6 +199,13 @@ jobs:
               echo "OpenClaw disabled: skipping hook token, OpenClaw config, skill sync"
             fi
 
+            if [ -f data/life.db ]; then
+              STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+              cp -a data/life.db "data/backups/life.db.${STAMP}"
+              echo "backed up data/life.db -> data/backups/life.db.${STAMP}"
+              ls -1t data/backups/life.db.* 2>/dev/null | tail -n +11 | xargs -r rm -f
+            fi
+
             if [ -n "${GHCR_TOKEN:-}" ]; then
               echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-github}" --password-stdin
             fi
@@ -229,48 +217,6 @@ jobs:
               command -v openclaw >/dev/null
               openclaw config validate
             fi
-
-            # data/life.db is the legacy (pre-Turso) SQLite database: the app no longer reads or
-            # writes it, so per-deploy rotating copies are pointless. Keep it in place and take ONE
-            # frozen snapshot (never rotated away) as migration source / rollback point. Live data
-            # is in Turso, which has its own point-in-time restore. Migration is manual:
-            # docker/migrate-sqlite-to-turso.sh (see docs/turso.md).
-            # The files are written by the (root) container, and reading a WAL database needs write
-            # access to -shm, so the copy runs inside the new image as root, through SQLite's online
-            # backup API (consistent even while the old API still writes). Fallback: stop the API
-            # (a failed stop aborts the deploy before anything changed), then a plain copy.
-            if [ -f data/life.db ] && [ ! -f data/backups/life.db.pre-turso ]; then
-              docker pull -q "$LIFE_IMAGE" >/dev/null || true
-              if docker run --rm --user 0 -v "$PWD/data:/data" --entrypoint java "$LIFE_IMAGE" \
-                   -cp /app/app.jar -Dloader.main=com.lifeos.tools.SqliteBackup \
-                   org.springframework.boot.loader.launch.PropertiesLauncher \
-                   /data/life.db /data/backups/life.db.pre-turso; then
-                echo "legacy SQLite snapshot (online backup): data/life.db -> data/backups/life.db.pre-turso"
-              else
-                echo "::warning::online backup failed; stopping the API for a cold copy"
-                if [ -n "$(docker ps -q --filter name=^lifeos-api$)" ]; then
-                  if ! docker compose -f compose.yaml stop api; then
-                    echo "::error::could not stop lifeos-api for the legacy snapshot; aborting before deploy"
-                    exit 1
-                  fi
-                fi
-                SNAP_OK=1
-                for ext in "" -wal -shm; do
-                  if [ -f "data/life.db${ext}" ]; then
-                    cp -p "data/life.db${ext}" "data/backups/life.db.pre-turso${ext}" \
-                      || sudo -n cp -p "data/life.db${ext}" "data/backups/life.db.pre-turso${ext}" \
-                      || SNAP_OK=0
-                  fi
-                done
-                if [ "$SNAP_OK" != 1 ]; then
-                  rm -f data/backups/life.db.pre-turso data/backups/life.db.pre-turso-wal data/backups/life.db.pre-turso-shm || true
-                  echo "::error::legacy snapshot failed (permissions?); data/life.db is untouched. Fix and re-run."
-                  exit 1
-                fi
-                echo "legacy SQLite snapshot (cold copy): data/life.db -> data/backups/life.db.pre-turso"
-              fi
-            fi
-
 
             docker compose -f compose.yaml pull || true
             if [ "$MINTED" = "1" ]; then
@@ -309,7 +255,6 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
           DEPLOY_TAG: ${{ steps.resolve.outputs.tag }}
-          # Not secret: a repo variable is enough (a secret of the same name also works).
           TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL || secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}
