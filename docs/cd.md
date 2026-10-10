@@ -66,10 +66,9 @@ Unset or `true` = current behavior. `false` = the deploy skips `ensure-hook-toke
 
 Repo **variable** `TURSO_DATABASE_URL` (or a secret of that name): the production database URL.
 The app and compose file have no default any more. Order: repo variable/secret →
-`~/lifeos/.env` → `DEPLOY_DEFAULT_TURSO_DATABASE_URL` in `cd.yml` (the database prod has used so
-far, with a warning in the run log). The chosen URL is exported to compose explicitly and printed
-(without query string). Set the repo variable to switch databases (e.g. the new `life.db`
-database at release), then drop the cd.yml default. See [turso.md](turso.md).
+`~/lifeos/.env`; if neither sets it, the deploy fails before changing anything on the host. The
+chosen URL is exported to compose explicitly and printed with its source (without query string).
+Change the repo variable to switch databases (e.g. the new `life.db` database at release). See [turso.md](turso.md).
 
 Optional host env `DEPLOY_DIR` (default `$HOME/lifeos`).
 

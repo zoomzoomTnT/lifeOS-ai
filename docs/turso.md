@@ -14,9 +14,8 @@ Local SQLite instead: `SPRING_PROFILES_ACTIVE=local` (`mvn spring-boot:run -Dspr
 or `docker compose -f docker-compose.yml -f docker-compose.local.yml up`).
 
 CD passes `TURSO_DATABASE_URL` from the repo **variable** `TURSO_DATABASE_URL` (or a secret of the
-same name) and `TURSO_AUTH_TOKEN` from the secret; empty values fall back to `~/lifeos/.env`, then
-to `DEPLOY_DEFAULT_TURSO_DATABASE_URL` in `cd.yml` (the current database, with a warning). The
-deploy script stops **before** touching the host if none provides a URL (and a token for https).
+same name) and `TURSO_AUTH_TOKEN` from the secret; empty values fall back to `~/lifeos/.env`. The
+deploy script stops **before** touching the host if neither provides a URL (and a token for https).
 
 ## Driver and transactions
 

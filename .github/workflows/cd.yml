@@ -129,7 +129,7 @@ jobs:
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,DEPLOY_DEFAULT_TURSO_DATABASE_URL,OPENCLAW_ENABLED
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -166,16 +166,8 @@ jobs:
             EFFECTIVE_DB_TOKEN="${TURSO_AUTH_TOKEN:-$(env_file_value TURSO_AUTH_TOKEN)}"
             DB_URL_SOURCE="repo variable/secret"
             [ -n "${TURSO_DATABASE_URL:-}" ] || DB_URL_SOURCE="$DEPLOY_DIR/.env"
-            if [ -z "$EFFECTIVE_DB_URL" ] && [ -n "${DEPLOY_DEFAULT_TURSO_DATABASE_URL:-}" ]; then
-              # Until zoomzoom sets repo variable TURSO_DATABASE_URL: the database this deploy has
-              # always used (the old compose/app default), now named here, in the deploy config,
-              # instead of being baked into the app / compose file.
-              EFFECTIVE_DB_URL="$DEPLOY_DEFAULT_TURSO_DATABASE_URL"
-              DB_URL_SOURCE="cd.yml DEPLOY_DEFAULT_TURSO_DATABASE_URL"
-              echo "::warning::TURSO_DATABASE_URL not set as repo variable/secret or in $DEPLOY_DIR/.env; using the deploy default from cd.yml. Set repo variable TURSO_DATABASE_URL to make the target explicit."
-            fi
             if [ -z "$EFFECTIVE_DB_URL" ]; then
-              echo "::error::TURSO_DATABASE_URL is not set: add repo variable (or secret) TURSO_DATABASE_URL, or put it in $DEPLOY_DIR/.env"
+              echo "::error::TURSO_DATABASE_URL is not set: set repo variable (or secret) TURSO_DATABASE_URL, or put it in $DEPLOY_DIR/.env. Nothing on the host was changed."
               exit 1
             fi
             # Hand it to compose explicitly (compose.yaml has no default any more).
@@ -320,8 +312,4 @@ jobs:
           # Not secret: a repo variable is enough (a secret of the same name also works).
           TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL || secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          # Last-resort target when neither the repo variable/secret nor the server .env sets one:
-          # the database prod has been using (formerly the app/compose default). Remove once
-          # repo variable TURSO_DATABASE_URL is set (e.g. to the new life.db database at release).
-          DEPLOY_DEFAULT_TURSO_DATABASE_URL: jdbc:libsql:https://lifeos-ai-zoomzoomtnt.aws-ap-northeast-1.turso.io
           OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}
