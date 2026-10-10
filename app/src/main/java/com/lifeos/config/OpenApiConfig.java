@@ -25,11 +25,17 @@ public class OpenApiConfig {
                         .title("lifeOS-ai")
                         .version(version)
                         .description("Life OS REST. Money = integer cents. Times = UTC ISO with Z. "
-                                + "Mutations need header X-Life-Handle ("
+                                + "Every /api call needs Authorization: Bearer <LIFE_API_KEY>. "
+                                + "Mutations also need header X-Life-Handle ("
                                 + (openclawEnabled ? "WeChat peer id" : "the caller's people.handle") + ")."
                                 + (openclawEnabled ? "" : " OpenClaw integration is off (OPENCLAW_ENABLED=false).")))
-                .addSecurityItem(new SecurityRequirement().addList("X-Life-Handle"))
-                .components(new Components().addSecuritySchemes("X-Life-Handle",
+                .addSecurityItem(new SecurityRequirement().addList("bearerAuth").addList("X-Life-Handle"))
+                .components(new Components()
+                        .addSecuritySchemes("bearerAuth", new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .description("LIFE_API_KEY"))
+                        .addSecuritySchemes("X-Life-Handle",
                         new SecurityScheme()
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)

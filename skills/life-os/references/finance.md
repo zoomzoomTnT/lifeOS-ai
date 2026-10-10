@@ -15,7 +15,7 @@ Classify first — receipt / food photo / other. Only receipts use this flow.
 2. Call API preview (server computes fingerprint + sum check + pending insert):
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/receipts/preview" \
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/receipts/preview" \
   -H "Content-Type: application/json" \
   -H "X-Life-Handle: $HANDLE" \
   -d '{
@@ -40,7 +40,7 @@ curl -s -X POST "$LIFE_API_BASE/api/receipts/preview" \
 6. User says 对 → 
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/receipts/$ID/confirm" \
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/receipts/$ID/confirm" \
   -H "Content-Type: application/json" \
   -H "X-Life-Handle: $HANDLE" \
   -d '{"also_fridge": true}'

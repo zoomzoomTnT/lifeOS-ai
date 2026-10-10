@@ -98,6 +98,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check required secrets
+        env:
+          LIFE_API_KEY: ${{ secrets.LIFE_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LIFE_API_KEY:-}" ]; then
+            echo "::error title=LIFE_API_KEY secret missing::The API now requires an API key and will not start without one. Add the repository secret LIFE_API_KEY (Settings > Secrets and variables > Actions > New repository secret), value from: openssl rand -hex 32. Then re-run this workflow."
+            exit 1
+          fi
+          if [ "${#LIFE_API_KEY}" -lt 32 ]; then
+            echo "::error title=LIFE_API_KEY too short::LIFE_API_KEY must be at least 32 characters (the app refuses shorter keys). Regenerate with: openssl rand -hex 32"
+            exit 1
+          fi
+          case "$LIFE_API_KEY" in
+            *[!A-Za-z0-9._~+/=-]*)
+              echo "::error title=LIFE_API_KEY has unsupported characters::Use only letters, digits and ._~+/=- (openssl rand -hex 32 is fine); it is written to the server .env."
+              exit 1 ;;
+          esac
+          echo "LIFE_API_KEY secret present (${#LIFE_API_KEY} chars)"
+
       - name: Resolve image tag
         id: resolve
         run: |
@@ -118,7 +138,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh
+          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh,docker/Caddyfile
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -129,7 +149,7 @@ jobs:
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED,LIFE_API_KEY,LIFE_DOMAIN
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -139,6 +159,13 @@ jobs:
             # Empty secret -> fall back to TURSO_* in $DEPLOY_DIR/.env
             [ -n "${TURSO_DATABASE_URL:-}" ] || unset TURSO_DATABASE_URL
             [ -n "${TURSO_AUTH_TOKEN:-}" ] || unset TURSO_AUTH_TOKEN
+
+            # API key (GitHub secret LIFE_API_KEY). The app refuses to start without it.
+            if [ -z "${LIFE_API_KEY:-}" ]; then
+              echo "::error::LIFE_API_KEY did not reach the server. Add the repository secret LIFE_API_KEY (openssl rand -hex 32) and re-run CD." >&2
+              exit 1
+            fi
+            echo "preflight: LIFE_API_KEY present (${#LIFE_API_KEY} chars)"
 
             # Preflight: fail loudly (a bare `command -v docker` under set -e exits 1 with no output).
             echo "preflight: host=$(hostname) user=$(id -un) groups=$(id -Gn)"
@@ -162,6 +189,8 @@ jobs:
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
             cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
             cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
+            mkdir -p "$DEPLOY_DIR/docker"
+            cp /tmp/lifeos-cd/docker/Caddyfile "$DEPLOY_DIR/docker/Caddyfile"
             chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh"
             cd "$DEPLOY_DIR"
 
@@ -177,6 +206,31 @@ jobs:
               echo "OPENCLAW_ENABLED=$OC" >> .env
             fi
             echo "OPENCLAW_ENABLED=$OC"
+
+            # Upsert KEY=VALUE in .env (mode 600) without sed-escaping the value.
+            upsert_env() {
+              ( umask 077
+                { grep -v "^$1=" .env || true; printf '%s=%s\n' "$1" "$2"; } > .env.tmp
+                mv .env.tmp .env )
+            }
+            # API key from the GitHub secret; saved so manual deploy.sh runs use the same key.
+            upsert_env LIFE_API_KEY "$LIFE_API_KEY"
+            export LIFE_API_KEY
+            echo "LIFE_API_KEY written to .env (value not shown)"
+
+            # Optional HTTPS proxy: repo variable LIFE_DOMAIN (empty = keep whatever .env has).
+            if [ -n "${LIFE_DOMAIN:-}" ]; then
+              upsert_env LIFE_DOMAIN "$LIFE_DOMAIN"
+            fi
+            LIFE_DOMAIN="${LIFE_DOMAIN:-$(sed -n 's/^LIFE_DOMAIN=//p' .env | tail -n 1)}"
+            export LIFE_DOMAIN
+            PROFILES=""
+            if [ -n "$LIFE_DOMAIN" ]; then
+              PROFILES="--profile proxy"
+              echo "LIFE_DOMAIN=$LIFE_DOMAIN: Caddy HTTPS proxy enabled (ports 80/443)"
+            else
+              echo "LIFE_DOMAIN unset: no HTTPS proxy; API listens on 127.0.0.1:8787 only (LIFE_API_BIND to override)"
+            fi
 
             MINTED=0
             if [ "$OC" = "true" ]; then
@@ -211,11 +265,12 @@ jobs:
               openclaw config validate
             fi
 
-            docker compose -f compose.yaml pull || true
+            # shellcheck disable=SC2086
+            docker compose -f compose.yaml $PROFILES pull || true
             if [ "$MINTED" = "1" ]; then
-              docker compose -f compose.yaml up -d --no-build --force-recreate
+              docker compose -f compose.yaml $PROFILES up -d --no-build --force-recreate
             else
-              docker compose -f compose.yaml up -d --no-build
+              docker compose -f compose.yaml $PROFILES up -d --no-build
             fi
             if [ "$OC" = "true" ]; then
               docker compose -f compose.yaml run --rm skill-sync
@@ -235,7 +290,19 @@ jobs:
               docker compose -f compose.yaml logs --no-color --tail=200 api || docker logs --tail=200 lifeos-api || true
               exit 1
             fi
-            curl -fsS http://127.0.0.1:8787/actuator/info || true
+            AUTH_HDR="Authorization: Bearer $LIFE_API_KEY"
+            code="$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8787/api/ops/summary?hours=1')"
+            if [ "$code" != "401" ]; then
+              echo "::error::API auth not enforced: unauthenticated /api/ops/summary returned $code (expected 401)"
+              exit 1
+            fi
+            if ! curl -fsS -o /dev/null -H "$AUTH_HDR" 'http://127.0.0.1:8787/api/ops/summary?hours=1'; then
+              echo "::error::API rejected LIFE_API_KEY from the GitHub secret"
+              exit 1
+            fi
+            echo "auth: 401 without key, 200 with LIFE_API_KEY"
+            curl -fsS -H "$AUTH_HDR" http://127.0.0.1:8787/actuator/info || true
+            echo
             docker compose -f compose.yaml ps || true
             docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
             if [ "$OC" = "true" ]; then
@@ -251,3 +318,5 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}
+          LIFE_API_KEY: ${{ secrets.LIFE_API_KEY }}
+          LIFE_DOMAIN: ${{ vars.LIFE_DOMAIN }}

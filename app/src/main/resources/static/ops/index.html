@@ -71,10 +71,23 @@
       return '$' + (n / 1_000_000).toFixed(4);
     };
     const el = (id) => document.getElementById(id);
+    // API key (LIFE_API_KEY) is kept in this tab only (sessionStorage), never in the page or URL.
+    const KEY = 'lifeos_api_key';
+    async function api(url) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const key = sessionStorage.getItem(KEY) || '';
+        const r = await fetch(url, { headers: key ? { 'Authorization': 'Bearer ' + key } : {} });
+        if (r.status !== 401) return r.json();
+        const entered = prompt('LIFE_API_KEY');
+        if (!entered) throw new Error('API key required');
+        sessionStorage.setItem(KEY, entered.trim());
+      }
+      throw new Error('invalid API key');
+    }
     async function load() {
-      const s = await (await fetch('/api/ops/summary?hours=24')).json();
-      const ai = await (await fetch('/api/ops/ai?limit=30')).json();
-      const http = await (await fetch('/api/ops/http?limit=30')).json();
+      const s = await api('/api/ops/summary?hours=24');
+      const ai = await api('/api/ops/ai?limit=30');
+      const http = await api('/api/ops/http?limit=30');
       const over = s.budget_exceeded;
       el('kpis').innerHTML = `
         <div class="card"><div class="label">今日 AI</div><div class="val ${over ? 'warn' : 'ok'}">${s.today_cost_usd}</div></div>
@@ -93,9 +106,14 @@
       el('http').innerHTML = '<tr><th>when</th><th>m</th><th>path</th><th class="right">ms</th><th>st</th></tr>'
         + http.map(r => `<tr><td>${(r.created_at||'').slice(11,19)}</td><td>${r.method}</td><td>${r.path}</td><td class="right">${r.latency_ms}</td><td>${r.status}</td></tr>`).join('');
     }
-    el('reload').onclick = load;
-    load();
-    setInterval(load, 15000);
+    let timer = null;
+    const tick = () => load().catch((e) => {
+      el('kpis').textContent = e.message;   // stop polling instead of re-prompting every 15s
+      if (timer) { clearInterval(timer); timer = null; }
+    });
+    el('reload').onclick = () => { tick(); if (!timer) timer = setInterval(tick, 15000); };
+    tick();
+    timer = setInterval(tick, 15000);
   </script>
 </body>
 </html>

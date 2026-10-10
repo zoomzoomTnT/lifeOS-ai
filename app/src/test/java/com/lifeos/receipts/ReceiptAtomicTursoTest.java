@@ -37,6 +37,7 @@ class ReceiptAtomicTursoTest extends AbstractReceiptAtomicTest {
     static void props(DynamicPropertyRegistry r) {
         r.add("spring.datasource.url", TURSO::url);
         r.add("spring.datasource.password", () -> "test-token");
+        r.add("life.api-key", () -> "test-api-key-0123456789abcdef0123456789"); // default profile requires one
         r.add("life.openclaw.enabled", () -> "false");
         r.add("life.proactive.cron", () -> "-");
         r.add("life.logs.ingest-ms", () -> "86400000");

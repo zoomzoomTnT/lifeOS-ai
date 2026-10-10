@@ -12,7 +12,7 @@
 ## Create then automate
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/memos" \
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/memos" \
   -H "Content-Type: application/json" \
   -H "X-Life-Handle: $HANDLE" \
   -d '{
@@ -38,7 +38,7 @@ Store `cron_expr` / `cron_tz` / `due_at` on the memo so Java knows when to wake.
 Quiet 30m model heartbeats are **off**. Java cron is the send path.
 
 ```bash
-curl -s -X PATCH "$LIFE_API_BASE/api/memos/$ID" \
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X PATCH "$LIFE_API_BASE/api/memos/$ID" \
   -H "Content-Type: application/json" \
   -d '{"due_at": "<utc>"}'
 ```
@@ -76,7 +76,7 @@ Channel must be `openclaw-weixin`. `--to` is `people.handle`.
 After successful send:
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/memos/$ID/fired"
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/memos/$ID/fired"
 ```
 
 Do not re-fire within 6 hours (`last_fired_at`).
@@ -84,5 +84,5 @@ Do not re-fire within 6 hours (`last_fired_at`).
 ## Query due
 
 ```bash
-curl -s "$LIFE_API_BASE/api/memos/due?within_hours=36" -H "X-Life-Handle: $HANDLE"
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" "$LIFE_API_BASE/api/memos/due?within_hours=36" -H "X-Life-Handle: $HANDLE"
 ```

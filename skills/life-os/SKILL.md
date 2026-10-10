@@ -22,7 +22,8 @@ metadata:
 | Owner timezone | `Asia/Tokyo` |
 | Options timezone | `America/New_York` |
 | WeChat channel | `openclaw-weixin` |
-| Auth header | `X-Life-Handle: <people.handle>` |
+| Auth | `Authorization: Bearer $LIFE_API_KEY` on every call except `/actuator/health` |
+| Identity header | `X-Life-Handle: <people.handle>` (who is acting; not auth) |
 
 All mutations go through the REST API. Do not write SQLite from this skill.
 
@@ -30,7 +31,7 @@ All mutations go through the REST API. Do not write SQLite from this skill.
 
 ```bash
 curl -s "$LIFE_API_BASE/actuator/health"
-curl -s "$LIFE_API_BASE/actuator/db"
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" "$LIFE_API_BASE/actuator/db"
 ```
 
 If `people.handle` is still `owner`, the first real WeChat peer id will auto-create a member row (or upsert via API later).
@@ -75,7 +76,7 @@ That writes `$OPENCLAW_HOME/workspace/skills/life-os` and `HEARTBEAT.md`.
 ## Backup
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/backup" -H "Content-Type: application/json" -d '{}'
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/backup" -H "Content-Type: application/json" -d '{}'
 ```
 
 Tell the user to copy the returned `.db` snapshot. Never commit `life.db`.

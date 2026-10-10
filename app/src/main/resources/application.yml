@@ -35,6 +35,9 @@ lifeos:
     enabled: ${OPENCLAW_ENABLED:true}
 
 life:
+  # API key for /api/** and /actuator/** (except /actuator/health). Header: Authorization: Bearer <key>.
+  # Required outside the `local` profile: the app refuses to start without it (>= 32 chars).
+  api-key: ${LIFE_API_KEY:}
   owner-timezone: Asia/Tokyo
   schema-path: classpath:schema.sql   # or external path
   openclaw:

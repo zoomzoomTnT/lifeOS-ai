@@ -6,19 +6,19 @@ No broker orders. Do not invent live prices without a quote source. Say you only
 
 ```bash
 # list
-curl -s "$LIFE_API_BASE/api/holdings" -H "X-Life-Handle: $HANDLE"
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" "$LIFE_API_BASE/api/holdings" -H "X-Life-Handle: $HANDLE"
 
 # get one (includes events)
-curl -s "$LIFE_API_BASE/api/holdings/7" -H "X-Life-Handle: $HANDLE"
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" "$LIFE_API_BASE/api/holdings/7" -H "X-Life-Handle: $HANDLE"
 
 # upsert by (owner, symbol, market)
-curl -s -X POST "$LIFE_API_BASE/api/holdings" \
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/holdings" \
   -H "Content-Type: application/json" \
   -H "X-Life-Handle: $HANDLE" \
   -d '{"symbol":"AAPL","market":"US","qty":2,"avg_cost":180.5,"currency":"USD"}'
 
 # attach an event (optional memo_id from /api/memos)
-curl -s -X POST "$LIFE_API_BASE/api/holdings/7/events" \
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/holdings/7/events" \
   -H "Content-Type: application/json" \
   -H "X-Life-Handle: $HANDLE" \
   -d '{"kind":"options_expiry","event_date":"2026-09-18","notes":"weekly","memo_id":12}'

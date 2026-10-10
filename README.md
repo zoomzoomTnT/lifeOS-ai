@@ -180,7 +180,7 @@ openclaw skills list    # 应有 life-os
 
 `skills.load.watch` 默认 `true`，改 `SKILL.md` 下一轮对话会刷新。
 
-skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `X-Life-Handle: <微信 peer id>`。  
+skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `Authorization: Bearer $LIFE_API_KEY`（鉴权，除 `/actuator/health` 外都要）+ `X-Life-Handle: <微信 peer id>`（身份，不是鉴权）。见 [docs/auth.md](docs/auth.md)。  
 把 `people.handle` 从占位 `owner` 改成真实微信 id。时区默认 **Asia/Tokyo**；期权 cron 用 **America/New_York**。
 
 自动加载失败时：

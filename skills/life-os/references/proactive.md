@@ -43,11 +43,11 @@ The prompt will say `life-os webhook ping`. Then:
 ## Manual / debug
 
 ```bash
-curl -s "$LIFE_API_BASE/api/ops/should-wake?lead_minutes=10"
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" "$LIFE_API_BASE/api/ops/should-wake?lead_minutes=10"
 # due-memo path (no-op if nothing is due)
-curl -s -X POST "$LIFE_API_BASE/api/ops/proactive/run" -H 'Content-Type: application/json' -d '{"force":true}'
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/ops/proactive/run" -H 'Content-Type: application/json' -d '{"force":true}'
 # always fires WeChat — same token as hooks.token
-curl -s -X POST "$LIFE_API_BASE/api/ops/webhook/ping" \
+curl -s -H "Authorization: Bearer $LIFE_API_KEY" -X POST "$LIFE_API_BASE/api/ops/webhook/ping" \
   -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
   -H 'Content-Type: application/json' -d '{}'
 ```

@@ -62,6 +62,10 @@ Unset or `true` = current behavior. `false` = the deploy skips `ensure-hook-toke
 | `SERVER_IP` | Host |
 | `SERVER_UN` | SSH user |
 | `SERVER_PK` | Private key PEM / OpenSSH |
+| `LIFE_API_KEY` | **Required.** API key (`openssl rand -hex 32`, >= 32 chars). CD fails early with an `::error::` if it is missing, writes it to `~/lifeos/.env`, and checks after deploy that `/api` answers 401 without it and 200 with it. See [auth.md](auth.md). |
+| `TURSO_AUTH_TOKEN` / `TURSO_DATABASE_URL` | Turso credentials (URL defaults to the compose value). |
+
+Repo **variables**: `OPENCLAW_ENABLED` (see above), `LIFE_DOMAIN` (optional; when set, CD starts the Caddy HTTPS proxy, see [auth.md](auth.md#exposure)).
 
 Optional host env `DEPLOY_DIR` (default `$HOME/lifeos`).
 

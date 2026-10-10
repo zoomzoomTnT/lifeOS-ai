@@ -33,6 +33,31 @@ case "$(printf '%s' "${OPENCLAW_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')" i
 esac
 export OPENCLAW_ENABLED
 
+# API key: env, else .env. The app refuses to start without one (>= 32 chars).
+if [ -z "${LIFE_API_KEY:-}" ] && [ -f .env ]; then
+  LIFE_API_KEY="$(sed -n 's/^LIFE_API_KEY=//p' .env | tail -n 1)"
+fi
+if [ -z "${LIFE_API_KEY:-}" ]; then
+  echo "LIFE_API_KEY is not set (env or $ROOT/.env). Generate one: openssl rand -hex 32" >&2
+  exit 1
+fi
+if [ "${#LIFE_API_KEY}" -lt 32 ]; then
+  echo "LIFE_API_KEY is too short (${#LIFE_API_KEY} chars, need >= 32). Regenerate: openssl rand -hex 32" >&2
+  exit 1
+fi
+export LIFE_API_KEY
+
+# Optional HTTPS proxy (Caddy) when LIFE_DOMAIN is set (env or .env).
+if [ -z "${LIFE_DOMAIN:-}" ] && [ -f .env ]; then
+  LIFE_DOMAIN="$(sed -n 's/^LIFE_DOMAIN=//p' .env | tail -n 1)"
+fi
+PROFILES=()
+if [ -n "${LIFE_DOMAIN:-}" ]; then
+  [ -f docker/Caddyfile ] || { echo "LIFE_DOMAIN is set but $ROOT/docker/Caddyfile is missing" >&2; exit 1; }
+  export LIFE_DOMAIN
+  PROFILES=(--profile proxy)
+fi
+
 IMAGE="${LIFE_IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai:latest}"
 export LIFE_IMAGE="$IMAGE"
 
@@ -44,12 +69,17 @@ if [ -f data/life.db ]; then
   ls -1t data/backups/life.db.* 2>/dev/null | tail -n +11 | xargs -r rm -f
 fi
 
-docker compose -f "$FILE" pull api
-docker compose -f "$FILE" up -d --no-build --remove-orphans --wait --wait-timeout 120
+docker compose -f "$FILE" "${PROFILES[@]}" pull
+docker compose -f "$FILE" "${PROFILES[@]}" up -d --no-build --remove-orphans --wait --wait-timeout 120
 if [ "$OPENCLAW_ENABLED" = "true" ]; then
   docker compose -f "$FILE" --profile sync run --rm skill-sync
 else
   echo "OPENCLAW_ENABLED=false: skipping skill sync"
 fi
 curl -fsS http://127.0.0.1:${LIFE_API_PORT:-8787}/actuator/health
+echo
+code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${LIFE_API_PORT:-8787}/api/ops/summary?hours=1")"
+[ "$code" = "401" ] || { echo "API auth not enforced (unauthenticated request returned $code)" >&2; exit 1; }
+curl -fsS -o /dev/null -H "Authorization: Bearer $LIFE_API_KEY" "http://127.0.0.1:${LIFE_API_PORT:-8787}/api/ops/summary?hours=1"
+echo "auth ok: 401 without key, 200 with LIFE_API_KEY"
 echo "deployed $IMAGE"

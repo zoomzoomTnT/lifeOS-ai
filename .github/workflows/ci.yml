@@ -115,6 +115,8 @@ jobs:
           export OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
           # No Turso token in CI: run against a throwaway SQLite file via the local overlay.
           export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+          export LIFE_API_KEY=ci-smoke-key-0123456789abcdef0123456789
+          AUTH=(-H "Authorization: Bearer $LIFE_API_KEY")
           mkdir -p local
           mkdir -p "$OPENCLAW_HOME/agents/main/sessions"
           printf '%s\n' \
@@ -124,34 +126,40 @@ jobs:
           docker compose up -d --wait --wait-timeout 90
           curl -fsS http://localhost:8787/actuator/health | grep -q '"status":"UP"'
           curl -fsS http://localhost:8787/actuator/health | grep -q '"life"'
-          curl -fsS http://localhost:8787/actuator/db | grep -q ownerTimezone
-          curl -fsS http://localhost:8787/actuator/info | grep -q life-os-app
+          # API key auth: health open, everything else needs the key.
+          test "$(curl -s -o /tmp/u.json -w '%{http_code}' http://localhost:8787/api/ops/summary)" = "401"
+          grep -q '"unauthorized"' /tmp/u.json
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong-key' http://localhost:8787/api/ops/summary)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/actuator/db)" = "401"
+          curl -sI http://localhost:8787/api/ops/summary | grep -qi '^www-authenticate: Bearer'
+          curl "${AUTH[@]}" -fsS http://localhost:8787/actuator/db | grep -q ownerTimezone
+          curl "${AUTH[@]}" -fsS http://localhost:8787/actuator/info | grep -q life-os-app
           curl -fsS http://localhost:8787/v3/api-docs/api | grep -q '"openapi"'
           curl -fsS http://localhost:8787/swagger-ui/index.html | grep -qi swagger
           curl -fsS http://localhost:8787/ops/index.html | grep -q "Life OS ops"
-          AI=$(curl -fsS -X POST http://localhost:8787/api/ops/ai \
+          AI=$(curl "${AUTH[@]}" -fsS -X POST http://localhost:8787/api/ops/ai \
             -H 'Content-Type: application/json' \
             -H 'X-Life-Handle: owner' \
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"provider":"xai","model":"grok-4","purpose":"heartbeat","source":"app","prompt_tokens":1000,"completion_tokens":0}')
           echo "$AI"
           echo "$AI" | grep -q '0.003000'
-          SW=$(curl -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10')
+          SW=$(curl "${AUTH[@]}" -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10')
           echo "$SW"
           echo "$SW" | grep -qi 'heartbeat_ok'
-          RUN=$(curl -fsS -X POST http://localhost:8787/api/ops/proactive/run \
+          RUN=$(curl "${AUTH[@]}" -fsS -X POST http://localhost:8787/api/ops/proactive/run \
             -H 'Content-Type: application/json' -d '{}')
           echo "$RUN"
           echo "$RUN" | grep -qi 'skipped\|wake'
-          curl -fsS -X POST http://localhost:8787/api/receipts/lookup \
+          curl "${AUTH[@]}" -fsS -X POST http://localhost:8787/api/receipts/lookup \
             -H 'Content-Type: application/json' \
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
-          curl -fsS http://localhost:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
-          ING=$(curl -fsS -X POST http://localhost:8787/api/ops/logs/ingest)
+          curl "${AUTH[@]}" -fsS http://localhost:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
+          ING=$(curl "${AUTH[@]}" -fsS -X POST http://localhost:8787/api/ops/logs/ingest)
           echo "$ING"
           echo "$ING" | grep -q 'session_rows'
-          META=$(curl -fsS 'http://localhost:8787/api/ops/logs/sessions?limit=5')
+          META=$(curl "${AUTH[@]}" -fsS 'http://localhost:8787/api/ops/logs/sessions?limit=5')
           echo "$META"
           echo "$META" | grep -q 'openclaw_session'
           echo "$META" | grep -qv '秘密对话'
@@ -167,6 +175,8 @@ jobs:
           export LIFE_IMAGE=lifeos-ai:ci
           export OPENCLAW_ENABLED=false
           export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+          export LIFE_API_KEY=ci-smoke-key-0123456789abcdef0123456789
+          AUTH=(-H "Authorization: Bearer $LIFE_API_KEY")
           mkdir -p local
           docker compose up -d --wait --wait-timeout 90
           H=$(curl -fsS http://localhost:8787/actuator/health)
@@ -174,17 +184,36 @@ jobs:
           echo "$H" | grep -q '"status":"UP"'
           echo "$H" | grep -q '"openclaw":"disabled"'
           for p in /api/ops/webhook/ping /api/ops/proactive/run /api/ops/logs/ingest; do
-            code=$(curl -s -o /tmp/oc.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "http://localhost:8787$p")
+            code=$(curl "${AUTH[@]}" -s -o /tmp/oc.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "http://localhost:8787$p")
             cat /tmp/oc.json; echo
             test "$code" = "404"
             grep -q openclaw_disabled /tmp/oc.json
           done
-          curl -fsS -X POST http://localhost:8787/api/memos -H 'Content-Type: application/json' \
+          curl "${AUTH[@]}" -fsS -X POST http://localhost:8787/api/memos -H 'Content-Type: application/json' \
             -d '{"title":"ci no openclaw","kind":"reminder"}' | grep -q '"id"'
-          curl -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10' | grep -qi 'wake'
+          curl "${AUTH[@]}" -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10' | grep -qi 'wake'
           docker compose --profile sync run --rm skill-sync 2>&1 | grep -q 'skipping skill sync'
           docker compose logs api | grep -qi 'OpenClaw webhook' && { echo "unexpected OpenClaw call"; exit 1; } || true
           docker compose down
+
+      - name: Prod profile refuses to start without LIFE_API_KEY
+        run: |
+          set -euo pipefail
+          # Default (Turso) profile, no key: the container must exit with the clear message.
+          set +e
+          out="$(timeout 120 docker run --rm -e LIFE_API_KEY= -e OPENCLAW_ENABLED=false lifeos-ai:ci 2>&1)"
+          rc=$?
+          set -e
+          echo "$out" | tail -n 5
+          test "$rc" -ne 0
+          echo "$out" | grep -q 'LIFE_API_KEY is not set'
+
+      - name: Validate Caddyfile
+        run: |
+          docker run --rm -e LIFE_DOMAIN=lifeos.example.com \
+            -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          LIFE_DOMAIN=lifeos.example.com docker compose -f docker-compose.yml --profile proxy config --quiet
 
       - name: Login to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
