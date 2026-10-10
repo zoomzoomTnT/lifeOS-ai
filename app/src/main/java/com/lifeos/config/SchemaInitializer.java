@@ -51,16 +51,14 @@ public class SchemaInitializer implements ApplicationRunner {
     private void execScript(String location) throws Exception {
         Resource resource = resourceLoader.getResource(location);
         String sql = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
-        for (String stmt : sql.split(";")) {
-            String s = stmt.trim();
-            if (s.isEmpty()) continue;
-            if (s.lines().allMatch(l -> {
-                String t = l.trim();
-                return t.isEmpty() || t.startsWith("--");
-            })) continue;
+        for (String s : SqlScript.split(sql)) {
             try {
                 jdbc.execute(s);
             } catch (Exception e) {
+                if (String.valueOf(e.getMessage()).contains("duplicate column name")) {
+                    log.debug("Already applied: {}", s.substring(0, Math.min(80, s.length())).replace('\n', ' '));
+                    continue;
+                }
                 log.warn("Statement failed (may be idempotent): {} → {}",
                         s.substring(0, Math.min(80, s.length())).replace('\n', ' '),
                         e.getMessage());

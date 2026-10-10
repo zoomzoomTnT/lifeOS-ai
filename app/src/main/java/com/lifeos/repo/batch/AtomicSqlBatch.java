@@ -6,11 +6,8 @@ import java.util.Map;
 /**
  * Runs a list of SQL statements all-or-nothing: either every statement commits, or none does.
  *
- * <ul>
- *   <li>Local SQLite: a normal JDBC transaction ({@link JdbcAtomicSqlBatch}).</li>
- *   <li>Turso: one Hrana-over-HTTP pipeline request with BEGIN … COMMIT in a conditional batch
- *       ({@link TursoAtomicSqlBatch}), because the JDBC driver cannot hold a transaction.</li>
- * </ul>
+ * Implemented by {@link JdbcAtomicSqlBatch}: a JDBC transaction (joining the caller's, if any),
+ * which is a real transaction on local SQLite and on Turso alike.
  *
  * Later statements can refer to rows written by earlier ones (sub-selects on unique keys,
  * {@code last_insert_rowid()}); everything runs on one connection.
