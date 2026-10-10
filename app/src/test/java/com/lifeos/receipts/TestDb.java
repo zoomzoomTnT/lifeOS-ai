@@ -6,7 +6,6 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Creates a SQLite file with the app schema plus test-only failure triggers. */
@@ -35,30 +34,8 @@ public final class TestDb {
         return file;
     }
 
-    /** Split a SQL script on ';', ignoring '--' comments and quoted strings. */
+    /** Same splitter the app uses (SchemaInitializer). */
     static List<String> split(String script) {
-        List<String> out = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
-        char quote = 0;
-        for (int i = 0; i < script.length(); i++) {
-            char ch = script.charAt(i);
-            if (quote != 0) {
-                cur.append(ch);
-                if (ch == quote) quote = 0;
-            } else if (ch == '\'' || ch == '"') {
-                quote = ch;
-                cur.append(ch);
-            } else if (ch == '-' && i + 1 < script.length() && script.charAt(i + 1) == '-') {
-                while (i < script.length() && script.charAt(i) != '\n') i++;
-                cur.append('\n');
-            } else if (ch == ';') {
-                if (!cur.toString().isBlank()) out.add(cur.toString().strip());
-                cur.setLength(0);
-            } else {
-                cur.append(ch);
-            }
-        }
-        if (!cur.toString().isBlank()) out.add(cur.toString().strip());
-        return out;
+        return com.lifeos.config.SqlScriptSplitter.split(script);
     }
 }
