@@ -11,9 +11,10 @@ import org.springframework.stereotype.Component;
 /**
  * Turso (libSQL) profile: verify at startup that the server enforces foreign keys.
  *
- * <p>We no longer send {@code PRAGMA foreign_keys=ON} (Turso's legacy HTTP endpoint rejects PRAGMA
- * writes and the pool failed on it), so we rely on Turso's own default. This only READS the
- * pragma; it never writes one.
+ * <p>The libSQL driver ({@code com.lifeos.db.libsql}) sends {@code PRAGMA foreign_keys=ON} at
+ * the start of every Hrana stream (statements only run if it succeeded), so this should always
+ * read 1; it stays as a cheap guard. It only READS the pragma (no connection-init-sql write: the
+ * old DBeaver driver's legacy HTTP endpoint rejected that and crash-looped the pool).
  *
  * <p>Default on failure: log an ERROR and keep running. A fail-fast here would crash-loop prod
  * (the outage this hotfix fixes) on a check that by itself does not damage data; the app ran
