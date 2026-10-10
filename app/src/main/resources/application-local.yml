@@ -1,4 +1,4 @@
-# Local debug: repo-relative SQLite, do not ping WeChat.
+# Local debug: repo-relative SQLite file instead of Turso, do not ping WeChat.
 #   cd app && mvn spring-boot:run -Dspring-boot.run.profiles=local
 #   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 #
@@ -7,6 +7,10 @@
 spring:
   datasource:
     url: jdbc:sqlite:${LIFE_DB:${user.dir}/../local/life.db}
+    driver-class-name: org.sqlite.JDBC
+    password: ""
+    hikari:
+      connection-init-sql: "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;"
 
 life:
   openclaw:
