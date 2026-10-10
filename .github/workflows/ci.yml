@@ -43,6 +43,15 @@ jobs:
   build:
     name: Maven test & package
     runs-on: ubuntu-latest
+    services:
+      # Real libSQL server: LibSqlRealServerTest + RealSqldAppTest run the driver and the whole
+      # app (transactions, foreign keys, schema init on an empty DB) against it.
+      sqld:
+        image: ghcr.io/tursodatabase/libsql-server:v0.24.32
+        ports:
+          - 8080:8080
+    env:
+      LIBSQL_TEST_URL: jdbc:libsql:http://localhost:8080
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +60,15 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      - name: Wait for sqld
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8080/health >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "sqld did not become healthy" >&2
+          exit 1
 
       - name: Test and package
         working-directory: app
@@ -107,58 +125,28 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Compose smoke test
+      - name: Compose smoke test (local SQLite overlay)
         run: |
           set -euo pipefail
           export LIFE_IMAGE=lifeos-ai:ci
-          export LIFE_OPENCLAW_WAKE=false
-          export OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
-          # No Turso token in CI: run against a throwaway SQLite file via the local overlay.
+          # local profile: throwaway SQLite file via the local overlay
           export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
           mkdir -p local
-          mkdir -p "$OPENCLAW_HOME/agents/main/sessions"
-          printf '%s\n' \
-            '{"type":"session","timestamp":"2026-08-26T00:00:00Z","id":"ci-sess"}' \
-            '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
-            > "$OPENCLAW_HOME/agents/main/sessions/ci.jsonl"
-          docker compose up -d --wait --wait-timeout 90
-          curl -fsS http://localhost:8787/actuator/health | grep -q '"status":"UP"'
-          curl -fsS http://localhost:8787/actuator/health | grep -q '"life"'
-          curl -fsS http://localhost:8787/actuator/db | grep -q ownerTimezone
-          curl -fsS http://localhost:8787/actuator/info | grep -q life-os-app
-          curl -fsS http://localhost:8787/v3/api-docs/api | grep -q '"openapi"'
-          curl -fsS http://localhost:8787/swagger-ui/index.html | grep -qi swagger
-          curl -fsS http://localhost:8787/ops/index.html | grep -q "Life OS ops"
-          AI=$(curl -fsS -X POST http://localhost:8787/api/ops/ai \
-            -H 'Content-Type: application/json' \
-            -H 'X-Life-Handle: owner' \
-            -H 'X-Request-Id: ci-smoke-1' \
-            -d '{"provider":"xai","model":"grok-4","purpose":"heartbeat","source":"app","prompt_tokens":1000,"completion_tokens":0}')
-          echo "$AI"
-          echo "$AI" | grep -q '0.003000'
-          SW=$(curl -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10')
-          echo "$SW"
-          echo "$SW" | grep -qi 'heartbeat_ok'
-          RUN=$(curl -fsS -X POST http://localhost:8787/api/ops/proactive/run \
-            -H 'Content-Type: application/json' -d '{}')
-          echo "$RUN"
-          echo "$RUN" | grep -qi 'skipped\|wake'
-          curl -fsS -X POST http://localhost:8787/api/receipts/lookup \
-            -H 'Content-Type: application/json' \
-            -H 'X-Request-Id: ci-smoke-1' \
-            -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
-          curl -fsS http://localhost:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
-          ING=$(curl -fsS -X POST http://localhost:8787/api/ops/logs/ingest)
-          echo "$ING"
-          echo "$ING" | grep -q 'session_rows'
-          META=$(curl -fsS 'http://localhost:8787/api/ops/logs/sessions?limit=5')
-          echo "$META"
-          echo "$META" | grep -q 'openclaw_session'
-          echo "$META" | grep -qv '秘密对话'
-          docker compose --profile sync run --rm skill-sync
-          grep -q 'name: life-os' "$OPENCLAW_HOME/workspace/skills/life-os/SKILL.md"
-          test -f "$OPENCLAW_HOME/workspace/HEARTBEAT.md"
-          docker compose down
+          SMOKE_EXPECT_DB='jdbc:sqlite:' ./docker/ci-smoke.sh
+
+      - name: Compose smoke test (libSQL / sqld, production profile)
+        run: |
+          set -euo pipefail
+          export LIFE_IMAGE=lifeos-ai:ci
+          # Same compose file as production, default profile, real libSQL server (empty DB:
+          # also proves schema creation over libSQL). Plain http to a local sqld needs no token.
+          docker run -d --name sqld -p 8080:8080 ghcr.io/tursodatabase/libsql-server:v0.24.32
+          for i in $(seq 1 30); do curl -fsS http://localhost:8080/health >/dev/null 2>&1 && break; sleep 2; done
+          export COMPOSE_FILE=docker-compose.yml
+          export TURSO_DATABASE_URL=jdbc:libsql:http://host.docker.internal:8080
+          export TURSO_AUTH_TOKEN=
+          SMOKE_SKILL_SYNC=0 SMOKE_EXPECT_DB='http://host.docker.internal:8080' ./docker/ci-smoke.sh
+          docker rm -f sqld
 
       - name: Login to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

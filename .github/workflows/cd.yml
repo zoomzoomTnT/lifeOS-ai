@@ -118,7 +118,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh
+          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh,docker/migrate-sqlite-to-turso.sh
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -136,9 +136,28 @@ jobs:
             IMAGE="${IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai}"
             TAG="${DEPLOY_TAG}"
             export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-            # Empty secret -> fall back to TURSO_* in $DEPLOY_DIR/.env
+            # Empty variable/secret -> fall back to TURSO_* in $DEPLOY_DIR/.env
             [ -n "${TURSO_DATABASE_URL:-}" ] || unset TURSO_DATABASE_URL
             [ -n "${TURSO_AUTH_TOKEN:-}" ] || unset TURSO_AUTH_TOKEN
+
+            # Preflight, before anything on the host changes: the app has NO default database URL
+            # any more, so make sure this deploy gets one explicitly. Fails here (old container
+            # keeps running) instead of after `compose up`.
+            env_file_value() { [ -f "$DEPLOY_DIR/.env" ] && grep -E "^$1=" "$DEPLOY_DIR/.env" | tail -n 1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//' || true; }
+            EFFECTIVE_DB_URL="${TURSO_DATABASE_URL:-$(env_file_value TURSO_DATABASE_URL)}"
+            EFFECTIVE_DB_TOKEN="${TURSO_AUTH_TOKEN:-$(env_file_value TURSO_AUTH_TOKEN)}"
+            if [ -z "$EFFECTIVE_DB_URL" ]; then
+              echo "::error::TURSO_DATABASE_URL is not set: add repo variable (or secret) TURSO_DATABASE_URL, or put it in $DEPLOY_DIR/.env"
+              exit 1
+            fi
+            case "$EFFECTIVE_DB_URL" in
+              *https://*|libsql://*)
+                if [ -z "$EFFECTIVE_DB_TOKEN" ]; then
+                  echo "::error::TURSO_AUTH_TOKEN is not set (secret or $DEPLOY_DIR/.env)"
+                  exit 1
+                fi ;;
+            esac
+            echo "database: $(echo "$EFFECTIVE_DB_URL" | sed 's/[?].*//')"
 
             command -v docker >/dev/null
             docker compose version || true
@@ -147,7 +166,8 @@ jobs:
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
             cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
             cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
-            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh"
+            cp /tmp/lifeos-cd/docker/migrate-sqlite-to-turso.sh "$DEPLOY_DIR/migrate-sqlite-to-turso.sh"
+            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh" "$DEPLOY_DIR/migrate-sqlite-to-turso.sh"
             cd "$DEPLOY_DIR"
 
             ENSURE_OUT="$(./ensure-hook-token.sh)"
@@ -160,11 +180,17 @@ jobs:
             export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
             unset OPENCLAW_HOME
 
-            if [ -f data/life.db ]; then
-              STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-              cp -a data/life.db "data/backups/life.db.${STAMP}"
-              echo "backed up data/life.db -> data/backups/life.db.${STAMP}"
-              ls -1t data/backups/life.db.* 2>/dev/null | tail -n +11 | xargs -r rm -f
+            # data/life.db is the legacy (pre-Turso) SQLite database: the app no longer reads or
+            # writes it, so per-deploy rotating copies are pointless. Keep it in place and take ONE
+            # frozen snapshot (never rotated away) as migration source / rollback point. Live data
+            # is in Turso, which has its own point-in-time restore. Migration is manual:
+            # docker/migrate-sqlite-to-turso.sh (see docs/turso.md).
+            if [ -f data/life.db ] && [ ! -f data/backups/life.db.pre-turso ]; then
+              cp -a data/life.db data/backups/life.db.pre-turso
+              for ext in -wal -shm; do
+                [ -f "data/life.db${ext}" ] && cp -a "data/life.db${ext}" "data/backups/life.db.pre-turso${ext}"
+              done
+              echo "legacy SQLite snapshot: data/life.db -> data/backups/life.db.pre-turso"
             fi
 
             if [ -n "${GHCR_TOKEN:-}" ]; then
@@ -206,5 +232,6 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
           DEPLOY_TAG: ${{ steps.resolve.outputs.tag }}
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          # Not secret: a repo variable is enough (a secret of the same name also works).
+          TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL || secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
