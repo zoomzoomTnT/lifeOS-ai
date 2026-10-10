@@ -606,7 +606,7 @@ class LibSqlConnectionTest {
 
     @Test
     void wholeBatchRejectedIsAttributedToTheBatchNotTheStatement() throws SQLException {
-        server.rejectBatches = true;
+        server.rejectBatchMessage = "Cannot parse batch: PRAGMA foreign_keys is not supported";
         try (JulCapture log = new JulCapture(); Connection c = open()) {
             SQLException e = assertThrows(SQLException.class,
                     () -> c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('a')"));
@@ -637,5 +637,34 @@ class LibSqlConnectionTest {
             assertTrue(log.records.get(0).getMessage().contains("PRAGMA foreign_keys=ON")
                     && log.records.get(0).getMessage().contains("Rollback"));
         }
+    }
+
+    @Test
+    void parseErrorInTheAppsOwnStatementDoesNotLogThePragmaHint() throws SQLException {
+        // sqld parses the whole batch first: a typo in the statement rejects the batch as a whole
+        server.rejectBatchMessage = "SQL string could not be parsed: near SELEC, \"None\": syntax error at (1, 6)";
+        server.rejectBatchesContaining = "SELEC 1";
+        try (JulCapture log = new JulCapture(); Connection c = open()) {
+            SQLException e = assertThrows(SQLException.class, () -> c.createStatement().executeQuery("SELEC 1"));
+            assertTrue(e.getMessage().contains("SELEC 1") && e.getMessage().contains("syntax error"), e.getMessage());
+            c.setAutoCommit(false);
+            assertThrows(SQLException.class, () -> c.createStatement().executeQuery("SELEC 1"));
+            c.rollback();
+            assertEquals(0, log.severe(), "no rollback hint for the app's own parse error");
+            // the connection still works, and a later real refusal still logs the hint
+            c.setAutoCommit(true);
+            assertTrue(c.createStatement().executeQuery("SELECT 1").next());
+            server.rejectBatchMessage = null;
+            server.failSql = sql -> sql.startsWith("PRAGMA foreign_keys");
+            assertThrows(SQLException.class, () -> c.createStatement().executeQuery("SELECT 2"));
+            assertEquals(1, log.severe());
+        }
+    }
+
+    @Test
+    void namesForeignKeysOnlyMatchesForeignKeyMessages() {
+        assertTrue(LibSqlConnection.namesForeignKeys("PRAGMA FOREIGN_KEYS not allowed"));
+        assertFalse(LibSqlConnection.namesForeignKeys("unsupported statement: PRAGMA journal_mode = WAL"));
+        assertFalse(LibSqlConnection.namesForeignKeys(null));
     }
 }

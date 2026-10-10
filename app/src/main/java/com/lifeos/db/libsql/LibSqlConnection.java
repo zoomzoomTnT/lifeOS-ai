@@ -176,15 +176,21 @@ final class LibSqlConnection {
     }
 
     /**
-     * The server rejected the whole batch request (e.g. parse level), so none of its steps ran.
-     * Not the user's statement's fault: name the batch and its steps.
+     * The server rejected the whole batch request, so none of its steps ran. sqld parses every step
+     * first, so this is usually a parse error in the app's own statement (e.g. {@code SELEC 1}): name
+     * the batch and its steps, and only treat it as a PRAGMA refusal (rollback hint) when the
+     * server's message names {@code foreign_keys}.
      */
     private SQLException batchRejected(tools.jackson.databind.JsonNode result, List<String> steps) {
         SQLException e = HranaClient.Pipeline.error(result, null);
-        logRefusalOnce(e);
+        if (namesForeignKeys(e.getMessage())) logRefusalOnce(e);
         return new SQLException("libSQL server rejected the whole batch [" + String.join("; ",
                 steps.stream().map(HranaClient::abbreviate).toList()) + "], no step ran: " + e.getMessage(),
                 e.getSQLState(), e);
+    }
+
+    static boolean namesForeignKeys(String serverMessage) {
+        return serverMessage != null && serverMessage.toLowerCase(java.util.Locale.ROOT).contains("foreign_keys");
     }
 
     private static void logRefusalOnce(SQLException e) {

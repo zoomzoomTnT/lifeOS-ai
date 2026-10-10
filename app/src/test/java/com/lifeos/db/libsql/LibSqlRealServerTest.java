@@ -161,4 +161,20 @@ class LibSqlRealServerTest {
         assertEquals(committed, count(p));
         assertTrue(committed > 0);
     }
+
+    @Test
+    void parseErrorsOnRealSqldDoNotLogThePragmaRefusalHint() throws SQLException {
+        try (LibSqlConnectionTest.JulCapture log = new LibSqlConnectionTest.JulCapture(); Connection c = open()) {
+            java.sql.SQLException typo = org.junit.jupiter.api.Assertions.assertThrows(java.sql.SQLException.class,
+                    () -> c.createStatement().executeQuery("SELEC 1"));
+            org.junit.jupiter.api.Assertions.assertTrue(typo.getMessage().contains("SELEC 1"), typo.getMessage());
+            org.junit.jupiter.api.Assertions.assertThrows(java.sql.SQLException.class,
+                    () -> c.createStatement().execute("PRAGMA journal_mode = WAL"));
+            org.junit.jupiter.api.Assertions.assertEquals(0, log.severe(), String.valueOf(log.records));
+            try (java.sql.ResultSet rs = c.createStatement().executeQuery("PRAGMA foreign_keys")) {
+                rs.next();
+                org.junit.jupiter.api.Assertions.assertEquals(1, rs.getInt(1));
+            }
+        }
+    }
 }
