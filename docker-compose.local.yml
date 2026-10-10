@@ -1,7 +1,7 @@
 # Local debug overlay. Does not replace docker-compose.yml.
 #   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 #
-# SQLite file: ./local/life.db  (copy from server; see README)
+# SQLite file: ./local/life.db  (local profile; production uses Turso)
 # OpenClaw wake is off so you do not message production WeChat.
 
 services:

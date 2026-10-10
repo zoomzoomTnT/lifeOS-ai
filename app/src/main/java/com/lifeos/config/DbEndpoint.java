@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** GET /actuator/db — SQLite path + timezone (replaces /api/path). */
+/** GET /actuator/db — datasource URL (no credentials), SQLite path if local, timezone. */
 @Component
 @Endpoint(id = "db")
 @RequiredArgsConstructor
@@ -39,9 +39,10 @@ public class DbEndpoint {
         return out;
     }
 
+    /** Local SQLite file path, or "" when the datasource is remote (Turso / libSQL). */
     static String fileFrom(String url) {
         if (url == null) return "";
         String prefix = "jdbc:sqlite:";
-        return url.startsWith(prefix) ? url.substring(prefix.length()) : url;
+        return url.startsWith(prefix) ? url.substring(prefix.length()) : "";
     }
 }

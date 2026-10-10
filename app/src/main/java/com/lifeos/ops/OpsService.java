@@ -62,13 +62,16 @@ public class OpsService {
         String status = str(body.getOrDefault("status", "ok"));
         String currency = str(body.getOrDefault("currency", "USD"));
 
-        jdbc.update("""
+        // RETURNING keeps insert + id in one statement (one HTTP request on Turso).
+        Long id = jdbc.queryForObject("""
                 INSERT INTO ai_calls (
                   correlation_id, actor_id, source, purpose, provider, model,
                   prompt_tokens, completion_tokens, total_tokens, cost_micros, currency,
                   latency_ms, status, error, meta_json)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                RETURNING id
                 """,
+                Long.class,
                 str(body.get("correlation_id")),
                 actorId,
                 source, purpose, provider, model,
@@ -78,7 +81,6 @@ public class OpsService {
                 str(body.get("error")),
                 body.get("meta_json") != null ? body.get("meta_json").toString() : null
         );
-        long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
 
         long today = todayCostMicros();
         long budget = dailyBudgetMicros();
