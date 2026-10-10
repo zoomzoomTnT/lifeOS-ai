@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -110,17 +111,18 @@ class SqliteToLibsqlTest {
         }
         SqliteToLibsql.MigrationException e = assertThrows(SqliteToLibsql.MigrationException.class,
                 () -> SqliteToLibsql.run(opts(false, true), out));
-        assertTrue(e.getMessage().contains("more than the app's seed rows"), e.getMessage());
+        assertTrue(e.getMessage().contains("more than the app's unchanged seed rows"), e.getMessage());
         assertEquals(1, q(targetFile, "SELECT COUNT(*) FROM http_requests WHERE path = '/after-deploy'"), "nothing deleted");
         String flag = e.getMessage().substring(e.getMessage().indexOf("--confirm-target-counts ") + 24).strip();
-        assertTrue(flag.contains("http_requests=1"), flag);
+        assertTrue(flag.contains("people=2"), flag);
+        assertFalse(flag.contains("http_requests"), "request log is not part of the confirmation: " + flag);
 
         // wrong / partial confirmation: still refused
-        Map<String, Long> wrong = SqliteToLibsql.parseCounts(flag.replace("http_requests=1", "http_requests=2"));
+        Map<String, Long> wrong = SqliteToLibsql.parseCounts(flag.replace("people=2", "people=3"));
         assertThrows(SqliteToLibsql.MigrationException.class, () -> SqliteToLibsql.run(
                 new SqliteToLibsql.Options(source, target.url(), "t", false, true, wrong), out));
         assertThrows(SqliteToLibsql.MigrationException.class, () -> SqliteToLibsql.run(
-                new SqliteToLibsql.Options(source, target.url(), "t", false, true, Map.of("http_requests", 1L)), out));
+                new SqliteToLibsql.Options(source, target.url(), "t", false, true, Map.of("people", 2L)), out));
         assertEquals(1, q(targetFile, "SELECT COUNT(*) FROM http_requests WHERE path = '/after-deploy'"));
 
         // exact confirmation: replaced by the source
@@ -200,5 +202,34 @@ class SqliteToLibsqlTest {
         SqliteToLibsql.Options o = SqliteToLibsql.parse(new String[]{"x.db", "--target-url", "jdbc:libsql:http://h:1", "--wipe-target"});
         assertEquals("jdbc:libsql:http://h:1", o.targetUrl());
         assertTrue(o.wipeTarget());
+    }
+
+    @Test
+    void seedCountsMatchButContentChangedIsRefused() throws Exception {
+        Files.delete(targetFile);
+        Files.copy(TestDb.createPlain(), targetFile);
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + targetFile)) {
+            c.createStatement().execute("UPDATE settings SET value = '123' WHERE key = 'ai_daily_budget_usd_micros'");
+            c.createStatement().execute("UPDATE people SET display_name = 'Me' WHERE id = 1");
+        }
+        SqliteToLibsql.MigrationException e = assertThrows(SqliteToLibsql.MigrationException.class,
+                () -> SqliteToLibsql.run(opts(false, true), out));
+        assertTrue(e.getMessage().contains("not an app seed row"), e.getMessage());
+        assertTrue(e.getMessage().contains("settings") && e.getMessage().contains("people"), e.getMessage());
+        assertEquals(123, q(targetFile, "SELECT value FROM settings WHERE key = 'ai_daily_budget_usd_micros'"), "untouched");
+    }
+
+    @Test
+    void seedTargetWithOnlyRequestLogRowsMayBeWipedWithoutConfirmation() throws Exception {
+        Files.delete(targetFile);
+        Files.copy(TestDb.createPlain(), targetFile);
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + targetFile)) {
+            for (int i = 0; i < 3; i++) {
+                c.createStatement().execute("INSERT INTO http_requests (method, path) VALUES ('GET', '/actuator/health')");
+            }
+        }
+        assertThrows(SqliteToLibsql.MigrationException.class, () -> SqliteToLibsql.run(opts(false, false), out));
+        SqliteToLibsql.run(opts(false, true), out);
+        assertEquals(1200, q(targetFile, "SELECT COUNT(*) FROM http_requests"));
     }
 }

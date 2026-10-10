@@ -181,26 +181,6 @@ jobs:
             export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
             unset OPENCLAW_HOME
 
-            # data/life.db is the legacy (pre-Turso) SQLite database: the app no longer reads or
-            # writes it, so per-deploy rotating copies are pointless. Keep it in place and take ONE
-            # frozen snapshot (never rotated away) as migration source / rollback point. Live data
-            # is in Turso, which has its own point-in-time restore. Migration is manual:
-            # docker/migrate-sqlite-to-turso.sh (see docs/turso.md).
-            # Consistent copy: sqlite3 .backup (online-safe) if available; otherwise stop the API
-            # first (the old SQLite build may still be writing; `compose up` below starts the new one).
-            if [ -f data/life.db ] && [ ! -f data/backups/life.db.pre-turso ]; then
-              if command -v sqlite3 >/dev/null 2>&1; then
-                sqlite3 data/life.db ".backup 'data/backups/life.db.pre-turso'"
-              else
-                docker compose -f compose.yaml stop api || true
-                cp -a data/life.db data/backups/life.db.pre-turso
-                for ext in -wal -shm; do
-                  if [ -f "data/life.db${ext}" ]; then cp -a "data/life.db${ext}" "data/backups/life.db.pre-turso${ext}"; fi
-                done
-              fi
-              echo "legacy SQLite snapshot: data/life.db -> data/backups/life.db.pre-turso"
-            fi
-
             if [ -n "${GHCR_TOKEN:-}" ]; then
               echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-github}" --password-stdin
             fi
@@ -211,6 +191,48 @@ jobs:
 
             command -v openclaw >/dev/null
             openclaw config validate
+
+            # data/life.db is the legacy (pre-Turso) SQLite database: the app no longer reads or
+            # writes it, so per-deploy rotating copies are pointless. Keep it in place and take ONE
+            # frozen snapshot (never rotated away) as migration source / rollback point. Live data
+            # is in Turso, which has its own point-in-time restore. Migration is manual:
+            # docker/migrate-sqlite-to-turso.sh (see docs/turso.md).
+            # The files are written by the (root) container, and reading a WAL database needs write
+            # access to -shm, so the copy runs inside the new image as root, through SQLite's online
+            # backup API (consistent even while the old API still writes). Fallback: stop the API
+            # (a failed stop aborts the deploy before anything changed), then a plain copy.
+            if [ -f data/life.db ] && [ ! -f data/backups/life.db.pre-turso ]; then
+              docker pull -q "$LIFE_IMAGE" >/dev/null || true
+              if docker run --rm --user 0 -v "$PWD/data:/data" --entrypoint java "$LIFE_IMAGE" \
+                   -cp /app/app.jar -Dloader.main=com.lifeos.tools.SqliteBackup \
+                   org.springframework.boot.loader.launch.PropertiesLauncher \
+                   /data/life.db /data/backups/life.db.pre-turso; then
+                echo "legacy SQLite snapshot (online backup): data/life.db -> data/backups/life.db.pre-turso"
+              else
+                echo "::warning::online backup failed; stopping the API for a cold copy"
+                if [ -n "$(docker ps -q --filter name=^lifeos-api$)" ]; then
+                  if ! docker compose -f compose.yaml stop api; then
+                    echo "::error::could not stop lifeos-api for the legacy snapshot; aborting before deploy"
+                    exit 1
+                  fi
+                fi
+                SNAP_OK=1
+                for ext in "" -wal -shm; do
+                  if [ -f "data/life.db${ext}" ]; then
+                    cp -p "data/life.db${ext}" "data/backups/life.db.pre-turso${ext}" \
+                      || sudo -n cp -p "data/life.db${ext}" "data/backups/life.db.pre-turso${ext}" \
+                      || SNAP_OK=0
+                  fi
+                done
+                if [ "$SNAP_OK" != 1 ]; then
+                  rm -f data/backups/life.db.pre-turso data/backups/life.db.pre-turso-wal data/backups/life.db.pre-turso-shm || true
+                  echo "::error::legacy snapshot failed (permissions?); data/life.db is untouched. Fix and re-run."
+                  exit 1
+                fi
+                echo "legacy SQLite snapshot (cold copy): data/life.db -> data/backups/life.db.pre-turso"
+              fi
+            fi
+
 
             docker compose -f compose.yaml pull || true
             if [ "$MINTED" = "1" ]; then

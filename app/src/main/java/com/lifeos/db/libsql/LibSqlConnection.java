@@ -86,9 +86,20 @@ final class LibSqlConnection {
         checkOpen();
         ObjectNode exec = HranaClient.execute(sql, args);
         if (autoCommit) {
-            HranaClient.Pipeline p = client.pipeline(null, null,
-                    List.of(HranaClient.execute(FK_PRAGMA), exec, HranaClient.close()));
-            return StmtResult.from(p.stmtResult(1, sql));
+            // the statement only runs if the PRAGMA succeeded (never without FK enforcement)
+            ObjectNode batch = HranaClient.batch(List.of(
+                    HranaClient.step(HranaClient.execute(FK_PRAGMA), null),
+                    HranaClient.step(exec, 0)));
+            HranaClient.Pipeline p = client.pipeline(null, null, List.of(batch, HranaClient.close()));
+            if (!p.ok(0)) throw HranaClient.Pipeline.error(p.result(0), sql);
+            tools.jackson.databind.JsonNode res = p.result(0).path("response").path("result");
+            if (res.path("step_errors").path(0).isObject()) {
+                throw HranaClient.Pipeline.errorOf(res.path("step_errors").path(0), FK_PRAGMA);
+            }
+            if (res.path("step_errors").path(1).isObject()) {
+                throw HranaClient.Pipeline.errorOf(res.path("step_errors").path(1), sql);
+            }
+            return StmtResult.from(res.path("step_results").path(1));
         }
         if (txAborted != null) {
             throw new SQLException("Transaction was aborted (" + txAborted + "); roll back before running: "
@@ -126,6 +137,11 @@ final class LibSqlConnection {
             throw HranaClient.Pipeline.error(p.result(0), beginSql);
         }
         tools.jackson.databind.JsonNode res = p.result(0).path("response").path("result");
+        tools.jackson.databind.JsonNode pragmaErr = res.path("step_errors").path(0);
+        if (pragmaErr.isObject()) { // BEGIN and the statement were skipped: report the real cause
+            closeStreamQuietly(p.baton(), p.baseUrl());
+            throw HranaClient.Pipeline.errorOf(pragmaErr, FK_PRAGMA);
+        }
         tools.jackson.databind.JsonNode beginErr = res.path("step_errors").path(1);
         if (beginErr.isObject()) {
             closeStreamQuietly(p.baton(), p.baseUrl());
