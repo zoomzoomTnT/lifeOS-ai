@@ -58,24 +58,104 @@ sqld 0.24 happens to start with it ON). A pooled JDBC connection is not one serv
 start of **every** stream (before `BEGIN`, where SQLite honours it). Verified by
 `LibSqlConnectionTest` (fake server with FKs off by default) and `LibSqlRealServerTest` (sqld).
 
-## Migrating the old SQLite file (`data/life.db`)
+## Cutover to this driver (PR #27)
 
-Manual, one-off, reusable for any target (nothing hard-coded). **Migrate before cutover**, into the
-new, empty database, so nothing the new app writes can be lost:
+**No data migration is planned for this cutover.** Production has run on Turso since release
+`bf5ce57` (deployed ~21:37 JST, 2026-10-10, DBeaver driver), and `vars.TURSO_DATABASE_URL` is that
+**live** `lifeos-ai` database. Deploying this driver only changes how the app talks to the same
+database. The legacy `data/life.db` is not needed (zoomzoom, 2026-10-11) and is not imported; CD
+just keeps one snapshot of it (below).
 
-1. Stop the old API so `data/life.db` is final: `cd ~/lifeos && docker compose -f compose.yaml stop api`.
-2. Migrate (the script is in the repo, `docker/migrate-sqlite-to-turso.sh`; CD also copies it to
-   `~/lifeos/` on every deploy). Use a **pinned** image that contains the tool, e.g. the
-   `sha-<commit>` tag CI/CD pushed for the release commit (`:latest` is refused):
+### Risk: every statement is gated on `PRAGMA foreign_keys=ON`
+
+The driver sends `PRAGMA foreign_keys=ON` in the same Hrana `/v3/pipeline` batch as each
+statement / `BEGIN`, and the statement only runs if the PRAGMA succeeded. The old DBeaver driver
+used Turso's *legacy* HTTP endpoint, which rejected PRAGMA writes (PR #26); the Hrana endpoint is
+expected to accept them, and local sqld does, but **this is not yet verified on hosted Turso**. If
+hosted Turso refuses the PRAGMA (or the conditional batch), **no statement can run and prod will not
+start** (health check fails, CD prints the api logs). The driver then logs once, at SEVERE/ERROR:
+`libSQL: the libSQL server refused 'PRAGMA foreign_keys=ON' (or the Hrana batch carrying it)...`;
+errors read `PRAGMA foreign_keys=ON refused by the server...` or
+`libSQL server rejected the whole batch [...]`. Then roll back (below).
+
+### Before deploying
+
+1. **Smoke-test on a throwaway hosted Turso database** (same region/plan as prod):
 
    ```bash
-   export LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:sha-<commit>
-   export TURSO_DATABASE_URL='jdbc:libsql:https://<new-db>-<org>.turso.io'
-   export TURSO_AUTH_TOKEN='...'
-   ./migrate-sqlite-to-turso.sh data/life.db --dry-run    # copy + verify, then roll back
-   ./migrate-sqlite-to-turso.sh data/life.db              # for real
+   turso db create lifeos-smoke
+   export LIBSQL_TEST_URL="jdbc:libsql:$(turso db show lifeos-smoke --url | sed 's#^libsql://#https://#')"
+   export LIBSQL_TEST_TOKEN="$(turso db tokens create lifeos-smoke)"
+   cd app
+   mvn -B test -Dtest='LibSqlRealServerTest,RealSqldAppTest'   # driver + whole app (tx, FKs, schema init)
+   # optional: the real jar
+   TURSO_DATABASE_URL="$LIBSQL_TEST_URL" TURSO_AUTH_TOKEN="$LIBSQL_TEST_TOKEN" OPENCLAW_ENABLED=false \
+     LIFE_API_PORT=18787 java -jar target/life-os-app.jar &
+   curl -fsS localhost:18787/actuator/health    # "UP"; log shows "Turso: foreign_keys=1"
+   kill %1
+   turso db destroy lifeos-smoke --yes
    ```
-3. Deploy the Turso release (CD) with `TURSO_DATABASE_URL` pointing at that database.
+   Both test classes must pass (0 skipped). Do not point these tests at the live database: they
+   create and drop tables.
+
+2. **Read-only foreign-key check on the live database.** Writes since `bf5ce57` relied only on
+   Turso's default `foreign_keys=1` and were never checked by us; the new driver enforces FKs on
+   every statement, so existing orphans would make related writes fail later:
+
+   ```bash
+   turso db shell lifeos-ai "PRAGMA foreign_key_check"          # no output = OK
+   # or without the CLI (read-only, needs the prod token):
+   curl -sS https://lifeos-ai-zoomzoomtnt.aws-ap-northeast-1.turso.io/v2/pipeline \
+     -H "Authorization: Bearer $TURSO_AUTH_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"requests":[{"type":"execute","stmt":{"sql":"PRAGMA foreign_key_check"}},{"type":"close"}]}'
+   # OK when results[0].response.result.rows is []
+   ```
+   Any rows (table, rowid, parent, fk index) must be fixed or explained before deploying.
+
+### Deploy
+
+Merge into `release/0.1.0` → CD builds `sha-<7-char commit>` and deploys it with
+`vars.TURSO_DATABASE_URL`. Watch the first start: `Turso: foreign_keys=1 (enforced by the server)`
+and `/actuator/health` UP.
+
+### Rollback
+
+Redeploy the previous image without rebuilding: Actions → **CD** → *Run workflow* on
+`release/0.1.0` with `skip_build` = true and `image_tag` = `sha-bf5ce57` (CD tags images
+`sha-<first 7 chars of the commit>`; check the tag exists in GHCR / the bf5ce57 CD run).
+Or: `gh workflow run cd.yml --ref release/0.1.0 -f skip_build=true -f image_tag=sha-bf5ce57`.
+
+**Caveat:** the old image's DBeaver driver only accepts `jdbc:dbeaver:libsql:...` or `libsql://...`
+URLs, not the `jdbc:libsql:https://...` form now in `vars.TURSO_DATABASE_URL`. Before a rollback,
+set the repo variable to `jdbc:dbeaver:libsql:https://lifeos-ai-zoomzoomtnt.aws-ap-northeast-1.turso.io`
+(this driver accepts that form too, so it can also stay that way permanently). No data step is
+needed: both versions use the same database and schema.
+
+### Legacy `data/life.db`
+
+CD no longer makes rotating copies of `data/life.db` on every deploy (the app does not write it
+any more). It keeps the file in place and takes one frozen snapshot,
+`data/backups/life.db.pre-turso`, the first time it runs: SQLite's online backup API
+(`com.lifeos.tools.SqliteBackup`), run inside the new image as root (the files are root-owned from
+the container and reading WAL needs write access to `-shm`), then `integrity_check`. If that fails,
+it stops the API (a failed stop aborts the deploy before anything changed) and copies the files
+cold; if that fails too, the deploy stops with an error and `data/life.db` stays untouched. Live
+data is in Turso (point-in-time restore is Turso's).
+
+## Optional tool: copying a SQLite file into a NEW, EMPTY database
+
+Not part of any planned cutover. `SqliteToLibsql` (wrapper `docker/migrate-sqlite-to-turso.sh`,
+copied to `~/lifeos/` by CD) copies a Life OS SQLite file into an **empty** libSQL/Turso database,
+e.g. a future new database. **Never run it against the live database, and never use
+`--confirm-target-counts` there**: that flag deletes the rows it confirms.
+
+```bash
+export LIFE_IMAGE=ghcr.io/zoomzoomtnt/lifeos-ai:sha-<commit>     # pinned; :latest is refused
+export TURSO_DATABASE_URL='jdbc:libsql:https://<new-empty-db>-<org>.turso.io'
+export TURSO_AUTH_TOKEN='...'
+./migrate-sqlite-to-turso.sh data/backups/life.db.pre-turso --dry-run   # copy + verify, roll back
+./migrate-sqlite-to-turso.sh data/backups/life.db.pre-turso             # for real
+```
 
 What it does, in **one** target transaction: create the app schema (`schema.sql`) objects the target
 lacks — so an old file without e.g. `merchants` still ends up complete — and any source-only
@@ -98,14 +178,8 @@ mounted) and refuses to run while `lifeos-api` is up.
 Without Docker: `java -cp app/target/life-os-app.jar -Dloader.main=com.lifeos.tools.SqliteToLibsql
 org.springframework.boot.loader.launch.PropertiesLauncher <file> [options]`.
 
-CD no longer makes rotating copies of `data/life.db` on every deploy (the app does not write it
-any more). It keeps the file in place and takes one frozen snapshot,
-`data/backups/life.db.pre-turso`, the first time it runs: SQLite's online backup API
-(`com.lifeos.tools.SqliteBackup`), run inside the new image as root (the files are root-owned from
-the container and reading WAL needs write access to `-shm`), then `integrity_check`. If that fails,
-it stops the API (a failed stop aborts the deploy before anything changed) and copies the files
-cold; if that fails too, the deploy stops with an error and `data/life.db` stays untouched. Live
-data is in Turso (point-in-time restore is Turso's).
+Without Docker: `java -cp app/target/life-os-app.jar -Dloader.main=com.lifeos.tools.SqliteToLibsql
+org.springframework.boot.loader.launch.PropertiesLauncher <file> [options]`.
 
 ## Tests
 

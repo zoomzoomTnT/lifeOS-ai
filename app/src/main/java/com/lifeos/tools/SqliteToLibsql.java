@@ -44,7 +44,7 @@ import java.util.Set;
  * ({@code PRAGMA defer_foreign_keys}), so table order does not matter. The source is read in one
  * read transaction (consistent snapshot).
  *
- * Safety: migrate BEFORE cutover into an empty database. A non-empty target is refused unless
+ * Safety: meant for a NEW, EMPTY target database (never the live one). A non-empty target is refused unless
  * {@code --wipe-target}, and wiping is only allowed by itself when the target holds nothing but the
  * app's seed rows; otherwise the exact non-empty counts must be confirmed with
  * {@code --confirm-target-counts} (re-checked under the write lock). Refuses when a source column is
@@ -106,8 +106,8 @@ public final class SqliteToLibsql {
                              must list exactly the target's non-empty tables and row counts (the abort
                              message prints the current value). Those rows are DELETED.
 
-            Migrate BEFORE cutover: stop the old API, migrate into the new (empty) database, then
-            deploy. Never wipe a database the new app is already writing to.""";
+            Optional tool for a NEW, EMPTY target database. Never run it against a live database
+            (prod already runs on Turso) and never use --confirm-target-counts there.""";
 
     static Options parse(String[] args) {
         Path source = null;
@@ -397,7 +397,7 @@ public final class SqliteToLibsql {
             all.putAll(nonEmpty);
             all.putAll(logRows);
             throw new MigrationException("target is not empty (" + formatCounts(all)
-                    + "). Migrate into an empty database before cutover. If these rows may be replaced, "
+                    + "). This tool is for a new, empty database; never wipe a live one. If these rows may be replaced, "
                     + "re-run with --wipe-target.");
         }
         List<String> notSeed = new ArrayList<>();
