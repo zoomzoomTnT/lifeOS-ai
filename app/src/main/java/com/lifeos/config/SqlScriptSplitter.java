@@ -97,7 +97,7 @@ public final class SqlScriptSplitter {
 
     /**
      * True while a CREATE TRIGGER statement's BEGIN ... END body is still open. CASE ... END
-     * nests inside the body. Same logic as SqlScript on feat/turso-datasource.
+     * nests inside the body.
      */
     static boolean isOpenTrigger(String stmt) {
         if (!TRIGGER_START.matcher(stmt).matches()) return false;
