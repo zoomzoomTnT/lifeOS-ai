@@ -62,6 +62,11 @@ Unset or `true` = current behavior. `false` = the deploy skips `ensure-hook-toke
 | `SERVER_IP` | Host |
 | `SERVER_UN` | SSH user |
 | `SERVER_PK` | Private key PEM / OpenSSH |
+| `TURSO_AUTH_TOKEN` | Turso token for the production database |
+
+Repo **variable** `TURSO_DATABASE_URL` (or a secret of that name): the production database URL.
+There is no default any more; the deploy stops before changing the host if neither it nor
+`~/lifeos/.env` provides one. See [turso.md](turso.md).
 
 Optional host env `DEPLOY_DIR` (default `$HOME/lifeos`).
 
@@ -72,8 +77,9 @@ $HOME/lifeos/
   compose.yaml
   ensure-hook-token.sh
   .env                 # you set OPENCLAW_HOME; CD may upsert OPENCLAW_HOOK_TOKEN
-  data/life.db
-  data/backups/
+  migrate-sqlite-to-turso.sh   # manual SQLite -> Turso copy (docs/turso.md)
+  data/life.db         # legacy SQLite, no longer used by the app (kept in place)
+  data/backups/        # life.db.pre-turso: one frozen snapshot taken by CD
 ```
 
 Host needs: Docker Engine + Compose V2 plugin, `openclaw` on PATH for the SSH user.
