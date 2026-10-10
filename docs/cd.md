@@ -79,7 +79,7 @@ $HOME/lifeos/
   compose.yaml
   ensure-hook-token.sh
   .env                 # you set OPENCLAW_HOME; CD may upsert OPENCLAW_HOOK_TOKEN
-  migrate-sqlite-to-turso.sh   # manual SQLite -> Turso copy (docs/turso.md)
+  migrate-sqlite-to-turso.sh   # optional: SQLite file -> NEW empty DB only (docs/turso.md)
   data/life.db         # legacy SQLite, no longer used by the app (kept in place)
   data/backups/        # life.db.pre-turso: one frozen snapshot taken by CD
 ```
