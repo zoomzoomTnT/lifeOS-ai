@@ -584,4 +584,58 @@ class LibSqlConnectionTest {
         assertFalse(HranaClient.looksLikeStreamGone("Received a baton that has already been used"));
         assertFalse(HranaClient.looksLikeStreamGone(null));
     }
+
+    /** Captures the driver's java.util.logging output. */
+    static final class JulCapture extends java.util.logging.Handler implements AutoCloseable {
+        final java.util.List<java.util.logging.LogRecord> records = new java.util.concurrent.CopyOnWriteArrayList<>();
+        final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(LibSqlConnection.class.getName());
+
+        JulCapture() {
+            logger.addHandler(this);
+            LibSqlConnection.resetRefusalLog();
+        }
+
+        @Override public void publish(java.util.logging.LogRecord r) { records.add(r); }
+        @Override public void flush() { }
+        @Override public void close() { logger.removeHandler(this); }
+
+        long severe() {
+            return records.stream().filter(r -> r.getLevel() == java.util.logging.Level.SEVERE).count();
+        }
+    }
+
+    @Test
+    void wholeBatchRejectedIsAttributedToTheBatchNotTheStatement() throws SQLException {
+        server.rejectBatches = true;
+        try (JulCapture log = new JulCapture(); Connection c = open()) {
+            SQLException e = assertThrows(SQLException.class,
+                    () -> c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('a')"));
+            assertTrue(e.getMessage().startsWith("libSQL server rejected the whole batch"), e.getMessage());
+            assertTrue(e.getMessage().contains("PRAGMA foreign_keys=ON") && e.getMessage().contains("no step ran")
+                    && e.getMessage().contains("Cannot parse batch"), e.getMessage());
+            c.setAutoCommit(false);
+            SQLException e2 = assertThrows(SQLException.class,
+                    () -> c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('b')"));
+            assertTrue(e2.getMessage().contains("BEGIN IMMEDIATE") && e2.getMessage().contains("whole batch"), e2.getMessage());
+            assertEquals(0, server.openStreams());
+            assertEquals(1, log.severe(), "the hint is logged once, not per statement");
+            assertTrue(log.records.get(0).getMessage().contains("NO statement can run"));
+        }
+        assertEquals(0, count("p"));
+    }
+
+    @Test
+    void refusedPragmaIsLoggedOnceWithAClearHint() throws SQLException {
+        server.failSql = sql -> sql.startsWith("PRAGMA foreign_keys");
+        try (JulCapture log = new JulCapture(); Connection c = open()) {
+            for (int i = 0; i < 3; i++) {
+                SQLException e = assertThrows(SQLException.class,
+                        () -> c.createStatement().executeQuery("SELECT 1"));
+                assertTrue(e.getMessage().startsWith("PRAGMA foreign_keys=ON refused by the server"), e.getMessage());
+            }
+            assertEquals(1, log.severe());
+            assertTrue(log.records.get(0).getMessage().contains("PRAGMA foreign_keys=ON")
+                    && log.records.get(0).getMessage().contains("Rollback"));
+        }
+    }
 }
