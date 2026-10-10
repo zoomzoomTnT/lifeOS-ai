@@ -51,13 +51,8 @@ public class SchemaInitializer implements ApplicationRunner {
     private void execScript(String location) throws Exception {
         Resource resource = resourceLoader.getResource(location);
         String sql = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
-        for (String stmt : sql.split(";")) {
-            String s = stmt.trim();
-            if (s.isEmpty()) continue;
-            if (s.lines().allMatch(l -> {
-                String t = l.trim();
-                return t.isEmpty() || t.startsWith("--");
-            })) continue;
+        // Not sql.split(";"): that broke statements with ';' in a comment or string literal.
+        for (String s : SqlScriptSplitter.split(sql)) {
             try {
                 jdbc.execute(s);
             } catch (Exception e) {
