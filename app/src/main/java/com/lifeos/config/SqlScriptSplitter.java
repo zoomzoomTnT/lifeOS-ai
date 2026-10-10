@@ -13,8 +13,11 @@ import java.util.regex.Pattern;
  *   <li>a double-quoted or backtick identifier ({@code "a;b"}, doubled quote escapes)</li>
  *   <li>a bracket identifier ({@code [a;b]})</li>
  *   <li>a {@code --} line comment or a {@code /* ... *&#47;} block comment</li>
- *   <li>the body of {@code CREATE [TEMP] TRIGGER ... BEGIN ... END}</li>
+ *   <li>the body of {@code CREATE [TEMP] TRIGGER ... BEGIN ... END}; {@code CASE ... END}
+ *       expressions inside the body nest and do not end it</li>
  * </ul>
+ * An unterminated quote, {@code [} identifier, block comment or trigger body is an error
+ * ({@link IllegalArgumentException}), never silently swallowed into the last statement.
  * Comments are dropped from the output (a line comment becomes a newline, a block comment a
  * space), so a statement that was only comments is not returned. Returned statements are
  * trimmed and have no trailing {@code ;}.
@@ -23,7 +26,6 @@ public final class SqlScriptSplitter {
 
     private static final Pattern TRIGGER_START =
             Pattern.compile("(?is)^\\s*CREATE\\s+(TEMP\\s+|TEMPORARY\\s+)?TRIGGER\\b.*");
-    private static final Pattern ENDS_WITH_END = Pattern.compile("(?is).*\\bEND\\s*$");
 
     private SqlScriptSplitter() {}
 
@@ -37,8 +39,10 @@ public final class SqlScriptSplitter {
             char next = i + 1 < n ? script.charAt(i + 1) : 0;
             if (ch == '\'' || ch == '"' || ch == '`') {
                 // Quoted string/identifier; a doubled quote char is an escape, not the end.
+                int start = i;
                 cur.append(ch);
                 i++;
+                boolean closed = false;
                 while (i < n) {
                     char c = script.charAt(i);
                     cur.append(c);
@@ -48,13 +52,16 @@ public final class SqlScriptSplitter {
                             cur.append(ch);
                             i++;
                         } else {
+                            closed = true;
                             break;
                         }
                     }
                 }
+                if (!closed) throw unterminated(ch == '\'' ? "string literal" : "quoted identifier", script, start);
             } else if (ch == '[') {
                 int close = script.indexOf(']', i + 1);
-                int end = close < 0 ? n : close + 1;
+                if (close < 0) throw unterminated("[identifier]", script, i);
+                int end = close + 1;
                 cur.append(script, i, end);
                 i = end;
             } else if (ch == '-' && next == '-') {
@@ -63,12 +70,13 @@ public final class SqlScriptSplitter {
                 cur.append('\n');
             } else if (ch == '/' && next == '*') {
                 int close = script.indexOf("*/", i + 2);
-                i = close < 0 ? n : close + 2;
+                if (close < 0) throw unterminated("/* block comment", script, i);
+                i = close + 2;
                 cur.append(' ');
             } else if (ch == ';') {
                 i++;
                 String stmt = cur.toString();
-                if (TRIGGER_START.matcher(stmt).matches() && !ENDS_WITH_END.matcher(stmt).matches()) {
+                if (isOpenTrigger(stmt)) {
                     cur.append(';');   // inside the trigger body
                     continue;
                 }
@@ -79,8 +87,76 @@ public final class SqlScriptSplitter {
                 i++;
             }
         }
+        if (isOpenTrigger(cur.toString())) {
+            throw new IllegalArgumentException("unterminated CREATE TRIGGER body (missing END): "
+                    + abbreviate(cur.toString()));
+        }
         add(out, cur.toString());
         return out;
+    }
+
+    /**
+     * True while a CREATE TRIGGER statement's BEGIN ... END body is still open. CASE ... END
+     * nests inside the body. Same logic as SqlScript on feat/turso-datasource.
+     */
+    static boolean isOpenTrigger(String stmt) {
+        if (!TRIGGER_START.matcher(stmt).matches()) return false;
+        int depth = 0;
+        boolean inBody = false;
+        for (String w : words(stmt.toUpperCase(java.util.Locale.ROOT))) {
+            switch (w) {
+                case "BEGIN" -> {
+                    if (!inBody) {
+                        inBody = true;
+                        depth = 1;
+                    }
+                }
+                case "CASE" -> {
+                    if (inBody) depth++;
+                }
+                case "END" -> {
+                    if (inBody && --depth == 0) return false;
+                }
+                default -> { }
+            }
+        }
+        return true;
+    }
+
+    /** Bare words of a (comment-free) statement, skipping quoted strings and identifiers. */
+    private static List<String> words(String u) {
+        List<String> out = new ArrayList<>();
+        int n = u.length();
+        int i = 0;
+        while (i < n) {
+            char ch = u.charAt(i);
+            if (ch == '\'' || ch == '"' || ch == '`' || ch == '[') {
+                char close = ch == '[' ? ']' : ch;
+                int j = i + 1;
+                while (j < n && u.charAt(j) != close) j++;
+                i = j + 1;
+            } else if (Character.isLetter(ch) || ch == '_') {
+                int j = i;
+                while (j < n && (Character.isLetterOrDigit(u.charAt(j)) || u.charAt(j) == '_')) j++;
+                out.add(u.substring(i, j));
+                i = j;
+            } else {
+                i++;
+            }
+        }
+        return out;
+    }
+
+    private static IllegalArgumentException unterminated(String what, String script, int at) {
+        int line = 1;
+        for (int k = 0; k < at && k < script.length(); k++) if (script.charAt(k) == '\n') line++;
+        return new IllegalArgumentException("unterminated " + what + " starting at line " + line + ": "
+                + abbreviate(script.substring(at)));
+    }
+
+    private static String abbreviate(String s) {
+        String t = s.strip().replace('\n', ' ');
+        return t.length() <= 60 ? t : t.substring(0, 60) + "...";
     }
 
     private static void add(List<String> out, String stmt) {
