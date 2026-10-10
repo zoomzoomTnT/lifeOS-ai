@@ -91,10 +91,10 @@ final class LibSqlConnection {
                     HranaClient.step(HranaClient.execute(FK_PRAGMA), null),
                     HranaClient.step(exec, 0)));
             HranaClient.Pipeline p = client.pipeline(null, null, List.of(batch, HranaClient.close()));
-            if (!p.ok(0)) throw HranaClient.Pipeline.error(p.result(0), sql);
+            if (!p.ok(0)) throw batchRejected(p.result(0), List.of(FK_PRAGMA, sql));
             tools.jackson.databind.JsonNode res = p.result(0).path("response").path("result");
             if (res.path("step_errors").path(0).isObject()) {
-                throw HranaClient.Pipeline.errorOf(res.path("step_errors").path(0), FK_PRAGMA);
+                throw pragmaRefused(res.path("step_errors").path(0));
             }
             if (res.path("step_errors").path(1).isObject()) {
                 throw HranaClient.Pipeline.errorOf(res.path("step_errors").path(1), sql);
@@ -134,13 +134,13 @@ final class LibSqlConnection {
         HranaClient.Pipeline p = client.pipeline(null, null, List.of(batch, HranaClient.getAutocommit()));
         if (!p.ok(0)) {
             closeStreamQuietly(p.baton(), p.baseUrl());
-            throw HranaClient.Pipeline.error(p.result(0), beginSql);
+            throw batchRejected(p.result(0), List.of(FK_PRAGMA, beginSql, sql));
         }
         tools.jackson.databind.JsonNode res = p.result(0).path("response").path("result");
         tools.jackson.databind.JsonNode pragmaErr = res.path("step_errors").path(0);
         if (pragmaErr.isObject()) { // BEGIN and the statement were skipped: report the real cause
             closeStreamQuietly(p.baton(), p.baseUrl());
-            throw HranaClient.Pipeline.errorOf(pragmaErr, FK_PRAGMA);
+            throw pragmaRefused(pragmaErr);
         }
         tools.jackson.databind.JsonNode beginErr = res.path("step_errors").path(1);
         if (beginErr.isObject()) {
@@ -158,6 +158,44 @@ final class LibSqlConnection {
             throw new SQLException("libSQL batch did not run the statement: " + HranaClient.abbreviate(sql));
         }
         return StmtResult.from(stmtRes);
+    }
+
+    private static final java.util.concurrent.atomic.AtomicBoolean PRAGMA_REFUSAL_LOGGED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    static final String PRAGMA_REFUSED_HINT = "the libSQL server refused 'PRAGMA foreign_keys=ON' (or the Hrana batch "
+            + "carrying it). Every statement is gated on it, so NO statement can run against this server: "
+            + "roll back to the previous image (docs/turso.md, Rollback) or check the server / Turso plan";
+
+    /** The PRAGMA step itself failed: BEGIN and the statement were skipped. */
+    private SQLException pragmaRefused(tools.jackson.databind.JsonNode err) {
+        SQLException e = HranaClient.Pipeline.errorOf(err, FK_PRAGMA);
+        logRefusalOnce(e);
+        return new SQLException("PRAGMA foreign_keys=ON refused by the server; statement not run: " + e.getMessage(),
+                e.getSQLState(), e);
+    }
+
+    /**
+     * The server rejected the whole batch request (e.g. parse level), so none of its steps ran.
+     * Not the user's statement's fault: name the batch and its steps.
+     */
+    private SQLException batchRejected(tools.jackson.databind.JsonNode result, List<String> steps) {
+        SQLException e = HranaClient.Pipeline.error(result, null);
+        logRefusalOnce(e);
+        return new SQLException("libSQL server rejected the whole batch [" + String.join("; ",
+                steps.stream().map(HranaClient::abbreviate).toList()) + "], no step ran: " + e.getMessage(),
+                e.getSQLState(), e);
+    }
+
+    private static void logRefusalOnce(SQLException e) {
+        if (PRAGMA_REFUSAL_LOGGED.compareAndSet(false, true)) {
+            LOG.severe("libSQL: " + PRAGMA_REFUSED_HINT + ". Server said: " + e.getMessage());
+        }
+    }
+
+    /** Tests only. */
+    static void resetRefusalLog() {
+        PRAGMA_REFUSAL_LOGGED.set(false);
     }
 
     private void trackStream(HranaClient.Pipeline p, boolean serverInAutocommit) {

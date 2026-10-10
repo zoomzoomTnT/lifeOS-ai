@@ -61,6 +61,8 @@ public final class FakeTursoServer implements AutoCloseable {
     /** Statements matching this sleep {@link #slowMs} before running. */
     public volatile java.util.function.Predicate<String> slowSql = sql -> false;
     public volatile long slowMs = 0;
+    /** Reject every batch request as a whole (request-level error), like a server that can't parse it. */
+    public volatile boolean rejectBatches = false;
 
     private static final class Stream {
         final Connection c;
@@ -188,6 +190,13 @@ public final class FakeTursoServer implements AutoCloseable {
                         }
                     }
                     case "batch" -> {
+                        if (rejectBatches) {
+                            r.put("type", "error");
+                            ObjectNode err = r.putObject("error");
+                            err.put("message", "Cannot parse batch: unsupported condition");
+                            err.put("code", "HRANA_PROTO_ERROR");
+                            break;
+                        }
                         ArrayNode stepResults = json.createArrayNode();
                         ArrayNode stepErrors = json.createArrayNode();
                         List<Boolean> ok = new java.util.ArrayList<>();
