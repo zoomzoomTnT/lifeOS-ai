@@ -5,7 +5,7 @@
 
 WeChat / OpenClaw 生活台账：一份 SQLite、Spring Boot REST、一层 OpenClaw skill。
 
-> 数据库已切到 **Turso (libSQL)**：必须设置 `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`（没有默认值），本地调试用 `local` profile。生产已在 Turso 上，旧 `data/life.db` 不导入（切换、回滚步骤见 [docs/turso.md](docs/turso.md)）。下文提到 `life.db` 的地方指本地 / 旧版。
+> 数据库：**Turso (libSQL)**，必须设置 `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`（没有默认值）；本地调试用 `local` profile。见 [docs/turso.md](docs/turso.md)。
 
 Repo: [zoomzoomTnT/lifeOS-ai](https://github.com/zoomzoomTnT/lifeOS-ai)  
 Image: `ghcr.io/zoomzoomtnt/lifeos-ai:latest`
