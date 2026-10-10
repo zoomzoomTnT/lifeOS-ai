@@ -1,6 +1,7 @@
 package com.lifeos.receipts;
 
-import com.lifeos.service.ReceiptService;
+import com.lifeos.testsupport.FakeTursoServer;
+import com.lifeos.testsupport.TestDb;
 import com.lifeos.web.dto.ReceiptConfirmRequest;
 import com.lifeos.web.dto.ReceiptPreviewResponse;
 import org.junit.jupiter.api.AfterAll;
@@ -13,10 +14,11 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Default (Turso) profile against {@link FakeTursoServer}: the app talks HTTP through the real
- * libSQL JDBC driver, and receipt writes go through one {@code /v3/pipeline} batch each.
+ * Default (Turso) profile against {@link FakeTursoServer}: the app talks Hrana HTTP through the
+ * libSQL driver, and each @Transactional receipt write is ONE server-side transaction.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class ReceiptAtomicTursoTest extends AbstractReceiptAtomicTest {
@@ -53,12 +55,21 @@ class ReceiptAtomicTursoTest extends AbstractReceiptAtomicTest {
     }
 
     @Test
-    void eachMultiStepWriteIsOneHttpBatch() {
-        int before = TURSO.pipelineRequests.get();
+    void eachReceiptWriteIsOneServerTransaction() {
+        int before = TURSO.executed.size();
         ReceiptPreviewResponse p = receipts.preview(
                 request("One-" + uniq(), uniq(), List.of(food("egg", 100), food("rice", 200))), "owner");
-        assertEquals(before + 1, TURSO.pipelineRequests.get(), "preview = one batch request");
+        List<String> sql = TURSO.executed.subList(before, TURSO.executed.size());
+        assertEquals(1, sql.stream().filter(s -> s.startsWith("BEGIN")).count(), "one BEGIN: " + sql);
+        assertEquals("BEGIN IMMEDIATE", sql.stream().filter(s -> s.startsWith("BEGIN")).findFirst().orElseThrow());
+        assertEquals("COMMIT", sql.get(sql.size() - 1));
+        assertTrue(sql.stream().anyMatch(s -> s.contains("INSERT INTO receipt_items")));
+
+        before = TURSO.executed.size();
         receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), "owner");
-        assertEquals(before + 2, TURSO.pipelineRequests.get(), "confirm = one batch request");
+        sql = TURSO.executed.subList(before, TURSO.executed.size());
+        assertEquals(1, sql.stream().filter(s -> s.startsWith("BEGIN")).count(), "one BEGIN: " + sql);
+        assertEquals("COMMIT", sql.get(sql.size() - 1));
+        assertEquals(0, TURSO.openStreams(), "no stream left open after commit");
     }
 }

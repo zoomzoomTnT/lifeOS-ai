@@ -15,18 +15,19 @@ spring:
     properties:
       hibernate.dialect: com.lifeos.config.TursoSQLiteDialect
     show-sql: false
-  # Turso (hosted libSQL) over HTTPS. Set TURSO_DATABASE_URL / TURSO_AUTH_TOKEN in the
-  # environment (never commit the token). Local SQLite file: run with the `local` profile.
+  # Turso (hosted libSQL) over HTTPS. There is deliberately NO default URL: production must set
+  # TURSO_DATABASE_URL (e.g. jdbc:libsql:https://<db>-<org>.turso.io) and TURSO_AUTH_TOKEN explicitly
+  # (never commit the token). Without them startup fails with a clear message (DatabaseSettingsCheck).
+  # Local SQLite file: run with the `local` profile.
   datasource:
-    url: ${TURSO_DATABASE_URL:jdbc:dbeaver:libsql:https://lifeos-ai-zoomzoomtnt.aws-ap-northeast-1.turso.io}
-    password: ${TURSO_AUTH_TOKEN}
-    driver-class-name: com.dbeaver.jdbc.driver.libsql.LibSqlDriver
+    url: ${TURSO_DATABASE_URL:}
+    password: ${TURSO_AUTH_TOKEN:}
+    driver-class-name: com.lifeos.db.libsql.LibSqlHttpDriver
     hikari:
       maximum-pool-size: 4
-      # No connection-init-sql here. Turso's legacy HTTP endpoint (used by the DBeaver libSQL
-      # driver) rejects PRAGMA assignments ("interactive transactions are not supported for
-      # legacy HTTP protocol"), and Hikari fails the whole pool on it. Turso already runs with
-      # foreign_keys=1, and connection-scoped PRAGMAs would not persist across requests anyway.
+      # No connection-init-sql: a pooled connection is not one server-side connection (each
+      # transaction / auto-commit statement is its own Hrana stream). The driver sends
+      # PRAGMA foreign_keys=ON at the start of every stream instead.
 
 # OpenClaw master switch. OPENCLAW_ENABLED=false turns off every OpenClaw integration (webhook
 # client, proactive cron wake, webhook ping, OpenClaw log ingest). REST API + database keep working.

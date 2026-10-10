@@ -1,5 +1,6 @@
 package com.lifeos.receipts;
 
+import com.lifeos.testsupport.TestDb;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
