@@ -1,6 +1,6 @@
 package com.lifeos.openclaw;
 
-import com.lifeos.receipts.TestDb;
+import com.lifeos.testsupport.TestDb;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContext;

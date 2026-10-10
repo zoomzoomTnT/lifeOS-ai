@@ -45,12 +45,8 @@
       <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
       <version>3.1.0</version>
     </dependency>
-    <!-- Production: Turso / libSQL over HTTPS -->
-    <dependency>
-      <groupId>com.dbeaver.jdbc</groupId>
-      <artifactId>com.dbeaver.jdbc.driver.libsql</artifactId>
-      <version>1.0.8</version>
-    </dependency>
+    <!-- Production: Turso / libSQL over HTTPS uses our own Hrana driver (com.lifeos.db.libsql),
+         which supports real transactions; no extra dependency. -->
     <!-- `local` profile: plain SQLite file -->
     <dependency>
       <groupId>org.xerial</groupId>
@@ -74,6 +70,11 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

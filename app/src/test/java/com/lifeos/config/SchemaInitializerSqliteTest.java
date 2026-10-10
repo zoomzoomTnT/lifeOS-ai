@@ -73,9 +73,13 @@ class SchemaInitializerSqliteTest {
                 new ch.qos.logback.core.read.ListAppender<>();
         app.start();
         logger.addAppender(app);
+        // other tests in the same JVM may have left com.lifeos at WARN (Spring's LoggingSystem)
+        ch.qos.logback.classic.Level level = logger.getLevel();
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
         try {
             r.run();
         } finally {
+            logger.setLevel(level);
             logger.detachAppender(app);
         }
         return app.list;
