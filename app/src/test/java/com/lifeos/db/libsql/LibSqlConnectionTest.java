@@ -551,4 +551,37 @@ class LibSqlConnectionTest {
             java.util.TimeZone.setDefault(old);
         }
     }
+
+    @Test
+    void failingPragmaStepSurfacesThePragmaError() throws SQLException {
+        server.failSql = sql -> sql.startsWith("PRAGMA foreign_keys");
+        try (Connection c = open()) {
+            c.setAutoCommit(false);
+            SQLException e = assertThrows(SQLException.class,
+                    () -> c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('a')"));
+            assertTrue(e.getMessage().contains("PRAGMA foreign_keys") && e.getMessage().contains("injected failure"),
+                    e.getMessage());
+            assertFalse(e.getMessage().contains("did not run"), e.getMessage());
+            assertEquals(0, server.openStreams());
+            c.setAutoCommit(true); // autocommit: same rule, the statement never runs without FKs on
+            SQLException e2 = assertThrows(SQLException.class,
+                    () -> c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('b')"));
+            assertTrue(e2.getMessage().contains("PRAGMA foreign_keys"), e2.getMessage());
+            assertEquals(0, count("p"));
+            assertFalse(server.executed.stream().anyMatch(x -> x.startsWith("INSERT")));
+        }
+    }
+
+    @Test
+    void onlyRealStreamGoneAnswersCountAsRollback() {
+        assertTrue(HranaClient.looksLikeStreamGone("{\"message\":\"The stream has expired due to inactivity\",\"code\":\"STREAM_EXPIRED\"}"));
+        assertTrue(HranaClient.looksLikeStreamGone("{\"code\":\"STREAM_EXPIRED\"}"));
+        assertTrue(HranaClient.looksLikeStreamGone("Received an invalid baton"));
+        assertTrue(HranaClient.looksLikeStreamGone("Received a baton for a closed stream"));
+        assertFalse(HranaClient.looksLikeStreamGone("{\"error\":\"JWT expired\",\"code\":\"AUTH_JWT_EXPIRED\"}"));
+        assertFalse(HranaClient.looksLikeStreamGone("token expired"));
+        assertFalse(HranaClient.looksLikeStreamGone("Cannot deserialize client message from JSON: field baton"));
+        assertFalse(HranaClient.looksLikeStreamGone("Received a baton that has already been used"));
+        assertFalse(HranaClient.looksLikeStreamGone(null));
+    }
 }

@@ -17,6 +17,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -269,33 +270,16 @@ public final class SqliteToLibsql {
         if (!problems.isEmpty()) {
             throw new MigrationException("schema mismatch: " + String.join("; ", problems));
         }
-        Map<String, Long> before = targetCounts(dst);
-        Map<String, Long> nonEmpty = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        before.forEach((t, n) -> { if (n > 0) nonEmpty.put(t, n); });
-        if (!nonEmpty.isEmpty()) {
-            if (!o.wipeTarget()) {
-                throw new MigrationException("target is not empty (" + formatCounts(nonEmpty)
-                        + "). Migrate into an empty database before cutover. If these rows may be replaced, "
-                        + "re-run with --wipe-target.");
-            }
-            boolean seedOnly = nonEmpty.entrySet().stream().allMatch(e -> e.getValue() <= seed.getOrDefault(e.getKey(), 0L));
-            boolean confirmed = o.confirmTargetCounts() != null && new java.util.TreeMap<>(o.confirmTargetCounts()).equals(nonEmpty)
-                    && o.confirmTargetCounts().keySet().stream().allMatch(nonEmpty::containsKey);
-            if (!seedOnly && !confirmed) {
-                throw new MigrationException("--wipe-target refused: the target holds more than the app's seed rows ("
-                        + formatCounts(nonEmpty) + "), e.g. data written after a deploy, which would be DELETED. "
-                        + "If that is really intended, add: --confirm-target-counts " + formatCounts(nonEmpty));
-            }
-        }
+        Map<String, Long> before = checkTarget(dst, app, seed, o);
 
         // --- one transaction ---
         dst.setAutoCommit(false);
         boolean committed = false;
         try (Statement st = dst.createStatement()) {
             st.execute("PRAGMA defer_foreign_keys=ON"); // also takes the write lock (BEGIN IMMEDIATE)
-            if (!targetCounts(dst).equals(before)) {
-                throw new MigrationException("target changed while preparing (is the app running against it?)");
-            }
+            // judge again under the write lock: nothing can change between this check and the wipe
+            Set<String> existedBefore = new LinkedHashSet<>(dstNames);
+            before = checkTarget(dst, app, seed, o);
             // 1. the app schema first: tables the source lacks (e.g. merchants on an old file) exist afterwards
             Set<String> createdNow = new LinkedHashSet<>();
             for (SchemaObject t : appObjects) {
@@ -322,7 +306,7 @@ public final class SqliteToLibsql {
             }
             // 3. clear what the source replaces: our own fresh seed rows, or (checked above) wiped rows
             for (SchemaObject t : srcTables) {
-                if (createdNow.contains(t.name().toLowerCase()) || (o.wipeTarget() && before.getOrDefault(t.name(), 0L) > 0)) {
+                if (createdNow.contains(t.name().toLowerCase()) || (o.wipeTarget() && existedBefore.contains(t.name().toLowerCase()))) {
                     st.executeUpdate("DELETE FROM " + q(t.name()));
                     if (exists(dst, "sqlite_sequence")) {
                         try (PreparedStatement ps = dst.prepareStatement("DELETE FROM sqlite_sequence WHERE name = ?")) {
@@ -380,6 +364,97 @@ public final class SqliteToLibsql {
                 }
             }
         }
+    }
+
+    /**
+     * Tables whose rows are written on every HTTP request (access log). They grow continuously
+     * while any app instance serves the target, so they are not counted against "seed only" and
+     * are not part of --confirm-target-counts; with --wipe-target they are replaced by the source's.
+     */
+    static final Set<String> REQUEST_LOG_TABLES = Set.of("http_requests");
+
+    /** Columns filled by a time default ({@code strftime(...,'now')} etc.): ignored when comparing seed rows. */
+    private static boolean isTimeDefault(String dflt) {
+        return dflt != null && dflt.toLowerCase(java.util.Locale.ROOT).matches(".*(now|current_|strftime|datetime|julianday|unixepoch).*");
+    }
+
+    /**
+     * Refuses unless the target may be written: empty, or with --wipe-target holding nothing but
+     * unchanged app seed rows (compared by CONTENT, time-default columns ignored), or exactly the
+     * confirmed counts. Returns all target table counts.
+     */
+    private static Map<String, Long> checkTarget(Connection dst, Connection app, Map<String, Long> seed, Options o)
+            throws SQLException, MigrationException {
+        Map<String, Long> counts = targetCounts(dst);
+        Map<String, Long> nonEmpty = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Long> logRows = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        counts.forEach((t, n) -> {
+            if (n > 0) (REQUEST_LOG_TABLES.contains(t.toLowerCase()) ? logRows : nonEmpty).put(t, n);
+        });
+        if (nonEmpty.isEmpty() && logRows.isEmpty()) return counts;
+        if (!o.wipeTarget()) {
+            Map<String, Long> all = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            all.putAll(nonEmpty);
+            all.putAll(logRows);
+            throw new MigrationException("target is not empty (" + formatCounts(all)
+                    + "). Migrate into an empty database before cutover. If these rows may be replaced, "
+                    + "re-run with --wipe-target.");
+        }
+        List<String> notSeed = new ArrayList<>();
+        for (Map.Entry<String, Long> e : nonEmpty.entrySet()) {
+            String why = notSeedRows(dst, app, e.getKey(), seed.getOrDefault(e.getKey(), 0L));
+            if (why != null) notSeed.add(why);
+        }
+        boolean confirmed = o.confirmTargetCounts() != null
+                && new java.util.TreeMap<>(nonEmpty).equals(withoutLogTables(o.confirmTargetCounts()));
+        if (!notSeed.isEmpty() && !confirmed) {
+            throw new MigrationException("--wipe-target refused: the target holds more than the app's unchanged seed rows ("
+                    + String.join("; ", notSeed) + "), e.g. data written after a deploy, which would be DELETED. "
+                    + "If that is really intended, add: --confirm-target-counts " + formatCounts(nonEmpty));
+        }
+        return counts;
+    }
+
+    private static Map<String, Long> withoutLogTables(Map<String, Long> m) {
+        Map<String, Long> out = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        m.forEach((t, n) -> { if (!REQUEST_LOG_TABLES.contains(t.toLowerCase())) out.put(t, n); });
+        return out;
+    }
+
+    /** null when every target row of {@code table} equals a distinct app seed row; else why not. */
+    private static String notSeedRows(Connection dst, Connection app, String table, long seedCount) throws SQLException {
+        if (seedCount == 0) return table + ": " + count(dst, table) + " rows, app seeds none";
+        Set<String> targetCols = new java.util.HashSet<>();
+        for (String c : columns(dst, table)) targetCols.add(c.toLowerCase());
+        List<String> cols = new ArrayList<>();
+        try (Statement st = app.createStatement(); ResultSet rs = st.executeQuery("PRAGMA table_info(" + q(table) + ")")) {
+            while (rs.next()) {
+                String c = rs.getString("name");
+                if (!isTimeDefault(rs.getString("dflt_value")) && targetCols.contains(c.toLowerCase())) cols.add(c);
+            }
+        }
+        if (cols.isEmpty()) return table + ": no comparable columns";
+        Map<List<String>, Integer> seedRows = new HashMap<>();
+        for (List<String> r : rows(app, table, cols)) seedRows.merge(r, 1, Integer::sum);
+        for (List<String> r : rows(dst, table, cols)) {
+            Integer left = seedRows.get(r);
+            if (left == null || left == 0) return table + ": row " + cols + "=" + r + " is not an app seed row";
+            seedRows.put(r, left - 1);
+        }
+        return null;
+    }
+
+    private static List<List<String>> rows(Connection c, String table, List<String> cols) throws SQLException {
+        List<List<String>> out = new ArrayList<>();
+        String sql = "SELECT " + String.join(", ", cols.stream().map(SqliteToLibsql::q).toList()) + " FROM " + q(table);
+        try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                List<String> r = new ArrayList<>(cols.size());
+                for (int i = 1; i <= cols.size(); i++) r.add(rs.getString(i));
+                out.add(r);
+            }
+        }
+        return out;
     }
 
     /** Row counts of the target's tables (all existing user tables, not only the copied ones). */

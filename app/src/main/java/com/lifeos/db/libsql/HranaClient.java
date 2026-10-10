@@ -166,11 +166,31 @@ final class HranaClient {
         return execute(sql, List.of());
     }
 
-    /** Turso: {"code":"STREAM_EXPIRED"...}; sqld: "Received an invalid baton". */
+    /** sqld's plain-text answers for a baton whose stream no longer exists on the server. */
+    private static final List<String> STREAM_GONE_MESSAGES = List.of(
+            "Received an invalid baton",
+            "Received a baton for a closed stream",
+            "The stream has expired due to inactivity");
+
+    /**
+     * Only answers that mean "the server has no such stream" (so its transaction is gone):
+     * Hrana error code {@code STREAM_EXPIRED} (Turso, JSON body) or sqld's specific messages.
+     * Other 400s (malformed request, SQL errors, ...) are not treated as a rollback.
+     */
     static boolean looksLikeStreamGone(String body) {
-        String b = body == null ? "" : body.toLowerCase(java.util.Locale.ROOT);
-        return b.contains("stream_expired") || b.contains("stream expired") || b.contains("expired")
-                || b.contains("invalid baton") || b.contains("baton");
+        if (body == null) return false;
+        String b = body.strip();
+        if (b.startsWith("{")) {
+            try {
+                JsonNode n = JSON.readTree(b);
+                if ("STREAM_EXPIRED".equals(n.path("code").asString(""))) return true;
+                String m = n.path("message").asString(n.path("error").asString(""));
+                return STREAM_GONE_MESSAGES.stream().anyMatch(m::startsWith);
+            } catch (RuntimeException e) {
+                return false;
+            }
+        }
+        return STREAM_GONE_MESSAGES.stream().anyMatch(b::startsWith);
     }
 
     /** Hrana batch step; {@code okStep} = only run if that earlier step succeeded (null = always). */
