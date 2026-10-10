@@ -1,6 +1,6 @@
 package com.lifeos.tools;
 
-import com.lifeos.config.SqlScript;
+import com.lifeos.config.SqlScriptSplitter;
 import com.lifeos.db.libsql.LibSqlHttpDriver;
 import com.lifeos.db.libsql.LibSqlUrl;
 import org.sqlite.SQLiteConfig;
@@ -211,7 +211,7 @@ public final class SqliteToLibsql {
             for (String script : APP_SCRIPTS) {
                 try (var in = SqliteToLibsql.class.getResourceAsStream(script)) {
                     if (in == null) throw new java.io.IOException(script + " not on the classpath");
-                    for (String x : SqlScript.split(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    for (String x : SqlScriptSplitter.split(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8))) {
                         if (x.toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA")) continue;
                         try {
                             st.execute(x);

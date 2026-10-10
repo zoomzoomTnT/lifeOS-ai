@@ -154,4 +154,37 @@ class SqlScriptSplitterTest {
                         "CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE a SET x = CASE WHEN 1 THEN 2 END;"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("TRIGGER");
     }
+
+    // ---- ported from SqlScriptTest (feat/turso-datasource) when the two splitters were unified
+
+    @Test
+    void mixedQuotesBracketsAndBacktickIdentifiers() {
+        List<String> s = SqlScriptSplitter.split("""
+                /* header; with semicolon */
+                INSERT INTO t VALUES ('a;b', 'it''s; fine', "q;id");
+                INSERT INTO t VALUES ([we;ird], `x;y`);
+                -- trailing comment;
+                """);
+        assertThat(s).hasSize(2);
+        assertThat(s.get(0)).contains("'a;b'").contains("'it''s; fine'");
+        assertThat(s.get(1)).contains("[we;ird]").contains("`x;y`");
+    }
+
+    @Test
+    void emptyStatementsBetweenSemicolonsAreDropped() {
+        assertThat(SqlScriptSplitter.split("-- just a comment;\n/* and ; another */\n;;")).isEmpty();
+    }
+
+    @Test
+    void appSchemaYieldsEveryCreateTable() throws Exception {
+        String schema;
+        try (InputStream in = SqlScriptSplitterTest.class.getResourceAsStream("/schema.sql")) {
+            schema = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        List<String> stmts = SqlScriptSplitter.split(schema);
+        long creates = stmts.stream().filter(x -> x.toUpperCase().startsWith("CREATE TABLE")).count();
+        long expected = schema.lines().filter(l -> l.toUpperCase().startsWith("CREATE TABLE")).count();
+        assertThat(creates).isEqualTo(expected);
+        assertThat(stmts).anyMatch(x -> x.startsWith("CREATE TABLE merchants"));
+    }
 }

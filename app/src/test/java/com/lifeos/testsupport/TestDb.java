@@ -1,6 +1,6 @@
 package com.lifeos.testsupport;
 
-import com.lifeos.config.SqlScript;
+import com.lifeos.config.SqlScriptSplitter;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -23,7 +23,7 @@ public final class TestDb {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + file); Statement st = c.createStatement()) {
             for (String res : SCRIPTS) {
                 try (var in = TestDb.class.getResourceAsStream(res)) {
-                    for (String sql : SqlScript.split(new String(in.readAllBytes(), StandardCharsets.UTF_8))) {
+                    for (String sql : SqlScriptSplitter.split(new String(in.readAllBytes(), StandardCharsets.UTF_8))) {
                         try {
                             st.execute(sql);
                         } catch (java.sql.SQLException e) {
