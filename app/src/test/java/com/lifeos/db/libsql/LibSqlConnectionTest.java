@@ -411,4 +411,144 @@ class LibSqlConnectionTest {
             assertEquals(Connection.TRANSACTION_SERIALIZABLE, c.getTransactionIsolation());
         }
     }
+
+    // ---------------------------------------------------------------- QA round 2
+
+    @Test
+    void networkTimeoutZeroRestoresTheDefault() throws SQLException {
+        server.slowSql = sql -> sql.equals("SELECT 'slow'");
+        server.slowMs = 1500;
+        try (Connection c = open()) {
+            c.setNetworkTimeout(Runnable::run, 1000);
+            assertThrows(SQLException.class, () -> c.createStatement().executeQuery("SELECT 'slow'"));
+            c.setNetworkTimeout(Runnable::run, 0);
+            assertEquals(0, c.getNetworkTimeout());
+            ResultSet rs = c.createStatement().executeQuery("SELECT 'slow'");
+            assertTrue(rs.next());
+        }
+    }
+
+    @Test
+    void pooledStatementLongerThanHikariValidationTimeoutSucceeds() throws Exception {
+        server.slowSql = sql -> sql.equals("SELECT 'slow'");
+        server.slowMs = 6500; // > Hikari's 5 s validationTimeout
+        com.zaxxer.hikari.HikariConfig cfg = new com.zaxxer.hikari.HikariConfig();
+        cfg.setDriverClassName(LibSqlHttpDriver.class.getName());
+        cfg.setJdbcUrl(server.url());
+        cfg.setPassword("t");
+        cfg.setMaximumPoolSize(1);
+        cfg.setValidationTimeout(5000);
+        try (com.zaxxer.hikari.HikariDataSource ds = new com.zaxxer.hikari.HikariDataSource(cfg)) {
+            try (Connection c = ds.getConnection()) {
+                c.createStatement().execute("SELECT 1");
+            }
+            Thread.sleep(700); // past Hikari's 500 ms bypass window: next borrow runs isValid()
+            try (Connection c = ds.getConnection()) {
+                long t0 = System.nanoTime();
+                ResultSet rs = c.createStatement().executeQuery("SELECT 'slow'");
+                assertTrue(rs.next());
+                assertTrue(System.nanoTime() - t0 >= 6_000_000_000L);
+            }
+            try (Connection c = ds.getConnection()) { // still healthy, not evicted
+                assertTrue(c.createStatement().executeQuery("SELECT 1").next());
+            }
+        }
+    }
+
+    @Test
+    void failingBeginNeverLetsTheStatementAutoCommit() throws SQLException {
+        server.failSql = sql -> sql.startsWith("BEGIN");
+        try (Connection c = open()) {
+            c.setAutoCommit(false);
+            SQLException e = assertThrows(SQLException.class,
+                    () -> c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('a')"));
+            assertTrue(e.getMessage().contains("BEGIN"), e.getMessage());
+            assertEquals(0, count("p"), "the INSERT must not run outside the transaction");
+            assertFalse(server.executed.contains("INSERT INTO p(name) VALUES ('a')"));
+            assertEquals(0, server.openStreams());
+            server.failSql = sql -> false;
+            c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('b')");
+            c.commit();
+            assertEquals(1, count("p"));
+        }
+    }
+
+    @Test
+    void streamExpiredOnCommitIsADefiniteRollback() throws SQLException {
+        try (Connection c = open()) {
+            c.setAutoCommit(false);
+            c.createStatement().executeUpdate("INSERT INTO p(name) VALUES ('a')");
+            server.expireAllStreams();
+            SQLException e = assertThrows(SQLException.class, c::commit);
+            assertEquals("40000", e.getSQLState(), e.getMessage());
+            assertTrue(e.getMessage().contains("rolled back"), e.getMessage());
+            assertEquals(0, count("p"));
+        }
+    }
+
+    @Test
+    void plainStatementGeneratedKeys() throws SQLException {
+        try (Connection c = open(); Statement st = c.createStatement()) {
+            assertEquals(1, st.executeUpdate("INSERT INTO p(name) VALUES ('a')", Statement.RETURN_GENERATED_KEYS));
+            ResultSet k = st.getGeneratedKeys();
+            assertTrue(k.next());
+            assertEquals(1L, k.getLong(1));
+            st.execute("INSERT INTO p(name) VALUES ('b')", new String[]{"ID"});
+            k = st.getGeneratedKeys();
+            assertTrue(k.next());
+            assertEquals(2L, k.getLong("ID"));
+            st.executeUpdate("INSERT INTO p(name) VALUES ('c')");
+            assertFalse(st.getGeneratedKeys().next(), "no keys unless requested");
+        }
+    }
+
+    @Test
+    void narrowingGettersThrowInsteadOfOverflowing() throws SQLException {
+        try (Connection c = open()) {
+            ResultSet rs = c.createStatement().executeQuery("SELECT 1099511627776, 70000, 1e300");
+            assertTrue(rs.next());
+            assertEquals(1099511627776L, rs.getLong(1));
+            SQLException e = assertThrows(SQLException.class, () -> rs.getInt(1));
+            assertEquals("22003", e.getSQLState());
+            assertEquals(70000, rs.getInt(2));
+            assertThrows(SQLException.class, () -> rs.getShort(2));
+            assertThrows(SQLException.class, () -> rs.getLong(3));
+        }
+    }
+
+    @Test
+    void dateTimesAreZoneCorrectAndKeepSecondsOnANonUtcJvm() throws SQLException {
+        java.util.TimeZone old = java.util.TimeZone.getDefault();
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Tokyo"));
+        try (Connection c = open()) {
+            c.createStatement().execute("CREATE TABLE t (a TEXT, b TEXT, d TEXT, tm TEXT, o TEXT)");
+            java.time.Instant at = java.time.Instant.parse("2026-10-10T03:00:00Z");
+            try (PreparedStatement ps = c.prepareStatement("INSERT INTO t VALUES (?, ?, ?, ?, ?)")) {
+                ps.setTimestamp(1, java.sql.Timestamp.from(at));
+                ps.setObject(2, java.time.LocalDateTime.of(2026, 10, 10, 12, 0, 0));
+                ps.setObject(3, java.time.LocalDate.of(2026, 10, 10));
+                ps.setTime(4, java.sql.Time.valueOf(java.time.LocalTime.of(12, 0, 0)));
+                ps.setObject(5, java.time.OffsetDateTime.of(2026, 10, 10, 12, 0, 0, 0, java.time.ZoneOffset.ofHours(9)));
+                ps.executeUpdate();
+            }
+            ResultSet rs = c.createStatement().executeQuery("SELECT a, b, d, tm, o FROM t");
+            assertTrue(rs.next());
+            assertEquals("2026-10-10T03:00:00Z", rs.getString(1));
+            assertEquals("2026-10-10T12:00:00", rs.getString(2));
+            assertEquals("12:00:00", rs.getString(4));
+            assertEquals("2026-10-10T12:00:00+09:00", rs.getString(5));
+            assertEquals(at, rs.getTimestamp(1).toInstant(), "…Z read as an instant, not in the JVM zone");
+            assertEquals(at, rs.getTimestamp(5).toInstant());
+            assertEquals(at, rs.getObject(1, java.time.Instant.class));
+            assertEquals(java.time.LocalDateTime.of(2026, 10, 10, 12, 0), rs.getObject(2, java.time.LocalDateTime.class));
+            assertEquals(java.time.LocalDate.of(2026, 10, 10), rs.getDate(3).toLocalDate());
+            assertEquals(java.time.LocalTime.of(12, 0), rs.getTime(4).toLocalTime());
+            // zoneless text: UTC by default, the Calendar's zone when given
+            assertEquals(java.time.Instant.parse("2026-10-10T12:00:00Z"), rs.getTimestamp(2).toInstant());
+            java.util.Calendar tokyo = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo"));
+            assertEquals(at, rs.getTimestamp(2, tokyo).toInstant());
+        } finally {
+            java.util.TimeZone.setDefault(old);
+        }
+    }
 }

@@ -127,12 +127,26 @@ final class LibSqlResultSet implements JdbcProxy.Labeled {
 
     public long getLong(int col) throws SQLException {
         Object v = raw(col);
-        return v == null ? 0L : toNumber(v).longValue();
+        if (v == null) return 0L;
+        Number n = toNumber(v);
+        if (n instanceof Double d && (d >= 0x1p63 || d < -0x1p63 || d.isNaN())) {
+            throw new SQLException("value " + d + " in column " + col + " is out of range for long", "22003");
+        }
+        return n.longValue();
     }
 
-    public int getInt(int col) throws SQLException { return (int) getLong(col); }
-    public short getShort(int col) throws SQLException { return (short) getLong(col); }
-    public byte getByte(int col) throws SQLException { return (byte) getLong(col); }
+    public int getInt(int col) throws SQLException { return (int) ranged(col, Integer.MIN_VALUE, Integer.MAX_VALUE, "int"); }
+    public short getShort(int col) throws SQLException { return (short) ranged(col, Short.MIN_VALUE, Short.MAX_VALUE, "short"); }
+    public byte getByte(int col) throws SQLException { return (byte) ranged(col, Byte.MIN_VALUE, Byte.MAX_VALUE, "byte"); }
+
+    /** Narrowing never wraps silently: out-of-range values throw (SQLSTATE 22003). */
+    private long ranged(int col, long min, long max, String type) throws SQLException {
+        long v = getLong(col);
+        if (v < min || v > max) {
+            throw new SQLException("value " + v + " in column " + col + " is out of range for " + type, "22003");
+        }
+        return v;
+    }
 
     public double getDouble(int col) throws SQLException {
         Object v = raw(col);
@@ -184,37 +198,53 @@ final class LibSqlResultSet implements JdbcProxy.Labeled {
         return s == null ? null : new StringReader(s);
     }
 
-    public Timestamp getTimestamp(int col) throws SQLException {
+    // Text without an offset is read as UTC for timestamps (SQLite's own datetime() convention),
+    // or in the Calendar's zone when one is passed; text with Z / ±hh:mm is an exact instant.
+    public Timestamp getTimestamp(int col) throws SQLException { return getTimestamp(col, null); }
+
+    public Timestamp getTimestamp(int col, Calendar cal) throws SQLException {
         Object v = raw(col);
         if (v == null) return null;
         if (v instanceof Long l) return new Timestamp(l);
-        LocalDateTime t = parseDateTime(v.toString());
-        return Timestamp.valueOf(t);
+        java.time.ZoneId zone = cal == null ? java.time.ZoneOffset.UTC : cal.getTimeZone().toZoneId();
+        return Timestamp.from(toInstant(v.toString(), zone));
     }
 
-    public Timestamp getTimestamp(int col, Calendar cal) throws SQLException { return getTimestamp(col); }
+    public Date getDate(int col) throws SQLException { return getDate(col, null); }
 
-    public Date getDate(int col) throws SQLException {
+    public Date getDate(int col, Calendar cal) throws SQLException {
         Object v = raw(col);
         if (v == null) return null;
         if (v instanceof Long l) return new Date(l);
-        String s = v.toString();
-        return Date.valueOf(s.length() >= 10 ? LocalDate.parse(s.substring(0, 10)) : LocalDate.parse(s));
+        String s = v.toString().strip();
+        LocalDate d;
+        try {
+            d = LocalDate.parse(s.length() >= 10 ? s.substring(0, 10) : s);
+        } catch (RuntimeException e) {
+            throw new SQLException("not a date: " + s);
+        }
+        if (cal == null) return Date.valueOf(d); // midnight in the JVM zone, as JDBC specifies
+        return new Date(d.atStartOfDay(cal.getTimeZone().toZoneId()).toInstant().toEpochMilli());
     }
 
-    public Date getDate(int col, Calendar cal) throws SQLException { return getDate(col); }
+    public Time getTime(int col) throws SQLException { return getTime(col, null); }
 
-    public Time getTime(int col) throws SQLException {
+    public Time getTime(int col, Calendar cal) throws SQLException {
         Object v = raw(col);
         if (v == null) return null;
         if (v instanceof Long l) return new Time(l);
-        String s = v.toString();
+        String s = v.toString().strip();
         if (s.length() > 10 && (s.charAt(10) == 'T' || s.charAt(10) == ' ')) s = s.substring(11);
         if (s.endsWith("Z")) s = s.substring(0, s.length() - 1);
-        return Time.valueOf(LocalTime.parse(s));
+        LocalTime t;
+        try {
+            t = LocalTime.parse(s);
+        } catch (RuntimeException e) {
+            throw new SQLException("not a time: " + v);
+        }
+        if (cal == null) return Time.valueOf(t);
+        return new Time(t.atDate(LocalDate.EPOCH).atZone(cal.getTimeZone().toZoneId()).toInstant().toEpochMilli());
     }
-
-    public Time getTime(int col, Calendar cal) throws SQLException { return getTime(col); }
 
     @SuppressWarnings("unchecked")
     public <T> T getObject(int col, Class<T> cls) throws SQLException {
@@ -236,11 +266,11 @@ final class LibSqlResultSet implements JdbcProxy.Labeled {
         else if (cls == Timestamp.class) out = getTimestamp(col);
         else if (cls == Date.class) out = getDate(col);
         else if (cls == Time.class) out = getTime(col);
-        else if (cls == LocalDateTime.class) out = getTimestamp(col).toLocalDateTime();
+        else if (cls == LocalDateTime.class) out = localDateTime(v.toString());
         else if (cls == LocalDate.class) out = getDate(col).toLocalDate();
         else if (cls == LocalTime.class) out = getTime(col).toLocalTime();
-        else if (cls == Instant.class) out = v instanceof Long l ? Instant.ofEpochMilli(l) : parseInstant(v.toString());
-        else if (cls == OffsetDateTime.class) out = OffsetDateTime.parse(v.toString().replace(' ', 'T'));
+        else if (cls == Instant.class) out = v instanceof Long l ? Instant.ofEpochMilli(l) : toInstant(v.toString(), java.time.ZoneOffset.UTC);
+        else if (cls == OffsetDateTime.class) out = (v instanceof Long l ? Instant.ofEpochMilli(l) : toInstant(v.toString(), java.time.ZoneOffset.UTC)).atOffset(java.time.ZoneOffset.UTC);
         else if (cls == java.util.UUID.class) out = java.util.UUID.fromString(v.toString());
         else throw new SQLException("cannot convert " + v.getClass().getSimpleName() + " to " + cls.getName());
         return (T) out;
@@ -261,27 +291,31 @@ final class LibSqlResultSet implements JdbcProxy.Labeled {
         }
     }
 
-    private static LocalDateTime parseDateTime(String s) throws SQLException {
+    private static boolean hasOffset(String t) {
+        return t.endsWith("Z") || t.endsWith("z") || t.matches(".*T.*[+-]\\d\\d:?\\d\\d$");
+    }
+
+    /** ISO text → instant; text without an offset is wall time in {@code zone}. */
+    private static Instant toInstant(String s, java.time.ZoneId zone) throws SQLException {
         String t = s.strip().replace(' ', 'T');
         try {
-            if (t.endsWith("Z") || t.matches(".*[+-]\\d\\d:\\d\\d$")) {
-                return OffsetDateTime.parse(t).toLocalDateTime();
-            }
-            if (t.length() == 10) return LocalDate.parse(t).atStartOfDay();
-            return LocalDateTime.parse(t);
+            if (hasOffset(t)) return OffsetDateTime.parse(t.replace('z', 'Z')).toInstant();
+            if (t.length() == 10) return LocalDate.parse(t).atStartOfDay(zone).toInstant();
+            return LocalDateTime.parse(t).atZone(zone).toInstant();
         } catch (RuntimeException e) {
             throw new SQLException("not a timestamp: " + s);
         }
     }
 
-    private static Instant parseInstant(String s) throws SQLException {
+    /** Wall time as written; text with an offset is converted to UTC wall time. */
+    private static LocalDateTime localDateTime(String s) throws SQLException {
         String t = s.strip().replace(' ', 'T');
         try {
-            return t.endsWith("Z") || t.matches(".*[+-]\\d\\d:\\d\\d$")
-                    ? OffsetDateTime.parse(t).toInstant()
-                    : LocalDateTime.parse(t).toInstant(java.time.ZoneOffset.UTC);
+            if (hasOffset(t)) return LocalDateTime.ofInstant(OffsetDateTime.parse(t.replace('z', 'Z')).toInstant(), java.time.ZoneOffset.UTC);
+            if (t.length() == 10) return LocalDate.parse(t).atStartOfDay();
+            return LocalDateTime.parse(t);
         } catch (RuntimeException e) {
-            throw new SQLException("not an instant: " + s);
+            throw new SQLException("not a timestamp: " + s);
         }
     }
 

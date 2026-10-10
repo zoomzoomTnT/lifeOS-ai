@@ -56,6 +56,11 @@ public final class FakeTursoServer implements AutoCloseable {
     /** Next N requests fail with HTTP 500 before touching the database. */
     public final AtomicInteger failNextRequests = new AtomicInteger();
     private volatile String requiredToken;
+    /** Statements matching this fail with an SQLite error instead of running (e.g. BEGIN). */
+    public volatile java.util.function.Predicate<String> failSql = sql -> false;
+    /** Statements matching this sleep {@link #slowMs} before running. */
+    public volatile java.util.function.Predicate<String> slowSql = sql -> false;
+    public volatile long slowMs = 0;
 
     private static final class Stream {
         final Connection c;
@@ -126,8 +131,9 @@ public final class FakeTursoServer implements AutoCloseable {
                 JsonNode body = json.readTree(ex.getRequestBody().readAllBytes());
                 JsonNode resp = pipeline(body);
                 if (resp == null) {
-                    status = 400;
-                    out = "Received an invalid baton".getBytes(StandardCharsets.UTF_8);
+                    status = 400; // what Turso answers for a stream that idled out
+                    out = "{\"message\":\"The stream has expired due to inactivity\",\"code\":\"STREAM_EXPIRED\"}"
+                            .getBytes(StandardCharsets.UTF_8);
                 } else {
                     out = json.writeValueAsBytes(resp);
                 }
@@ -181,6 +187,39 @@ public final class FakeTursoServer implements AutoCloseable {
                                     ? "SQLITE_CONSTRAINT" : "SQLITE_ERROR");
                         }
                     }
+                    case "batch" -> {
+                        ArrayNode stepResults = json.createArrayNode();
+                        ArrayNode stepErrors = json.createArrayNode();
+                        List<Boolean> ok = new java.util.ArrayList<>();
+                        for (JsonNode step : req.path("batch").path("steps")) {
+                            JsonNode cond = step.path("condition");
+                            boolean run = !cond.isObject() || (cond.path("type").asString().equals("ok")
+                                    && ok.size() > cond.path("step").asInt() && ok.get(cond.path("step").asInt()));
+                            if (!run) {
+                                stepResults.addNull();
+                                stepErrors.addNull();
+                                ok.add(false);
+                                continue;
+                            }
+                            try {
+                                stepResults.add(execute(s.c, step.path("stmt")));
+                                stepErrors.addNull();
+                                ok.add(true);
+                            } catch (SQLException e) {
+                                stepResults.addNull();
+                                ObjectNode err = stepErrors.addObject();
+                                err.put("message", "SQLite error: " + e.getMessage());
+                                err.put("code", "SQLITE_ERROR");
+                                ok.add(false);
+                            }
+                        }
+                        r.put("type", "ok");
+                        ObjectNode response = r.putObject("response");
+                        response.put("type", "batch");
+                        ObjectNode result = response.putObject("result");
+                        result.set("step_results", stepResults);
+                        result.set("step_errors", stepErrors);
+                    }
                     case "get_autocommit" -> {
                         r.put("type", "ok");
                         ObjectNode response = r.putObject("response");
@@ -215,6 +254,16 @@ public final class FakeTursoServer implements AutoCloseable {
     private ObjectNode execute(Connection c, JsonNode stmt) throws SQLException {
         String sql = stmt.path("sql").asString();
         executed.add(sql);
+        if (slowSql.test(sql) && slowMs > 0) {
+            try {
+                Thread.sleep(slowMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (failSql.test(sql)) {
+            throw new SQLException("injected failure for: " + sql);
+        }
         ObjectNode sr = json.createObjectNode();
         ArrayNode cols = sr.putArray("cols");
         ArrayNode rows = sr.putArray("rows");
