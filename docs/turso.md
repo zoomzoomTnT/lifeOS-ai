@@ -86,19 +86,26 @@ problem or `--dry-run`). The source is read in one read transaction (consistent 
 modified.
 
 Non-empty target: refused. `--wipe-target` replaces existing rows, and on its own is only allowed
-when the target holds nothing but the app's seed rows (owner, settings, model prices — what the app
-writes when it first starts on an empty database). If it holds more (e.g. rows written after a
-deploy), the tool prints the exact counts and requires `--confirm-target-counts t1=N,...` matching
-them; those rows are deleted. Counts are re-checked under the write lock.
+when the target holds nothing but the app's **unchanged** seed rows (owner, settings, model prices,
+schema_migrations — what the app writes when it first starts on an empty database), compared by
+content (time-default columns such as `created_at` ignored). Request-log rows (`http_requests`, written
+on every request incl. health checks) don't block this and are replaced by the source's. Anything
+else (new or edited rows) makes the tool print the exact counts and require
+`--confirm-target-counts t1=N,...` matching them; those rows are deleted. The check is repeated
+under the write lock. The script copies the source file to a temp dir (the original is never
+mounted) and refuses to run while `lifeos-api` is up.
 
 Without Docker: `java -cp app/target/life-os-app.jar -Dloader.main=com.lifeos.tools.SqliteToLibsql
 org.springframework.boot.loader.launch.PropertiesLauncher <file> [options]`.
 
 CD no longer makes rotating copies of `data/life.db` on every deploy (the app does not write it
 any more). It keeps the file in place and takes one frozen snapshot,
-`data/backups/life.db.pre-turso`, the first time it runs: with `sqlite3 .backup` when the host has
-sqlite3, otherwise after stopping the API (no torn copy of a live database + WAL). Live data is in
-Turso (point-in-time restore is Turso's).
+`data/backups/life.db.pre-turso`, the first time it runs: SQLite's online backup API
+(`com.lifeos.tools.SqliteBackup`), run inside the new image as root (the files are root-owned from
+the container and reading WAL needs write access to `-shm`), then `integrity_check`. If that fails,
+it stops the API (a failed stop aborts the deploy before anything changed) and copies the files
+cold; if that fails too, the deploy stops with an error and `data/life.db` stays untouched. Live
+data is in Turso (point-in-time restore is Turso's).
 
 ## Tests
 
