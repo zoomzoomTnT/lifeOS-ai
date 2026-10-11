@@ -16,6 +16,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record AuthProperties(String pepper, boolean localOpen, int writesPerMinute, String domain,
                              String publicUrl) {
 
+    /** application-local.yml's fallback pepper (also used by lifeos-admin under `local`). Not a secret. */
+    public static final String LOCAL_DEV_PEPPER = "local-dev-pepper-not-a-secret-000000";
+
     public AuthProperties {
         if (writesPerMinute < 0) writesPerMinute = 0;
     }
