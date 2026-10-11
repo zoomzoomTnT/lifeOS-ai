@@ -99,6 +99,10 @@ jobs:
         run: |
           mkdir -p "$OPENCLAW_HOME"
           docker compose -f docker-compose.yml config --quiet
+          LIFE_DOMAIN=ci.example.com docker compose -f docker-compose.yml --profile proxy config --quiet
+          docker compose -f docker-compose.yml config | grep -q 'host_ip: 127.0.0.1'
+          docker run --rm -e LIFE_DOMAIN=ci.example.com -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - uses: docker/setup-buildx-action@v3
 

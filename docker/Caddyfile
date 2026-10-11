@@ -1,0 +1,25 @@
+# HTTPS front for lifeos-api. Certificates are issued and renewed automatically (Let's Encrypt)
+# for $LIFE_DOMAIN, which must resolve to this server and have ports 80 + 443 reachable.
+# Caddy only adds TLS (+ X-Forwarded-*); the app does all authentication. Passkeys need this
+# HTTPS origin: the WebAuthn RP ID is $LIFE_DOMAIN.
+{$LIFE_DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size 10MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy api:8787
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -6,7 +6,10 @@ services:
       dockerfile: Dockerfile
     container_name: lifeos-api
     ports:
-      - "${LIFE_API_PORT:-8787}:8787"
+      # Loopback only by default: expose via the `proxy` profile (Caddy, HTTPS) below.
+      # LIFE_API_BIND=0.0.0.0 publishes plain HTTP on all interfaces (not recommended: API keys
+      # and session cookies would travel unencrypted, and passkeys need HTTPS anyway).
+      - "${LIFE_API_BIND:-127.0.0.1}:${LIFE_API_PORT:-8787}:8787"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -55,3 +58,28 @@ services:
     volumes:
       - ${OPENCLAW_HOME:-./openclaw-disabled}:/openclaw
     restart: "no"
+
+  # Optional HTTPS reverse proxy with automatic Let's Encrypt certificates.
+  # Off unless started with the profile; CD enables it when the repo variable LIFE_DOMAIN is set.
+  #   LIFE_DOMAIN=api.example.com docker compose --profile proxy up -d
+  caddy:
+    profiles: ["proxy"]
+    image: caddy:2-alpine
+    container_name: lifeos-caddy
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      LIFE_DOMAIN: ${LIFE_DOMAIN:-}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
