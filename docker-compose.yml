@@ -19,6 +19,17 @@ services:
       TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:-}
       TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
       LIFE_API_PORT: "8787"
+      # Auth (docs/auth.md). LIFE_KEY_PEPPER: HMAC key for API key hashes, >= 32 chars, required in
+      # production (the app refuses to start without it). Changing it invalidates every API key.
+      LIFE_KEY_PEPPER: ${LIFE_KEY_PEPPER:-}
+      # Public HTTPS host (Caddy) = passkey RP ID; owner login and approval links use it.
+      LIFE_DOMAIN: ${LIFE_DOMAIN:-}
+      LIFE_PUBLIC_URL: ${LIFE_PUBLIC_URL:-}
+      LIFE_COOKIE_SECURE: ${LIFE_COOKIE_SECURE:-true}
+      LIFE_AUTH_WRITES_PER_MINUTE: ${LIFE_AUTH_WRITES_PER_MINUTE:-60}
+      LIFE_ACTUATOR_ENDPOINTS: ${LIFE_ACTUATOR_ENDPOINTS:-health,info,metrics,db}
+      # `local` profile only (docker-compose.local.yml): true = no credentials needed
+      LIFE_AUTH_LOCAL_OPEN: ${LIFE_AUTH_LOCAL_OPEN:-true}
       # OpenClaw master switch (false = REST API + DB only, no OpenClaw calls/ingest/cron wake)
       OPENCLAW_ENABLED: ${OPENCLAW_ENABLED:-true}
       LIFE_OPENCLAW_WAKE: ${LIFE_OPENCLAW_WAKE:-true}

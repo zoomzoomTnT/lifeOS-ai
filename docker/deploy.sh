@@ -33,6 +33,23 @@ case "$(printf '%s' "${OPENCLAW_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')" i
 esac
 export OPENCLAW_ENABLED
 
+# Auth: the app refuses to start without LIFE_KEY_PEPPER (env or .env, >= 32 chars).
+envval() { sed -n "s/^$1=//p" .env 2>/dev/null | tail -n 1; }
+PEPPER="${LIFE_KEY_PEPPER:-$(envval LIFE_KEY_PEPPER)}"
+if [ "${#PEPPER}" -lt 32 ]; then
+  echo "LIFE_KEY_PEPPER missing or < 32 chars: add LIFE_KEY_PEPPER=\$(openssl rand -base64 48) to $ROOT/.env (docs/auth.md)." >&2
+  exit 1
+fi
+unset PEPPER
+# Optional HTTPS proxy (Caddy) when LIFE_DOMAIN is set (env or .env).
+LIFE_DOMAIN="${LIFE_DOMAIN:-$(envval LIFE_DOMAIN)}"
+PROFILES=()
+if [ -n "$LIFE_DOMAIN" ]; then
+  [ -f docker/Caddyfile ] || { echo "docker/Caddyfile missing next to compose.yaml" >&2; exit 1; }
+  export LIFE_DOMAIN
+  PROFILES=(--profile proxy)
+fi
+
 IMAGE="${LIFE_IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai:latest}"
 export LIFE_IMAGE="$IMAGE"
 
@@ -44,12 +61,15 @@ if [ -f data/life.db ]; then
   ls -1t data/backups/life.db.* 2>/dev/null | tail -n +11 | xargs -r rm -f
 fi
 
-docker compose -f "$FILE" pull api
-docker compose -f "$FILE" up -d --no-build --remove-orphans --wait --wait-timeout 120
+docker compose -f "$FILE" "${PROFILES[@]}" pull
+docker compose -f "$FILE" "${PROFILES[@]}" up -d --no-build --remove-orphans --wait --wait-timeout 120
 if [ "$OPENCLAW_ENABLED" = "true" ]; then
   docker compose -f "$FILE" --profile sync run --rm skill-sync
 else
   echo "OPENCLAW_ENABLED=false: skipping skill sync"
 fi
 curl -fsS http://127.0.0.1:${LIFE_API_PORT:-8787}/actuator/health
+echo
+test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${LIFE_API_PORT:-8787}/api/ops/summary)" = 401 \
+  || { echo "expected 401 from /api without credentials" >&2; exit 1; }
 echo "deployed $IMAGE"
