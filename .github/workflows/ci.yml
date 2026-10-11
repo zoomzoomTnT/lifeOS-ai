@@ -111,6 +111,11 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.local.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?true"?$'
           docker run --rm -e LIFE_DOMAIN=ci.example.com -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          # with LIFE_ACME_EMAIL, as compose renders it (global "email" option)
+          EMAIL_LINE="$(LIFE_ACME_EMAIL=ops@ci.example.org LIFE_DOMAIN=1-2-3-4.sslip.io docker compose -f docker-compose.yml --profile proxy config --format json | jq -r '.services.caddy.environment.CADDY_EMAIL_LINE')"
+          test "$EMAIL_LINE" = "email ops@ci.example.org"
+          docker run --rm -e LIFE_DOMAIN=1-2-3-4.sslip.io -e CADDY_EMAIL_LINE="$EMAIL_LINE" -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile | grep -q '"email":"ops@ci.example.org"'
 
       - uses: docker/setup-buildx-action@v3
 

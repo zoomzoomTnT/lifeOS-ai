@@ -129,7 +129,7 @@ jobs:
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED,LIFE_KEY_PEPPER,LIFE_DOMAIN
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED,LIFE_KEY_PEPPER,LIFE_DOMAIN,LIFE_ACME_EMAIL,EXPLICIT_IMAGE
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -211,6 +211,7 @@ jobs:
             }
             if [ -n "${LIFE_KEY_PEPPER:-}" ]; then upsert_env LIFE_KEY_PEPPER "$LIFE_KEY_PEPPER"; fi
             upsert_env LIFE_DOMAIN "${LIFE_DOMAIN:-}"
+            upsert_env LIFE_ACME_EMAIL "${LIFE_ACME_EMAIL:-}"
             chmod 600 .env
             PROFILES=""
             if [ -n "${LIFE_DOMAIN:-}" ]; then
@@ -254,11 +255,17 @@ jobs:
             fi
 
             docker compose -f compose.yaml $PROFILES pull || true
-            # Pre-auth image (rollback to sha-e2e4938 or older; no lifeos.auth=1 label): it has NO API
-            # authentication, so never put it behind the public proxy or on a public bind.
-            AUTH_IMAGE="$(docker image inspect "$LIFE_IMAGE" --format '{{ index .Config.Labels "lifeos.auth" }}' 2>/dev/null || true)"
+            # Fail closed: the image must be inspectable, and only an explicit rollback (manual run with
+            # image_tag) may deploy a pre-auth image (no lifeos.auth=1 label, e.g. sha-e2e4938). That one
+            # has NO API authentication: never behind the public proxy, never on a public bind.
+            if ! AUTH_IMAGE="$(docker image inspect "$LIFE_IMAGE" --format '{{ index .Config.Labels "lifeos.auth" }}')"; then
+              echo "::error::cannot inspect $LIFE_IMAGE (pull failed?); not deploying"; exit 1
+            fi
             if [ "$AUTH_IMAGE" != "1" ]; then
-              echo "::warning::$LIFE_IMAGE is a pre-auth image (no lifeos.auth=1 label): unauthenticated API. Caddy stays off and the API binds 127.0.0.1 only."
+              if [ "${EXPLICIT_IMAGE:-0}" != "1" ]; then
+                echo "::error::$LIFE_IMAGE has no lifeos.auth=1 label and this is not an explicit rollback (workflow_dispatch with image_tag); not deploying"; exit 1
+              fi
+              echo "::warning::rollback to pre-auth image $LIFE_IMAGE: unauthenticated API. Caddy stays off and the API binds 127.0.0.1 only."
               PROFILES=""
               export LIFE_API_BIND=127.0.0.1
               docker compose -f compose.yaml --profile proxy rm -sf caddy || true
@@ -270,6 +277,11 @@ jobs:
             fi
             if [ "$OC" = "true" ]; then
               docker compose -f compose.yaml run --rm skill-sync
+            fi
+            # what is actually running must be what was checked above
+            RUNNING="$(docker inspect lifeos-api --format '{{ index .Config.Labels "lifeos.auth" }}' 2>/dev/null || echo '?')"
+            if [ "$RUNNING" != "$AUTH_IMAGE" ]; then
+              echo "::error::lifeos-api runs an image with lifeos.auth='$RUNNING', expected '$AUTH_IMAGE'"; exit 1
             fi
 
             ok=0
@@ -324,3 +336,6 @@ jobs:
           OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}
           LIFE_KEY_PEPPER: ${{ secrets.LIFE_KEY_PEPPER }}
           LIFE_DOMAIN: ${{ vars.LIFE_DOMAIN }}
+          LIFE_ACME_EMAIL: ${{ vars.LIFE_ACME_EMAIL }}
+          # Only a manual run naming an image (rollback) may deploy a pre-auth image.
+          EXPLICIT_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' && '1' || '0' }}

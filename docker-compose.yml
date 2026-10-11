@@ -25,7 +25,6 @@ services:
       # Public HTTPS host (Caddy) = passkey RP ID; owner login and approval links use it.
       LIFE_DOMAIN: ${LIFE_DOMAIN:-}
       LIFE_PUBLIC_URL: ${LIFE_PUBLIC_URL:-}
-      LIFE_COOKIE_SECURE: ${LIFE_COOKIE_SECURE:-true}
       LIFE_AUTH_WRITES_PER_MINUTE: ${LIFE_AUTH_WRITES_PER_MINUTE:-60}
       LIFE_ACTUATOR_ENDPOINTS: ${LIFE_ACTUATOR_ENDPOINTS:-health,info,metrics,db}
       # Always false here: the app refuses to start with local-open=true outside the `local` profile.
@@ -86,6 +85,7 @@ services:
       - "443:443/udp"
     environment:
       LIFE_DOMAIN: ${LIFE_DOMAIN:-}
+      CADDY_EMAIL_LINE: ${LIFE_ACME_EMAIL:+email ${LIFE_ACME_EMAIL}}
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
