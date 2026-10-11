@@ -13,10 +13,19 @@ import org.springframework.security.web.authentication.AuthenticationConverter;
  */
 public class BearerApiKeyConverter implements AuthenticationConverter {
 
+    static final String KEY_PREFIX = "lok_";
+
     @Override
     public Authentication convert(HttpServletRequest request) {
         String token = bearer(request);
-        return token == null ? null : ApiKeyAuthenticationToken.unauthenticated(token);
+        if (token == null) return null;
+        // A public endpoint with its own token check (POST /api/ops/webhook/ping takes
+        // "Authorization: Bearer <OPENCLAW_HOOK_TOKEN>") gets its Bearer value passed through
+        // untouched instead of a 401 invalid_token. A lok_ key there is still verified as usual.
+        if (!token.startsWith(KEY_PREFIX) && ScopeRules.match(request).map(ScopeRules.Rule::isPublic).orElse(false)) {
+            return null;
+        }
+        return ApiKeyAuthenticationToken.unauthenticated(token);
     }
 
     public static String bearer(HttpServletRequest request) {

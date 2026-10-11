@@ -40,6 +40,7 @@ Quiet 30m model heartbeats are **off**. Java cron is the send path.
 ```bash
 curl -s -X PATCH "$LIFE_API_BASE/api/memos/$ID" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -d '{"due_at": "<utc>"}'
 ```
 
@@ -76,7 +77,8 @@ Channel must be `openclaw-weixin`. `--to` is `people.handle`.
 After successful send:
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/memos/$ID/fired"
+curl -s -X POST "$LIFE_API_BASE/api/memos/$ID/fired" -H "Authorization: Bearer $LIFE_API_KEY"
+# 401 = no/invalid key: do NOT resend the message; report it instead (otherwise the memo fires again next wake)
 ```
 
 Do not re-fire within 6 hours (`last_fired_at`).

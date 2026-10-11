@@ -46,7 +46,7 @@ Do **not** POST `/api/ops/ai` for a quiet heartbeat that only hit `should-wake` 
 ## When user asks 花了多少 / token / 用量
 
 ```bash
-curl -s "$LIFE_API_BASE/api/ops/summary?hours=24"
+curl -s "$LIFE_API_BASE/api/ops/summary?hours=24" -H "Authorization: Bearer $LIFE_API_KEY"
 ```
 
 Speak today's USD and whether the $5 default budget is blown. Point them at `/ops` if they have a browser.

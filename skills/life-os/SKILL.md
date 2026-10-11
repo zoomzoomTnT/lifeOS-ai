@@ -29,11 +29,10 @@ All mutations go through the REST API. Do not write SQLite from this skill.
 ## Session start
 
 ```bash
-curl -s "$LIFE_API_BASE/actuator/health"
-curl -s "$LIFE_API_BASE/actuator/db"
+curl -s "$LIFE_API_BASE/actuator/health"   # public: {"status":"UP"} only
 ```
 
-If `people.handle` is still `owner`, the first real WeChat peer id will auto-create a member row (or upsert via API later).
+`/actuator/db` and health details need an `ops:admin` credential (the owner or a service key); agent keys get 403, so don't call them here. Members are no longer auto-created from WeChat handles: every write is attributed to the API key's person.
 
 ## Core contract
 
@@ -74,11 +73,7 @@ That writes `$OPENCLAW_HOME/workspace/skills/life-os` and `HEARTBEAT.md`.
 
 ## Backup
 
-```bash
-curl -s -X POST "$LIFE_API_BASE/api/backup" -H "Content-Type: application/json" -d '{}'
-```
-
-Tell the user to copy the returned `.db` snapshot. Never commit `life.db`.
+There is no backup endpoint. Production data lives in Turso (hosted backups / point-in-time restore in the Turso dashboard); a local `life.db` is backed up by copying the file while the app is stopped. Never commit `life.db`.
 
 ## Voice
 
