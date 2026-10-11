@@ -1,5 +1,7 @@
 package com.lifeos.security;
 
+import org.springframework.security.web.session.DisableEncodeUrlFilter;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -103,6 +105,8 @@ public class SecurityConfig {
                 .requestCache(r -> r.disable())
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(new ApiAccessDeniedHandler(events)))
+                // before anything else decides on the path (rules, risk tier, fingerprint, routing)
+                .addFilterBefore(new CanonicalPathFilter(events), DisableEncodeUrlFilter.class)
                 .addFilterBefore(apiKeyFilter, AnonymousAuthenticationFilter.class)
                 // same slot, kept in insertion order: API key → owner session → (local dev)
                 .addFilterBefore(new OwnerSessionBridgeFilter(store::ownerPersonId), AnonymousAuthenticationFilter.class)

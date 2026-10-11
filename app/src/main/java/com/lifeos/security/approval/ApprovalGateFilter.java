@@ -70,7 +70,13 @@ public class ApprovalGateFilter extends OncePerRequestFilter {
             return;
         }
         String path = req.getRequestURI().substring(req.getContextPath().length());
-        Optional<RiskAssessment> risk = policy.assess(req.getMethod(), path, wrapped.body);
+        Optional<RiskAssessment> risk;
+        try {
+            risk = policy.assess(req.getMethod(), path, wrapped.body);
+        } catch (RiskPolicy.InvalidPathId e) {
+            ApiErrors.write(res, 400, ApiErrors.body("bad_request", e.getMessage()));
+            return;
+        }
         if (risk.isEmpty()) {
             chain.doFilter(wrapped, res);
             return;

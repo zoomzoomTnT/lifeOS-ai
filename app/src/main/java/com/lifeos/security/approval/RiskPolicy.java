@@ -1,5 +1,9 @@
 package com.lifeos.security.approval;
 
+import org.springframework.http.server.PathContainer;
+import org.springframework.web.util.pattern.PathPattern;
+import org.springframework.web.util.pattern.PathPatternParser;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -8,7 +12,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -20,7 +23,27 @@ import java.util.regex.Pattern;
 @Component
 public class RiskPolicy {
 
-    static final Pattern RECEIPT_CONFIRM = Pattern.compile("^/api/receipts/(\\d+)/confirm$");
+    // Matched like Spring MVC routes them (PathPattern on the decoded path), not on the raw string:
+    // /api/receipts/%31/confirm or /api/ops/pric%65s must land in the same tier as the plain path.
+    // CanonicalPathFilter already refuses such paths with 400; this is the second line of defence.
+    static final PathPattern ACTUATOR = pattern("/actuator/**");
+    static final PathPattern PURGE = pattern("/api/ops/purge");
+    static final PathPattern PRICES = pattern("/api/ops/prices");
+    static final PathPattern RECEIPT_CONFIRM = pattern("/api/receipts/{id}/confirm");
+    static final PathPattern API = pattern("/api/**");
+    private static final Pattern ID = Pattern.compile("^[0-9]{1,18}$");
+
+    private static PathPattern pattern(String p) {
+        return PathPatternParser.defaultInstance.parse(p);
+    }
+
+    /** A path id that is not a plain decimal long: the caller answers 400 (the handler could not bind it either). */
+    public static final class InvalidPathId extends IllegalArgumentException {
+        public InvalidPathId(String value) {
+            super("invalid id in path: " + value);
+        }
+    }
+
     static final long DEFAULT_RECEIPT_TOTAL_CENTS = 5_000_000L; // 50,000.00
     static final int DEFAULT_BULK_ROWS = 20;
 
@@ -36,27 +59,40 @@ public class RiskPolicy {
         return !List.of("GET", "HEAD", "OPTIONS", "TRACE").contains(method);
     }
 
+    /**
+     * @param path the request path within the application, raw (as sent) or decoded; it is parsed
+     *             and decoded the way the MVC router does before matching.
+     * @throws InvalidPathId if a risky route matched with an id that is not a plain decimal long
+     */
     public Optional<RiskAssessment> assess(String method, String path, byte[] body) {
         if (!candidate(method)) return Optional.empty();
-        if (path.startsWith("/actuator")) {
+        PathContainer pc = PathContainer.parsePath(path);
+        String shown = pc.elements().stream().map(e -> e instanceof PathContainer.PathSegment s
+                ? s.valueToMatch() : e.value()).collect(java.util.stream.Collectors.joining());
+        if (ACTUATOR.matches(pc)) {
             return Optional.of(new RiskAssessment(RiskAssessment.ADMIN, "actuator.write",
-                    "Actuator write " + method + " " + path, Map.of("method", method, "path", path)));
+                    "Actuator write " + method + " " + shown, Map.of("method", method, "path", shown)));
         }
-        if (path.equals("/api/ops/purge")) {
+        if (PURGE.matches(pc)) {
             Map<String, Object> b = parse(body);
             Object days = b.getOrDefault("older_than_days", 90);
             return Optional.of(new RiskAssessment(RiskAssessment.ADMIN, "ops.purge",
                     "Delete http/ai/app logs older than " + days + " days",
                     Map.of("older_than_days", days)));
         }
-        if (method.equals("PUT") && path.equals("/api/ops/prices")) return Optional.of(prices(parse(body)));
-        Matcher m = RECEIPT_CONFIRM.matcher(path);
-        if (method.equals("POST") && m.matches()) return receiptConfirm(Long.parseLong(m.group(1)), parse(body));
-        if (method.equals("DELETE") && path.startsWith("/api/")) {
-            return Optional.of(new RiskAssessment(RiskAssessment.IMPACTFUL, "delete", "Delete " + path,
-                    Map.of("path", path)));
+        if (method.equals("PUT") && PRICES.matches(pc)) return Optional.of(prices(parse(body)));
+        PathPattern.PathMatchInfo m = RECEIPT_CONFIRM.matchAndExtract(pc);
+        if (method.equals("POST") && m != null) return receiptConfirm(id(m.getUriVariables().get("id")), parse(body));
+        if (method.equals("DELETE") && API.matches(pc)) {
+            return Optional.of(new RiskAssessment(RiskAssessment.IMPACTFUL, "delete", "Delete " + shown,
+                    Map.of("path", shown)));
         }
         return Optional.empty();
+    }
+
+    static long id(String v) {
+        if (v == null || !ID.matcher(v).matches()) throw new InvalidPathId(v);
+        return Long.parseLong(v);
     }
 
     private RiskAssessment prices(Map<String, Object> b) {

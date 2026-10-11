@@ -130,7 +130,8 @@ public class OpsController {
         return ResponseEntity.ok(logIngestService.listSessions(limit, includeContent));
     }
 
-    @PreAuthorize("hasAuthority('SCOPE_ops:admin')")
+    // tier 3: ops:admin AND the owner's fresh-passkey session (no API key, see Tier3Access)
+    @PreAuthorize("hasAuthority('SCOPE_ops:admin') and @tier3.freshOwner(authentication)")
     @PostMapping("/purge")
     public ResponseEntity<?> purge(@RequestBody Map<String, Object> body) {
         int days = 90;

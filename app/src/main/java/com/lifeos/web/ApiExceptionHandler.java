@@ -33,6 +33,13 @@ public class ApiExceptionHandler {
                 .body(Map.of("error", "bad_request", "message", String.valueOf(ex.getMessage()), "details", Map.of()));
     }
 
+    /** e.g. an id that does not fit a long: 400, not a 500 from the error page. */
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<?> typeMismatch(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("error", "bad_request", "message", "invalid value for '" + ex.getName() + "'", "details", Map.of()));
+    }
+
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<?> notFound(NotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)

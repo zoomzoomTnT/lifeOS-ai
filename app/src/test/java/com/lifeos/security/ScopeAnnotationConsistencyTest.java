@@ -40,8 +40,13 @@ class ScopeAnnotationConsistencyTest extends AuthHttpTestBase {
                         assertThat(pre).as(method + " " + pattern + " is public").isNull();
                     } else {
                         assertThat(pre).as(method + " " + pattern + " needs @PreAuthorize").isNotNull();
-                        assertThat(pre.value()).as(method + " " + pattern)
-                                .isEqualTo("hasAuthority('SCOPE_" + rule.get().scope() + "')");
+                        String scopeCheck = "hasAuthority('SCOPE_" + rule.get().scope() + "')";
+                        if (pattern.equals("/api/ops/purge")) { // tier 3: scope AND fresh owner passkey
+                            assertThat(pre.value()).as(method + " " + pattern)
+                                    .isEqualTo(scopeCheck + " and @tier3.freshOwner(authentication)");
+                        } else {
+                            assertThat(pre.value()).as(method + " " + pattern).isEqualTo(scopeCheck);
+                        }
                     }
                     checked++;
                 }

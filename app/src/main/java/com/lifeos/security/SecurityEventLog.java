@@ -22,7 +22,7 @@ public class SecurityEventLog {
     private static final Logger log = LoggerFactory.getLogger(SecurityEventLog.class);
     /** Types an outsider can trigger at will. */
     static final Set<String> THROTTLED = Set.of("auth_failed", "scope_denied", "approval_rejected",
-            "identity_header_ignored");
+            "identity_header_ignored", "non_canonical_path", "auth_missing");
     static final int PER_TYPE_PER_MINUTE = 30;
 
     private final JdbcTemplate jdbc;
