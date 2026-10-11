@@ -1,5 +1,8 @@
 package com.lifeos.ops;
 
+import com.lifeos.security.AuditContext;
+import com.lifeos.security.CurrentActor;
+import com.lifeos.security.LifePrincipal;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,6 +56,7 @@ public class HttpAccessFilter extends OncePerRequestFilter {
         long t0 = System.currentTimeMillis();
         String error = null;
         try {
+            req.setAttribute(AuditContext.REQUEST_ID_ATTR, corr);
             filterChain.doFilter(req, res);
         } catch (Exception e) {
             error = e.getClass().getSimpleName() + ": " + e.getMessage();
@@ -62,9 +66,12 @@ public class HttpAccessFilter extends OncePerRequestFilter {
             try {
                 String excerpt = excerpt(req);
                 Integer reqBytes = req.getContentLength() >= 0 ? req.getContentLength() : req.getContentAsByteArray().length;
+                LifePrincipal actor = CurrentActor.get().orElse(null);
                 opsService.recordHttp(
                         corr,
-                        req.getHeader("X-Life-Handle"),
+                        actor == null ? null : actor.personId(),
+                        actor == null ? null : actor.clientId(),
+                        actor == null ? null : actor.credentialId(),
                         req.getMethod(),
                         req.getRequestURI(),
                         req.getQueryString(),

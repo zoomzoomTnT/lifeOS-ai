@@ -7,5 +7,5 @@ public interface PersonRepository {
 
     Optional<String> findOwnerHandle();
 
-    long insertMember(String handle, String displayName);
+    Optional<Long> findOwnerId();
 }

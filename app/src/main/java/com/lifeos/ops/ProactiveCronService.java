@@ -53,7 +53,7 @@ public class ProactiveCronService {
         if (!enabled && !force) {
             return Map.of("ok", true, "wake", false, "skipped", "LIFE_OPENCLAW_WAKE=false");
         }
-        Map<String, Object> gate = wakeService.shouldWake("owner", leadMinutes);
+        Map<String, Object> gate = wakeService.shouldWake(people.findOwnerId().orElse(1L), leadMinutes);
         boolean wake = Boolean.TRUE.equals(gate.get("wake"));
         if (!wake) {
             log.debug("proactive tick: nothing due");

@@ -10,6 +10,9 @@ public interface FridgeRepository {
 
     List<FridgeItem> list(long ownerId, FridgeStatus status, Integer expiringWithinHours);
 
+    /** owner_id of the item, empty if it does not exist. */
+    java.util.Optional<Long> ownerOf(long id);
+
     void updateStatus(long id, FridgeStatus status);
 
     void bumpExpiryOneDay(long id);

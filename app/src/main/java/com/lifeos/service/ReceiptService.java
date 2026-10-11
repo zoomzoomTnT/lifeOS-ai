@@ -14,9 +14,9 @@ import java.util.List;
 public interface ReceiptService {
     ReceiptLookupResponse lookup(ReceiptLookupRequest request);
 
-    ReceiptPreviewResponse preview(ReceiptPreviewRequest request, String handle);
+    ReceiptPreviewResponse preview(ReceiptPreviewRequest request, long personId);
 
-    ReceiptConfirmResponse confirm(long id, ReceiptConfirmRequest request, String handle);
+    ReceiptConfirmResponse confirm(long id, ReceiptConfirmRequest request, long personId);
 
     List<ReceiptResponse> list(ReceiptStatus status, int limit);
 }

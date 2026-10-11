@@ -1,5 +1,6 @@
 package com.lifeos.repo.batch;
 
+import com.lifeos.security.AuditContext;
 import com.lifeos.domain.DbEnum;
 import com.lifeos.domain.FridgeItem;
 import com.lifeos.domain.FridgeLocation;
@@ -61,10 +62,12 @@ public class ReceiptBatchWriter {
                     fp, it.getName(), it.getNameNorm(), it.getQty(), it.getUnit(), it.getAmountCents(),
                     it.isFood() ? 1 : 0, db(it.getCategory()), order++, now));
         }
+        AuditContext a = AuditContext.current();
         steps.add(SqlStep.of("""
-                INSERT INTO events (domain, action, actor_id, entity_table, entity_id, payload_json)
-                VALUES ('finance','preview',?,'receipts',(SELECT id FROM receipts WHERE fingerprint = ?),NULL)""",
-                actorId, fp));
+                INSERT INTO events (domain, action, actor_id, entity_table, entity_id, payload_json,
+                  client_id, credential_id, request_id, approval_id)
+                VALUES ('finance','preview',?,'receipts',(SELECT id FROM receipts WHERE fingerprint = ?),NULL,?,?,?,?)""",
+                actorId, fp, a.clientId(), a.credentialId(), a.requestId(), a.approvalId()));
 
         List<List<Map<String, Object>>> out = batch.execute(steps);
         Map<String, Object> row = single(out.get(1), "receipt insert");
@@ -91,9 +94,12 @@ public class ReceiptBatchWriter {
                     f.getExpiresAt(), f.getPreference(), f.getSourceReceiptId(), f.getSourceReceiptItemId(),
                     f.getNotes(), now, now));
         }
+        AuditContext a = AuditContext.current();
         steps.add(SqlStep.of("""
-                INSERT INTO events (domain, action, actor_id, entity_table, entity_id, payload_json)
-                VALUES ('finance','confirm',?,'receipts',?,NULL)""", actorId, receiptId));
+                INSERT INTO events (domain, action, actor_id, entity_table, entity_id, payload_json,
+                  client_id, credential_id, request_id, approval_id)
+                VALUES ('finance','confirm',?,'receipts',?,NULL,?,?,?,?)""", actorId, receiptId,
+                a.clientId(), a.credentialId(), a.requestId(), a.approvalId()));
 
         List<List<Map<String, Object>>> out = batch.execute(steps);
         List<Long> ids = new ArrayList<>(fridgeItems.size());
