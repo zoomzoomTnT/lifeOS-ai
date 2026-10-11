@@ -36,7 +36,14 @@ Authorization Server) and phase 4 (MCP endpoint) slot in without changing anythi
 403  {"error":"owner_only"}                          tier 3 with any API key
 403  {"error":"passkey_reauth_required", "login_url":…}   owner session older than 5 minutes for tier 3
 429  {"error":"rate_limited"}
+400  {"error":"non_canonical_path"}   path with %xx, '+', '//', '.', '..', ';' or a trailing '/' (send the plain path)
+400  {"error":"bad_request"}          id in the path is not a plain number (or too big)
+500  {"error":"internal_error"}       no internals in the body; the server log has it under the X-Request-Id
 ```
+
+Every request, refused ones included, gets an `http_requests` row (`correlation_id` = `X-Request-Id`).
+`security_events` rows carry the same id in `request_id`; unauthenticated noise (`auth_missing`,
+`auth_failed`, `scope_denied`, `non_canonical_path`, ...) is capped at 30 rows per type per minute.
 
 ## API keys
 
@@ -128,7 +135,9 @@ opt-in via `LIFE_ACTUATOR_ENDPOINTS`. Writes are off.
   region, so no ICP filing.
 * Alibaba Cloud security group: allow inbound TCP 80 and 443 from 0.0.0.0/0. Keep 8787 closed.
   Leave SSH 22 as it is.
-* Tomcat trusts `X-Forwarded-For/Proto` from the internal proxy only, so audit rows get the real client IP.
+* Tomcat trusts `X-Forwarded-For/Proto` only from private Docker-network addresses other than a gateway
+  (`x.x.x.1`) or loopback, i.e. from Caddy, so audit rows get the real client IP and a host-local caller
+  can't fake one. Override with `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` (regex).
 
 ## Settings
 

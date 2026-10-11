@@ -41,7 +41,7 @@ curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H 'Content-Type: application/json' 
 **HTTP** (`http_requests`) — `OncePerRequestFilter`
 
 - method, path, query, status, latency_ms, byte sizes, truncated JSON excerpt
-- `X-Life-Handle` → `actor_id`
+- the API key's person → `actor_id`, plus `client_id` / `credential_id` (also for refused requests: 400/401/403/429 are logged too)
 - `X-Request-Id` (generated if missing), echoed on the response
 - **Not logged:** `GET /actuator*`, `GET /swagger-ui*`, `GET /v3/api-docs*`, `GET /api/ops/*`, `GET /ops*`
 - Never stores image bytes. Redacts `password` / `token` / `authorization` / `secret` keys
@@ -51,7 +51,7 @@ curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H 'Content-Type: application/json' 
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/ops/ai" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -H "X-Request-Id: $CORR" \
   -d '{
     "source":"skill",

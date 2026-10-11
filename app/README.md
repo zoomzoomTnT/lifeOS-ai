@@ -31,10 +31,9 @@ Swagger UI: http://localhost:8787/swagger-ui.html
 - `POST /api/receipts/{id}/confirm` — confirm + optional fridge intake
 - `GET  /api/memos/due?within_hours=36`
 - `POST /api/fridge`
-- `POST /api/backup` (todo)
 
 ## Notes
 
 - Schema auto-applied on first start if `people` table missing.
-- Auth is currently just `X-Life-Handle` header (OpenClaw peer id).
+- Auth: `Authorization: Bearer lok_...` API keys, owner passkeys, approvals for risky calls (see `docs/auth.md`). `X-Life-Handle` is ignored.
 - This is a skeleton: expiry memo auto-creation, food_knowledge defaults, stock events still thin.
