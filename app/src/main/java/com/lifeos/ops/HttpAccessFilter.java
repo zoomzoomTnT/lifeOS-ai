@@ -1,5 +1,7 @@
 package com.lifeos.ops;
 
+import com.lifeos.security.PrincipalAttributeFilter;
+
 import com.lifeos.security.AuditContext;
 import com.lifeos.security.CurrentActor;
 import com.lifeos.security.LifePrincipal;
@@ -18,7 +20,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
+/**
+ * One http_requests row per request, including the ones Spring Security refuses (401/403/429/400):
+ * runs before the security filter chain. The caller comes from {@link PrincipalAttributeFilter}'s
+ * request attribute (the security context is already cleared when the chain returns).
+ */
 @Component
+@org.springframework.core.annotation.Order(org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties.DEFAULT_FILTER_ORDER - 10)
 @RequiredArgsConstructor
 @Slf4j
 public class HttpAccessFilter extends OncePerRequestFilter {
@@ -66,7 +74,8 @@ public class HttpAccessFilter extends OncePerRequestFilter {
             try {
                 String excerpt = excerpt(req);
                 Integer reqBytes = req.getContentLength() >= 0 ? req.getContentLength() : req.getContentAsByteArray().length;
-                LifePrincipal actor = CurrentActor.get().orElse(null);
+                LifePrincipal actor = CurrentActor.get().orElseGet(() ->
+                        req.getAttribute(PrincipalAttributeFilter.ATTR) instanceof LifePrincipal p ? p : null);
                 opsService.recordHttp(
                         corr,
                         actor == null ? null : actor.personId(),

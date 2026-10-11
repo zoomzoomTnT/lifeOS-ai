@@ -3,8 +3,7 @@ package com.lifeos.config;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -15,11 +14,14 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Fresh DB: apply schema.sql. Existing DB: apply additive migrations (IF NOT EXISTS).
+ * Runs once all singletons exist and before the web server's connector starts accepting requests
+ * (it used to be an ApplicationRunner, i.e. after the port was open, so the first requests after a
+ * deploy could hit a table that did not exist yet).
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class SchemaInitializer implements ApplicationRunner {
+public class SchemaInitializer implements SmartInitializingSingleton {
 
     private final JdbcTemplate jdbc;
     private final ResourceLoader resourceLoader;
@@ -31,7 +33,18 @@ public class SchemaInitializer implements ApplicationRunner {
     private String datasourceUrl;
 
     @Override
-    public void run(ApplicationArguments args) throws Exception {
+    public void afterSingletonsInstantiated() {
+        try {
+            apply();
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("schema init failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** Apply schema.sql / migrations now (also the entry point for tests and tools). */
+    public void apply() throws Exception {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='people'",
                 Integer.class);

@@ -23,6 +23,7 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint, Au
 
     @Override
     public void commence(HttpServletRequest req, HttpServletResponse res, AuthenticationException e) throws IOException {
+        events.record(SecurityEventLog.Event.of("auth_missing").request(req).outcome("no credential")); // throttled
         res.setHeader("WWW-Authenticate", ApiErrors.challenge(null, null, null));
         ApiErrors.write(res, 401, ApiErrors.body("unauthorized",
                 "Authorization: Bearer <lifeOS API key> required (see docs/auth.md)"));

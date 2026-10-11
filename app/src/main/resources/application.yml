@@ -4,6 +4,13 @@ server:
   # Behind Caddy: trust X-Forwarded-For/Proto from internal proxies only (Tomcat RemoteIpValve), so
   # audit rows get the real client IP and links/cookies know the request was HTTPS.
   forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      # Who may set X-Forwarded-For/Proto: private (Docker network) addresses, i.e. Caddy, but NOT a
+      # network's gateway x.x.x.1 (where host-local callers through the published 127.0.0.1:8787 port
+      # appear) and not loopback. Tomcat's default trusts both, so anything on the host could fake the
+      # client IP in audit rows. Override: SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES (regex).
+      internal-proxies: '10\.\d+\.\d+\.(?!1$)\d+|192\.168\.\d+\.(?!1$)\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.(?!1$)\d+'
   servlet:
     session:
       timeout: 30m

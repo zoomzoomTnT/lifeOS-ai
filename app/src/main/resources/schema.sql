@@ -475,6 +475,7 @@ CREATE TABLE IF NOT EXISTS security_events (
   method        TEXT,
   path          TEXT,
   outcome       TEXT,
+  request_id    TEXT,                               -- = http_requests.correlation_id = events.request_id
   detail_json   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_security_events_at   ON security_events(at);

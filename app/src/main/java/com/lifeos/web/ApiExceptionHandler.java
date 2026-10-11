@@ -14,6 +14,8 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<?> validation(MethodArgumentNotValidException ex) {
         Map<String, Object> details = new LinkedHashMap<>();
@@ -38,6 +40,30 @@ public class ApiExceptionHandler {
     public ResponseEntity<?> typeMismatch(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("error", "bad_request", "message", "invalid value for '" + ex.getName() + "'", "details", Map.of()));
+    }
+
+    /**
+     * Everything else: the API's JSON shape instead of Boot's error page, and no exception message to
+     * the caller (it can carry SQL or internals); the log has it, keyed by X-Request-Id.
+     * Security exceptions are rethrown so Spring Security still answers 401/403.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<?> other(Exception ex, jakarta.servlet.http.HttpServletRequest req) throws Exception {
+        if (ex instanceof org.springframework.security.access.AccessDeniedException
+                || ex instanceof org.springframework.security.core.AuthenticationException) {
+            throw ex;
+        }
+        if (ex instanceof org.springframework.web.ErrorResponse er) { // 404 no route, 405, 415, ... (Spring MVC's own)
+            int status = er.getStatusCode().value();
+            String error = status == 404 ? "not_found" : status == 405 ? "method_not_allowed" : "bad_request";
+            return ResponseEntity.status(status)
+                    .body(Map.of("error", error, "message", String.valueOf(er.getBody().getDetail()), "details", Map.of()));
+        }
+        Object rid = req.getAttribute(com.lifeos.security.AuditContext.REQUEST_ID_ATTR);
+        log.error("unhandled {} {} (request {})", req.getMethod(), req.getRequestURI(), rid, ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "internal_error", "message", "unexpected server error (request "
+                        + (rid == null ? "?" : rid) + ")", "details", Map.of()));
     }
 
     @ExceptionHandler(NotFoundException.class)

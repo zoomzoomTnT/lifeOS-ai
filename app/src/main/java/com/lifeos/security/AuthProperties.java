@@ -23,6 +23,13 @@ public record AuthProperties(String pepper, boolean localOpen, int writesPerMinu
         if (writesPerMinute < 0) writesPerMinute = 0;
     }
 
+    /** Never print the pepper (the record default would, e.g. in a bind-failure message or a debug log). */
+    @Override
+    public String toString() {
+        return "AuthProperties[pepper=" + (pepper == null || pepper.isEmpty() ? "(unset)" : "***") + ", localOpen=" + localOpen
+                + ", writesPerMinute=" + writesPerMinute + ", domain=" + domain + ", publicUrl=" + publicUrl + "]";
+    }
+
     public boolean hasDomain() {
         return domain != null && !domain.isBlank();
     }

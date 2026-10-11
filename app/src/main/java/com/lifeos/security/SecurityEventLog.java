@@ -38,7 +38,7 @@ public class SecurityEventLog {
 
     public static final class Event {
         final String type;
-        String clientId, credentialId, ip, method, path, outcome;
+        String clientId, credentialId, ip, method, path, outcome, requestId;
         Long personId;
         Map<String, ?> detail;
 
@@ -61,6 +61,9 @@ public class SecurityEventLog {
                 ip = r.getRemoteAddr();
                 method = r.getMethod();
                 path = r.getRequestURI();
+                Object rid = r.getAttribute(AuditContext.REQUEST_ID_ATTR);
+                requestId = rid instanceof String s ? s : r.getHeader("X-Request-Id");
+                if (requestId != null && requestId.length() > 100) requestId = requestId.substring(0, 100);
             }
             return this;
         }
@@ -79,9 +82,9 @@ public class SecurityEventLog {
         if (THROTTLED.contains(e.type) && !allow(e.type)) return;
         try {
             jdbc.update("""
-                    INSERT INTO security_events (type, client_id, credential_id, person_id, ip, method, path, outcome, detail_json)
-                    VALUES (?,?,?,?,?,?,?,?,?)""", e.type, e.clientId, e.credentialId, e.personId, e.ip, e.method,
-                    e.path == null ? null : e.path.substring(0, Math.min(500, e.path.length())), e.outcome,
+                    INSERT INTO security_events (type, client_id, credential_id, person_id, ip, method, path, outcome, request_id, detail_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)""", e.type, e.clientId, e.credentialId, e.personId, e.ip, e.method,
+                    e.path == null ? null : e.path.substring(0, Math.min(500, e.path.length())), e.outcome, e.requestId,
                     e.detail == null ? null : json.writeValueAsString(e.detail));
         } catch (Exception ex) {
             log.warn("security event {} not recorded: {}", e.type, ex.getMessage());

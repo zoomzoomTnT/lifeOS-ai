@@ -110,6 +110,7 @@ public class SecurityConfig {
                 .addFilterBefore(apiKeyFilter, AnonymousAuthenticationFilter.class)
                 // same slot, kept in insertion order: API key → owner session → (local dev)
                 .addFilterBefore(new OwnerSessionBridgeFilter(store::ownerPersonId), AnonymousAuthenticationFilter.class)
+                .addFilterAfter(new PrincipalAttributeFilter(), AnonymousAuthenticationFilter.class)
                 .addFilterAfter(new WriteRateLimitFilter(props.writesPerMinute(), authClock), AuthorizationFilter.class)
                 .addFilterAfter(new IdentityHeaderFilter(events), WriteRateLimitFilter.class)
                 // human-in-the-loop, after scopes: tier 2 → approval_required, tier 3 → owner passkey only
@@ -136,8 +137,10 @@ public class SecurityConfig {
                 .httpBasic(b -> b.disable())
                 .formLogin(f -> f.disable())
                 .authorizeHttpRequests(a -> a
+                        // the error page only as an error dispatch, never as a URL of its own
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**",
-                                "/favicon.ico", "/error").permitAll()
+                                "/favicon.ico").permitAll()
                         .anyRequest().denyAll());
         return http.build();
     }

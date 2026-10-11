@@ -25,7 +25,7 @@ class SchemaInitializerSqliteTest {
     private static void runInit(JdbcTemplate jdbc) throws Exception {
         SchemaInitializer init = new SchemaInitializer(jdbc, new DefaultResourceLoader());
         ReflectionTestUtils.setField(init, "schemaPath", "classpath:schema.sql");
-        init.run(null);
+        init.apply();
     }
 
     private static int count(JdbcTemplate jdbc, String sql) {
@@ -169,7 +169,7 @@ class SchemaInitializerSqliteTest {
         JdbcTemplate jdbc = sqlite();
         SchemaInitializer init = new SchemaInitializer(jdbc, new DefaultResourceLoader());
         ReflectionTestUtils.setField(init, "schemaPath", script.toUri().toString());
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> init.run(null))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> init.apply())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("INSERT INTO no_such_table")
                 .hasMessageContaining("no such table");
