@@ -16,7 +16,7 @@ metadata:
 
 | Item | Value |
 |---|---|
-| API base | `$LIFE_API_BASE` or `http://localhost:8787` |
+| API base | `$LIFE_API_BASE` or `http://localhost:8787`, **no trailing slash** (`//api/...` is refused with 400) |
 | DB (owned by app) | `$LIFE_DB` or `~/.openclaw/workspace/data/life.db` |
 | Schema | `schema/schema.sql` (applied by app on first start) |
 | Owner timezone | `Asia/Tokyo` |

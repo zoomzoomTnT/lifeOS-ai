@@ -28,7 +28,8 @@ Default daily budget: **$5** (`settings.ai_daily_budget_usd_micros = 5000000`). 
 Seeded prices are **estimates**. Set the real card:
 
 ```bash
-curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H 'Content-Type: application/json' -d '{
+# owner (signed in on /ops) or an agent key; an agent gets 403 approval_required first (tier 2)
+curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H "Authorization: Bearer $LIFE_API_KEY" -H 'Content-Type: application/json' -d '{
   "provider":"xai","model":"grok-4",
   "input_usd_micros_per_mtok":3000000,
   "output_usd_micros_per_mtok":15000000,
@@ -107,10 +108,10 @@ A `message` object has `role` (`user` | `assistant` | `toolResult`) and `content
 `GET /api/ops/logs/sessions` returns metadata + token columns by default. `include_content=true` adds `content` and sanitized `raw_json` (still no image bytes).
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/ops/logs/ingest"
-curl -s "$LIFE_API_BASE/api/ops/logs/app"
-curl -s "$LIFE_API_BASE/api/ops/logs/sessions"                  # no content
-curl -s "$LIFE_API_BASE/api/ops/logs/sessions?include_content=true"  # private
+curl -s -X POST "$LIFE_API_BASE/api/ops/logs/ingest" -H "Authorization: Bearer $LIFE_API_KEY"
+curl -s "$LIFE_API_BASE/api/ops/logs/app" -H "Authorization: Bearer $LIFE_API_KEY"
+curl -s "$LIFE_API_BASE/api/ops/logs/sessions" -H "Authorization: Bearer $LIFE_API_KEY"                  # no content
+curl -s "$LIFE_API_BASE/api/ops/logs/sessions?include_content=true" -H "Authorization: Bearer $LIFE_API_KEY"  # private
 ```
 
 `/ops` dashboard shows **counts only**, never transcript text.

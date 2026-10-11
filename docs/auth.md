@@ -89,7 +89,12 @@ the owner link could register its own passkey.
   form that sends tokens: tokens come only from the CLI on the server.
 * An OTT-only session can't see `/ops`, `/admin`, approvals or the API. That needs the passkey
   factor (Spring Security 7 `FactorGrantedAuthority`).
-* Sessions: cookie `LIFEOS_SESSION`, HttpOnly, SameSite=Strict, Secure (HTTPS), 30 minutes; CSRF on.
+* Sessions: cookie `__Host-LIFEOS_SESSION` (HttpOnly, SameSite=Strict, Secure, `Path=/`, no `Domain`), 30
+  minutes; CSRF on. The `__Host-` prefix makes the browser bind it to exactly `LIFE_DOMAIN`, so on a shared
+  parent such as `sslip.io` (not on the public-suffix list) no `<other-ip>.sslip.io` site can set or
+  replace it. The `local` profile uses plain `LIFEOS_SESSION` over http://localhost.
+* Passkeys: RP ID = `LIFE_DOMAIN`, allowed origin = `https://LIFE_DOMAIN` (plus the origin of
+  `LIFE_PUBLIC_URL` if that is different). A passkey only works for the RP ID it was registered on.
 * Approvals and tier-3 actions need a passkey assertion from the last 5 minutes
   (`life.auth.passkey-max-age`). Otherwise the page asks you to confirm with the passkey again.
 * Passkey add/remove, owner logins and their failures go to `security_events`.
@@ -144,11 +149,12 @@ opt-in via `LIFE_ACTUATOR_ENDPOINTS`. Writes are off.
 | Env | Default | |
 |---|---|---|
 | `LIFE_KEY_PEPPER` | (none) | **required** outside `local`, ≥ 32 chars, otherwise the app refuses to start. GitHub secret `LIFE_KEY_PEPPER` |
-| `LIFE_DOMAIN` | empty | HTTPS host, passkey RP ID, Caddy on/off. Repo variable `LIFE_DOMAIN` |
-| `LIFE_PUBLIC_URL` | `https://$LIFE_DOMAIN` | base for login/approval links |
+| `LIFE_DOMAIN` | empty | bare HTTPS host (no `https://`, port, path or `/`; checked at startup): passkey RP ID and origin, Caddy on/off. Repo variable `LIFE_DOMAIN` |
+| `LIFE_PUBLIC_URL` | `https://$LIFE_DOMAIN` | base for login/approval links; trailing `/` is stripped |
+| `LIFE_ACME_EMAIL` | empty | optional ACME account email for Caddy (expiry mails; enables the ZeroSSL fallback CA). Repo variable `LIFE_ACME_EMAIL` |
 | `LIFE_AUTH_WRITES_PER_MINUTE` | 60 | per non-owner client |
 | `LIFE_ACTUATOR_ENDPOINTS` | `health,info,metrics,db` | |
-| `LIFE_COOKIE_SECURE` | true | `false` only for plain http://localhost |
+| `LIFE_COOKIE_SECURE` | false | `local` profile only (plain http://localhost; cookie `LIFEOS_SESSION`). Production always uses `__Host-LIFEOS_SESSION`, Secure |
 | `life.auth.local-open` | false | `local` profile only (`LIFE_AUTH_LOCAL_OPEN`, default true in `docker-compose.local.yml` / `application-local.yml`): requests without a key act as the owner. `docker-compose.yml` always sets false; true in any other profile refuses to start |
 
 ## Cutover
@@ -157,8 +163,19 @@ What zoomzoom does, in order. Nothing here is done by CD or by an agent.
 
 1. **Pepper:** `openssl rand -base64 48` → GitHub secret `LIFE_KEY_PEPPER` (Settings → Secrets → Actions,
    environment `production` or repo). CD fails early with a clear `::error::` if it's missing.
-2. **DNS (optional but needed for passkeys/approvals):** A record `life.<your-domain>` → ECS public IP.
-   Repo variable `LIFE_DOMAIN=life.<your-domain>`.
+2. **Domain (needed for passkeys/approvals):** either your own A record `life.<your-domain>` → ECS
+   public IP, or, without a domain, **sslip.io**: `<ip-with-dashes>.sslip.io` (e.g. `203-0-113-5.sslip.io`
+   for 203.0.113.5) resolves to that IP with no setup, and Caddy gets a real Let's Encrypt certificate
+   for it. Repo variable `LIFE_DOMAIN=<that host>` (bare host, no `https://`, no trailing `/`); optional
+   repo variable `LIFE_ACME_EMAIL=<you@…>` so certificate mail reaches you and Caddy can fall back to
+   ZeroSSL if Let's Encrypt's shared per-domain limit for sslip.io is hit.
+   **sslip.io caveats:** the server IP must be **static** (Alibaba EIP / fixed public IP). A new IP is a
+   new host name, i.e. a new passkey RP ID: every registered passkey stops working (re-register via
+   `lifeos-admin owner-login`), and approval links and the base URL change. HSTS is host-only (no
+   `includeSubDomains`), so it never affects other sslip.io names. Moving to your own domain later is
+   the same: new `LIFE_DOMAIN`, register passkeys again.
+   Base URLs (`LIFE_PUBLIC_URL`, the agents' `LIFE_API_BASE`) have **no trailing slash**:
+   `$LIFE_API_BASE/api/...` with one becomes `//api/...`, which the API refuses (400).
 3. **Security group:** inbound TCP 80, 443 from 0.0.0.0/0. Make sure 8787 is **not** open.
 4. **Merge** the PR into `release/0.1.0` → CD deploys. It checks that anonymous `/api` and
    `/actuator/info` answer 401, and `https://$LIFE_DOMAIN/actuator/health` if set.
@@ -193,8 +210,11 @@ gh workflow run cd.yml --ref release/0.1.0 -f skip_build=true -f image_tag=sha-e
 ```
 
 That run uses this branch's `cd.yml` and compose file with the old image, and the old image has **no
-API authentication**. CD detects it (no `lifeos.auth=1` image label) and then: does not start Caddy
-(stops and removes it if running), forces `LIFE_API_BIND=127.0.0.1`, and skips the 401 checks. So the
+API authentication**. CD detects it (no `lifeos.auth=1` image label) and, **only for a manual run that
+names `image_tag`**, then: does not start Caddy (stops and removes it if running), forces
+`LIFE_API_BIND=127.0.0.1`, and skips the 401 checks. Anything else fails the deploy instead of
+degrading: an image CD cannot inspect (pull failed), an unlabeled image on a push deploy, or a running
+container whose label differs from the image that was checked. So the
 rolled-back API is reachable only from the server itself (SSH tunnel), never via `https://$LIFE_DOMAIN`.
 If you roll back by hand instead (`docker compose up` on the server), do the same yourself:
 `docker compose --profile proxy rm -sf caddy`, keep `LIFE_API_BIND` unset or `127.0.0.1`, and clear

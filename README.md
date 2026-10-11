@@ -214,7 +214,7 @@ skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `Authorization
 docker compose up -d --build
 docker compose --profile sync run --rm skill-sync
 curl -fsS http://localhost:8787/actuator/health
-curl -fsS http://localhost:8787/api/ops/should-wake
+curl -fsS http://localhost:8787/api/ops/should-wake -H "Authorization: Bearer $LIFE_API_KEY"   # key: lifeos-admin bootstrap / mint-key
 ```
 
 - API: http://localhost:8787/actuator/health
@@ -248,9 +248,9 @@ Java 每 2 分钟扫描 `OPENCLAW_HOME`：
 `source` + `occurred_at` 区分来源。`/ops` 只显示条数，不显示对话。
 
 ```bash
-curl -s -X POST http://localhost:8787/api/ops/logs/ingest
-curl -s http://localhost:8787/api/ops/logs/sessions                  # 无正文
-curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true'  # 隐私
+curl -s -X POST http://localhost:8787/api/ops/logs/ingest -H "Authorization: Bearer $LIFE_API_KEY"
+curl -s http://localhost:8787/api/ops/logs/sessions -H "Authorization: Bearer $LIFE_API_KEY"                  # 无正文
+curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true' -H "Authorization: Bearer $LIFE_API_KEY"  # 隐私
 ```
 
 ### 6. 自检清单
