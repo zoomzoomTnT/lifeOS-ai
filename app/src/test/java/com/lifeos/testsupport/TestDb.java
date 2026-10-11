@@ -29,7 +29,8 @@ public final class TestDb {
                             st.execute(sql);
                         } catch (java.sql.SQLException e) {
                             // additive migrations may repeat columns already in schema.sql
-                            if (!String.valueOf(e.getMessage()).contains("duplicate column")) throw e;
+                            // (and guarded renames: the same tolerance as SchemaInitializer)
+                            if (com.lifeos.config.SchemaInitializer.expectedFailure(sql, e) == null) throw e;
                         }
                     }
                 }

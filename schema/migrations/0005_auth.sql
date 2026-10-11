@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS api_clients (
 CREATE TABLE IF NOT EXISTS api_keys (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   key_id        TEXT    NOT NULL UNIQUE,            -- public lookup part (12 base32 chars)
-  client_id     INTEGER NOT NULL REFERENCES api_clients(id),
+  api_client_id INTEGER NOT NULL REFERENCES api_clients(id),   -- api_clients.id (not the client_id slug)
   secret_hash   TEXT    NOT NULL,                   -- hex HMAC-SHA256; never the secret
   scopes        TEXT    NOT NULL,                   -- subset of the client's max_scopes
   expires_at    TEXT,                               -- NULL = no expiry
@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
   revoked_at    TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(client_id);
+-- Dev/test DBs that ran the first 0005 (c73473f) have api_keys.client_id: rename it. On any other
+-- DB this fails with "no such column" (tolerated for RENAME COLUMN only); the index follows the rename.
+ALTER TABLE api_keys RENAME COLUMN client_id TO api_client_id;
+CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(api_client_id);
 
 -- Append-only security audit: auth failures, key create/revoke/new IP, scope denials,
 -- approvals, passkey + one-time-token events. Not touched by /api/ops/purge.
@@ -54,6 +57,8 @@ CREATE TABLE IF NOT EXISTS security_events (
   request_id    TEXT,                               -- = http_requests.correlation_id = events.request_id
   detail_json   TEXT
 );
+-- request_id came after the first 0005 (c73473f): add it there (duplicate column elsewhere, tolerated).
+ALTER TABLE security_events ADD COLUMN request_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_security_events_at   ON security_events(at);
 CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(type, at);
 

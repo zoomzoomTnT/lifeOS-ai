@@ -451,7 +451,7 @@ CREATE TABLE IF NOT EXISTS api_clients (
 CREATE TABLE IF NOT EXISTS api_keys (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   key_id        TEXT    NOT NULL UNIQUE,            -- public lookup part (12 base32 chars)
-  client_id     INTEGER NOT NULL REFERENCES api_clients(id),
+  api_client_id INTEGER NOT NULL REFERENCES api_clients(id),   -- api_clients.id (not the client_id slug)
   secret_hash   TEXT    NOT NULL,                   -- hex HMAC-SHA256; never the secret
   scopes        TEXT    NOT NULL,                   -- subset of the client's max_scopes
   expires_at    TEXT,                               -- NULL = no expiry
@@ -460,7 +460,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
   revoked_at    TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(client_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(api_client_id);
 
 -- Append-only security audit: auth failures, key create/revoke/new IP, scope denials,
 -- approvals, passkey + one-time-token events. Not touched by /api/ops/purge.

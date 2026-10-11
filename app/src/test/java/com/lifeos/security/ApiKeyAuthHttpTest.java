@@ -108,7 +108,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
         String key = chatKey();
         String keyId = ApiKeyFormat.parse(key).keyId();
         jdbc.update("UPDATE api_keys SET scopes = scopes || ' ops:admin' WHERE key_id=?", keyId);
-        jdbc.update("UPDATE api_clients SET max_scopes = max_scopes || ' ops:admin' WHERE id=(SELECT client_id FROM api_keys WHERE key_id=?)", keyId);
+        jdbc.update("UPDATE api_clients SET max_scopes = max_scopes || ' ops:admin' WHERE id=(SELECT api_client_id FROM api_keys WHERE key_id=?)", keyId);
         try {
             assertThat(get("/actuator/metrics", key).statusCode()).isEqualTo(403);
         } catch (Exception e) {
@@ -149,7 +149,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
     @Test
     void disabledClientIs401() throws Exception {
         String key = chatKey();
-        jdbc.update("UPDATE api_clients SET disabled_at='2026-01-01T00:00:00Z' WHERE id=(SELECT client_id FROM api_keys WHERE key_id=?)",
+        jdbc.update("UPDATE api_clients SET disabled_at='2026-01-01T00:00:00Z' WHERE id=(SELECT api_client_id FROM api_keys WHERE key_id=?)",
                 ApiKeyFormat.parse(key).keyId());
         assertThat(get("/api/memos/due", key).statusCode()).isEqualTo(401);
     }

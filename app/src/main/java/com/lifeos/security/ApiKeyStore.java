@@ -32,7 +32,7 @@ public class ApiKeyStore {
         List<KeyRecord> rows = jdbc.query("""
                 SELECT k.id, k.key_id, k.secret_hash, k.scopes, k.expires_at, k.revoked_at, k.last_used_at,
                        k.last_used_ip, c.client_id, c.kind, c.person_id, c.max_scopes, c.disabled_at
-                  FROM api_keys k JOIN api_clients c ON c.id = k.client_id
+                  FROM api_keys k JOIN api_clients c ON c.id = k.api_client_id
                  WHERE k.key_id = ?""", (rs, i) -> new KeyRecord(rs.getLong(1), rs.getString(2), rs.getString(3),
                 rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8),
                 rs.getString(9), rs.getString(10), rs.getLong(11), rs.getString(12), rs.getString(13)), keyId);
@@ -60,7 +60,7 @@ public class ApiKeyStore {
 
     public void insertKey(String keyId, long clientRowId, String secretHash, String scopes, String expiresAt) {
         jdbc.update("""
-                INSERT INTO api_keys (key_id, client_id, secret_hash, scopes, expires_at)
+                INSERT INTO api_keys (key_id, api_client_id, secret_hash, scopes, expires_at)
                 VALUES (?,?,?,?,?)""", keyId, clientRowId, secretHash, scopes, expiresAt);
     }
 
@@ -68,7 +68,7 @@ public class ApiKeyStore {
     public List<String> activeKeyIds(long clientRowId, String now) {
         return jdbc.queryForList("""
                 SELECT key_id FROM api_keys
-                 WHERE client_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+                 WHERE api_client_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
                  ORDER BY created_at, id""", String.class, clientRowId, now);
     }
 
@@ -80,7 +80,7 @@ public class ApiKeyStore {
         return jdbc.queryForList("""
                 SELECT c.client_id, c.kind, k.key_id, k.scopes, k.created_at, k.expires_at, k.last_used_at,
                        k.last_used_ip, k.revoked_at
-                  FROM api_keys k JOIN api_clients c ON c.id = k.client_id
+                  FROM api_keys k JOIN api_clients c ON c.id = k.api_client_id
                  ORDER BY c.client_id, k.created_at, k.id""");
     }
 

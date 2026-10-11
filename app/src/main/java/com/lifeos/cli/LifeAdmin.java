@@ -147,7 +147,7 @@ public final class LifeAdmin {
                 new Spec(ROUTINE_CLIENT, "Grok Bot (routine wake check)", Scopes.GROKBOT_ROUTINE))) {
             ApiKeyStore.ClientRecord c = keys.ensureClient(s.id(), s.name(), ClientKind.AGENT, s.scopes());
             long active = jdbc.queryForObject("""
-                    SELECT COUNT(*) FROM api_keys WHERE client_id = ? AND revoked_at IS NULL
+                    SELECT COUNT(*) FROM api_keys WHERE api_client_id = ? AND revoked_at IS NULL
                       AND (expires_at IS NULL OR expires_at > ?)""", Long.class, c.id(), now());
             if (active > 0) {
                 err.println(s.id() + ": already has " + active + " active key(s); not minting (use: mint-key " + s.id() + " --rotate)");
