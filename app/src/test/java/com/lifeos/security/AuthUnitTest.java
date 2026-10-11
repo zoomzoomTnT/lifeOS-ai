@@ -113,4 +113,23 @@ class AuthUnitTest {
             if (!r.isPublic()) assertThat(Scopes.ALL).as(r.pattern()).contains(r.scope());
         }
     }
+
+    @Test
+    void requestFingerprintBindsMethodPathQueryClientAndCanonicalBody() {
+        String h = com.lifeos.security.approval.RequestFingerprint.of("POST", "/api/x", "b=2&a=1", "c1",
+                "{\"b\":{\"y\":1,\"x\":[1,2]},\"a\":true}".getBytes());
+        assertThat(h).hasSize(64);
+        assertThat(com.lifeos.security.approval.RequestFingerprint.of("POST", "/api/x", "a=1&b=2", "c1",
+                " { \"a\" : true, \"b\" : { \"x\" : [1,2], \"y\" : 1 } } ".getBytes())).isEqualTo(h);
+        assertThat(com.lifeos.security.approval.RequestFingerprint.of("POST", "/api/x", "a=1&b=2", "c2",
+                "{\"a\":true,\"b\":{\"x\":[1,2],\"y\":1}}".getBytes())).isNotEqualTo(h);
+        assertThat(com.lifeos.security.approval.RequestFingerprint.of("POST", "/api/x", "a=1&b=2", "c1",
+                "{\"a\":true,\"b\":{\"x\":[2,1],\"y\":1}}".getBytes())).isNotEqualTo(h);
+        assertThat(com.lifeos.security.approval.RequestFingerprint.of("PUT", "/api/x", "a=1&b=2", "c1",
+                "{\"a\":true,\"b\":{\"x\":[1,2],\"y\":1}}".getBytes())).isNotEqualTo(h);
+        assertThat(com.lifeos.security.approval.RequestFingerprint.of("POST", "/api/y", "a=1&b=2", "c1",
+                "{\"a\":true,\"b\":{\"x\":[1,2],\"y\":1}}".getBytes())).isNotEqualTo(h);
+        assertThat(com.lifeos.security.approval.RequestFingerprint.canonicalBody("not json".getBytes())).startsWith("raw:");
+        assertThat(com.lifeos.security.approval.RequestFingerprint.canonicalBody(new byte[0])).isEmpty();
+    }
 }

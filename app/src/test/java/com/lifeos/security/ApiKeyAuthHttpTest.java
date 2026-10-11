@@ -284,7 +284,10 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
 
     @Test
     void unknownNonApiPathsAreDenied() throws Exception {
-        assertThat(get("/admin/secret", null).statusCode()).isIn(401, 403, 404);
+        // owner pages: off to the passkey login, never served (an API key doesn't count there)
+        HttpResponse<String> admin = get("/admin/secret", chatKey());
+        assertThat(admin.statusCode()).isEqualTo(302);
+        assertThat(admin.headers().firstValue("Location").orElse("")).endsWith("/login");
         assertThat(get("/random", null).statusCode()).isIn(401, 403);
     }
 

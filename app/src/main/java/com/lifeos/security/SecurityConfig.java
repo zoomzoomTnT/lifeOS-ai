@@ -18,6 +18,10 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 
+import com.lifeos.security.approval.ApprovalGateFilter;
+import com.lifeos.security.approval.ApprovalService;
+import com.lifeos.security.approval.RiskPolicy;
+
 import java.time.Clock;
 import java.util.Set;
 
@@ -63,9 +67,17 @@ public class SecurityConfig {
     }
 
     @Bean
+    ApprovalService approvalService(JdbcTemplate jdbc, SecurityEventLog events, Clock authClock) {
+        return new ApprovalService(jdbc, events, authClock);
+    }
+
+    @Bean
     @Order(1)
     SecurityFilterChain apiChain(HttpSecurity http, SecurityEventLog events, KeyHasher hasher,
-                                 AuthProperties props, ApiKeyStore store, Clock authClock) throws Exception {
+                                 AuthProperties props, ApiKeyStore store, Clock authClock,
+                                 RiskPolicy riskPolicy, ApprovalService approvals,
+                                 @org.springframework.beans.factory.annotation.Value("${life.auth.passkey-max-age:PT5M}")
+                                 java.time.Duration passkeyMaxAge) throws Exception {
         // Not a bean: an AuthenticationProvider bean would become the global AuthenticationManager and
         // leak into the owner chain. Phase 3 adds a JwtAuthenticationProvider next to it here.
         ApiKeyAuthenticationProvider provider = new ApiKeyAuthenticationProvider(store, hasher, events, authClock);
@@ -96,6 +108,9 @@ public class SecurityConfig {
                 .addFilterBefore(new OwnerSessionBridgeFilter(store::ownerPersonId), AnonymousAuthenticationFilter.class)
                 .addFilterAfter(new WriteRateLimitFilter(props.writesPerMinute(), authClock), AuthorizationFilter.class)
                 .addFilterAfter(new IdentityHeaderFilter(events), WriteRateLimitFilter.class)
+                // human-in-the-loop, after scopes: tier 2 → approval_required, tier 3 → owner passkey only
+                .addFilterAfter(new ApprovalGateFilter(riskPolicy, approvals, events, props, authClock, passkeyMaxAge),
+                        IdentityHeaderFilter.class)
                 .authorizeHttpRequests(a -> {
                     for (ScopeRules.Rule r : ScopeRules.RULES) {
                         if (r.isPublic()) a.requestMatchers(r.matcher()).permitAll();

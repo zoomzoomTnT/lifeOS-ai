@@ -167,4 +167,29 @@ abstract class AbstractAuthStoresTest {
         assertThat(ott.consume(new org.springframework.security.authentication.ott.OneTimeTokenAuthenticationToken(old))).isNull();
         assertThat(count("SELECT COUNT(*) FROM one_time_tokens WHERE token_value IN (?,?)", cli, old)).isZero();
     }
+
+    @Autowired
+    com.lifeos.security.approval.ApprovalService approvals;
+
+    /** approval_requests through the production driver: request → approve → consume once. */
+    @Test
+    void approvalLifecycle() {
+        var p = new LifePrincipal(1, "ap-" + uniq(), "kid", ClientKind.AGENT, java.util.Set.of());
+        var risk = new com.lifeos.security.approval.RiskAssessment(2, "receipt.confirm", "Confirm receipt #1",
+                java.util.Map.of("total", "60,000.00 JPY"));
+        var a = approvals.request(p, risk, "POST", "/api/receipts/1/confirm", "h1");
+        assertThat(a.status()).isEqualTo("pending");
+        assertThat(a.publicId()).startsWith("apr_").hasSize(36);
+        assertThat(a.expiresAt()).isEqualTo(a.createdAt().plus(com.lifeos.security.approval.ApprovalService.TTL));
+        assertThat(approvals.request(p, risk, "POST", "/api/receipts/1/confirm", "h1").id()).isEqualTo(a.id());
+        assertThat(approvals.consume(a.publicId(), p, "h1").rejection())
+                .isEqualTo(com.lifeos.security.approval.ApprovalService.Rejection.PENDING);
+        assertThat(approvals.decide(a.publicId(), true, 1).orElseThrow().status()).isEqualTo("approved");
+        assertThat(approvals.consume(a.publicId(), p, "h2").rejection())
+                .isEqualTo(com.lifeos.security.approval.ApprovalService.Rejection.REQUEST_MISMATCH);
+        assertThat(approvals.consume(a.publicId(), p, "h1").ok()).isTrue();
+        assertThat(approvals.consume(a.publicId(), p, "h1").rejection())
+                .isEqualTo(com.lifeos.security.approval.ApprovalService.Rejection.ALREADY_USED);
+        assertThat(approvals.view(a.publicId()).orElseThrow().summary()).containsEntry("total", "60,000.00 JPY");
+    }
 }

@@ -56,6 +56,7 @@ life:
     writes-per-minute: ${LIFE_AUTH_WRITES_PER_MINUTE:60}
     domain: ${LIFE_DOMAIN:}                 # public HTTPS host = passkey RP ID
     public-url: ${LIFE_PUBLIC_URL:}         # default https://${LIFE_DOMAIN}
+    passkey-max-age: PT5M                   # approvals + tier-3 actions need a passkey this recent
   schema-path: classpath:schema.sql   # or external path
   openclaw:
     enabled: ${LIFE_OPENCLAW_WAKE:true}   # cron wake only; ignored when OPENCLAW_ENABLED=false
