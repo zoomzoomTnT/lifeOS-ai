@@ -14,7 +14,8 @@ public final class TestDb {
     private TestDb() {}
 
     public static final String[] SCRIPTS = {"/schema.sql", "/migrations/0002_ops.sql",
-            "/migrations/0003_logs.sql", "/migrations/0004_session_v3.sql"};
+            "/migrations/0003_logs.sql", "/migrations/0004_session_v3.sql",
+            "/migrations/0005_auth.sql"};
 
     /** Schema + migrations only. */
     public static Path createPlain() throws Exception {
