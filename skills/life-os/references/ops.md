@@ -11,7 +11,7 @@ HTTP 访问由服务器过滤器自动写入 `http_requests`。
 CORR="${CORR:-$(uuidgen)}"
 curl -s -X POST "$LIFE_API_BASE/api/ops/ai" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -H "X-Request-Id: $CORR" \
   -d '{
     "source":"skill",

@@ -22,7 +22,7 @@ metadata:
 | Owner timezone | `Asia/Tokyo` |
 | Options timezone | `America/New_York` |
 | WeChat channel | `openclaw-weixin` |
-| Auth header | `X-Life-Handle: <people.handle>` |
+| Auth header | `Authorization: Bearer $LIFE_API_KEY` (a lifeOS API key, `lok_...`; see docs/auth.md). Risky calls answer `403 approval_required`: send the owner the `approve_url`, then repeat the same request with `Life-Approval: <approval_id>` |
 
 All mutations go through the REST API. Do not write SQLite from this skill.
 

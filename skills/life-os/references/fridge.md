@@ -13,14 +13,14 @@ Expiry pings go through `memos.md`.
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/fridge" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -d '{"name":"冰茶","category":"drink","location":"fridge","expires_in_days":3}'
 ```
 
 ## List expiring
 
 ```bash
-curl -s "$LIFE_API_BASE/api/fridge?expiring_within_hours=48" -H "X-Life-Handle: $HANDLE"
+curl -s "$LIFE_API_BASE/api/fridge?expiring_within_hours=48" -H "Authorization: Bearer $LIFE_API_KEY"
 ```
 
 ## Expiry-day resolve
@@ -28,7 +28,7 @@ curl -s "$LIFE_API_BASE/api/fridge?expiring_within_hours=48" -H "X-Life-Handle: 
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/fridge/$ID/resolve" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -d '{"action":"eaten","preference":4}'
 ```
 

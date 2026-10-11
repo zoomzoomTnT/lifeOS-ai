@@ -14,7 +14,7 @@
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/memos" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -d '{
     "title": "期权到期",
     "body": "...",
@@ -84,5 +84,5 @@ Do not re-fire within 6 hours (`last_fired_at`).
 ## Query due
 
 ```bash
-curl -s "$LIFE_API_BASE/api/memos/due?within_hours=36" -H "X-Life-Handle: $HANDLE"
+curl -s "$LIFE_API_BASE/api/memos/due?within_hours=36" -H "Authorization: Bearer $LIFE_API_KEY"
 ```
