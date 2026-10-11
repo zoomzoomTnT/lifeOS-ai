@@ -5,6 +5,8 @@
 
 WeChat / OpenClaw 生活台账：一份 SQLite、Spring Boot REST、一层 OpenClaw skill。
 
+> 数据库：**Turso (libSQL)**，必须设置 `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`（没有默认值）；本地调试用 `local` profile。见 [docs/turso.md](docs/turso.md)。
+
 Repo: [zoomzoomTnT/lifeOS-ai](https://github.com/zoomzoomTnT/lifeOS-ai)  
 Image: `ghcr.io/zoomzoomtnt/lifeos-ai:latest`
 
@@ -13,6 +15,23 @@ Image: `ghcr.io/zoomzoomtnt/lifeos-ai:latest`
 OpenClaw skill 只住在本仓库 `skills/life-os/`。不要从其它仓库装 life.py / life-os-skills。
 
 ---
+
+## OpenClaw 开关（`OPENCLAW_ENABLED`）
+
+一个变量控制整个项目里所有 OpenClaw 相关的东西，默认 `true`（和以前一样）。设成 `false` 时：
+
+- App 不创建 OpenClaw webhook 客户端，不跑主动提醒 cron，不读 OpenClaw 会话日志；
+  `/api/ops/webhook/ping`、`/api/ops/proactive/run`、`/api/ops/logs/ingest` 返回 404 `openclaw_disabled`。
+  其余 REST API、Turso 数据库、`/api/ops/should-wake` 照常工作（Grok Bot 直接调 API）。
+- 部署：CD 跳过 hook token、OpenClaw 配置、skill 同步和 `openclaw skills list`；不需要任何 `OPENCLAW_*` 变量。
+- `/actuator/health` 的 `life` 里会显示 `"openclaw": "disabled"`。
+
+怎么切换：
+
+- **本地**：`.env` 里写 `OPENCLAW_ENABLED=false`（或 `OPENCLAW_ENABLED=false mvn spring-boot:run`）。
+- **服务器 / CD**：GitHub 仓库 → Settings → Secrets and variables → Actions → **Variables** →
+  新建 `OPENCLAW_ENABLED` = `false`，然后重新跑一次 CD（推 release 分支或手动 Run workflow）。
+  不设这个变量就是 `true`。CD 会把值写进服务器的 `~/lifeos/.env`。
 
 ## 安装（换机器按这份来）
 

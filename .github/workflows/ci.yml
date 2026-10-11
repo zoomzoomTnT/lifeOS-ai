@@ -43,6 +43,15 @@ jobs:
   build:
     name: Maven test & package
     runs-on: ubuntu-latest
+    services:
+      # Real libSQL server: LibSqlRealServerTest + RealSqldAppTest run the driver and the whole
+      # app (transactions, foreign keys, schema init on an empty DB) against it.
+      sqld:
+        image: ghcr.io/tursodatabase/libsql-server:v0.24.32
+        ports:
+          - 8080:8080
+    env:
+      LIBSQL_TEST_URL: jdbc:libsql:http://localhost:8080
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +60,14 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      - name: Wait for sqld
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8080/health >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "sqld did not become healthy" >&2; exit 1
 
       - name: Test and package
         working-directory: app
@@ -74,11 +91,14 @@ jobs:
       packages: write
     env:
       IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
+      OPENCLAW_HOME: /home/runner/.openclaw
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate compose file
-        run: docker compose -f docker-compose.yml config --quiet
+        run: |
+          mkdir -p "$OPENCLAW_HOME"
+          docker compose -f docker-compose.yml config --quiet
 
       - uses: docker/setup-buildx-action@v3
 
@@ -109,12 +129,15 @@ jobs:
           set -euo pipefail
           export LIFE_IMAGE=lifeos-ai:ci
           export LIFE_OPENCLAW_WAKE=false
-          mkdir -p data
-          mkdir -p "$HOME/.openclaw/agents/main/sessions"
+          export OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
+          # No Turso token in CI: run against a throwaway SQLite file via the local overlay.
+          export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+          mkdir -p local
+          mkdir -p "$OPENCLAW_HOME/agents/main/sessions"
           printf '%s\n' \
             '{"type":"session","timestamp":"2026-08-26T00:00:00Z","id":"ci-sess"}' \
             '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
-            > "$HOME/.openclaw/agents/main/sessions/ci.jsonl"
+            > "$OPENCLAW_HOME/agents/main/sessions/ci.jsonl"
           docker compose up -d --wait --wait-timeout 90
           curl -fsS http://localhost:8787/actuator/health | grep -q '"status":"UP"'
           curl -fsS http://localhost:8787/actuator/health | grep -q '"life"'
@@ -150,8 +173,34 @@ jobs:
           echo "$META" | grep -q 'openclaw_session'
           echo "$META" | grep -qv '秘密对话'
           docker compose --profile sync run --rm skill-sync
-          grep -q 'name: life-os' "$HOME/.openclaw/workspace/skills/life-os/SKILL.md"
-          test -f "$HOME/.openclaw/workspace/HEARTBEAT.md"
+          grep -q 'name: life-os' "$OPENCLAW_HOME/workspace/skills/life-os/SKILL.md"
+          test -f "$OPENCLAW_HOME/workspace/HEARTBEAT.md"
+          docker compose down
+
+      - name: Compose smoke test (OPENCLAW_ENABLED=false, no OPENCLAW_* vars)
+        run: |
+          set -euo pipefail
+          unset OPENCLAW_HOME
+          export LIFE_IMAGE=lifeos-ai:ci
+          export OPENCLAW_ENABLED=false
+          export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+          mkdir -p local
+          docker compose up -d --wait --wait-timeout 90
+          H=$(curl -fsS http://localhost:8787/actuator/health)
+          echo "$H"
+          echo "$H" | grep -q '"status":"UP"'
+          echo "$H" | grep -q '"openclaw":"disabled"'
+          for p in /api/ops/webhook/ping /api/ops/proactive/run /api/ops/logs/ingest; do
+            code=$(curl -s -o /tmp/oc.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "http://localhost:8787$p")
+            cat /tmp/oc.json; echo
+            test "$code" = "404"
+            grep -q openclaw_disabled /tmp/oc.json
+          done
+          curl -fsS -X POST http://localhost:8787/api/memos -H 'Content-Type: application/json' \
+            -d '{"title":"ci no openclaw","kind":"reminder"}' | grep -q '"id"'
+          curl -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10' | grep -qi 'wake'
+          docker compose --profile sync run --rm skill-sync 2>&1 | grep -q 'skipping skill sync'
+          docker compose logs api | grep -qi 'OpenClaw webhook' && { echo "unexpected OpenClaw call"; exit 1; } || true
           docker compose down
 
       - name: Login to GHCR

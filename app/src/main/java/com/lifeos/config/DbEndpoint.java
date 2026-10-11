@@ -1,5 +1,6 @@
 package com.lifeos.config;
 
+import com.lifeos.db.libsql.LibSqlUrl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
@@ -10,7 +11,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** GET /actuator/db — SQLite path + timezone (replaces /api/path). */
+/** GET /actuator/db — datasource URL (no credentials), SQLite path if local, timezone. */
 @Component
 @Endpoint(id = "db")
 @RequiredArgsConstructor
@@ -27,7 +28,7 @@ public class DbEndpoint {
     @ReadOperation
     public Map<String, Object> db() {
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("jdbcUrl", jdbcUrl);
+        out.put("jdbcUrl", displayUrl(jdbcUrl));
         out.put("file", fileFrom(jdbcUrl));
         out.put("ownerTimezone", ownerTimezone);
         try {
@@ -39,9 +40,22 @@ public class DbEndpoint {
         return out;
     }
 
+    /** The datasource URL without credentials (a libSQL URL may carry ?authToken=...). */
+    static String displayUrl(String url) {
+        if (LibSqlUrl.accepts(url)) {
+            try {
+                return LibSqlUrl.parse(url).display();
+            } catch (IllegalArgumentException e) {
+                return "(invalid libSQL URL)";
+            }
+        }
+        return url;
+    }
+
+    /** Local SQLite file path, or "" when the datasource is remote (Turso / libSQL). */
     static String fileFrom(String url) {
         if (url == null) return "";
         String prefix = "jdbc:sqlite:";
-        return url.startsWith(prefix) ? url.substring(prefix.length()) : url;
+        return url.startsWith(prefix) ? url.substring(prefix.length()) : "";
     }
 }

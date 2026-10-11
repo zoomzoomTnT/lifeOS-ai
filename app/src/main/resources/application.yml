@@ -9,26 +9,41 @@ spring:
     property-naming-strategy: SNAKE_CASE
   jpa:
     open-in-view: false
-    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    database-platform: com.lifeos.config.TursoSQLiteDialect
     hibernate:
       ddl-auto: none
     properties:
-      hibernate.dialect: org.hibernate.community.dialect.SQLiteDialect
+      hibernate.dialect: com.lifeos.config.TursoSQLiteDialect
     show-sql: false
+  # Turso (hosted libSQL) over HTTPS. There is deliberately NO default URL: production must set
+  # TURSO_DATABASE_URL (e.g. jdbc:libsql:https://<db>-<org>.turso.io) and TURSO_AUTH_TOKEN explicitly
+  # (never commit the token). Without them startup fails with a clear message (DatabaseSettingsCheck).
+  # Local SQLite file: run with the `local` profile.
   datasource:
-    url: jdbc:sqlite:${LIFE_DB:${user.home}/.openclaw/workspace/data/life.db}
-    driver-class-name: org.sqlite.JDBC
+    url: ${TURSO_DATABASE_URL:}
+    password: ${TURSO_AUTH_TOKEN:}
+    driver-class-name: com.lifeos.db.libsql.LibSqlHttpDriver
     hikari:
       maximum-pool-size: 4
-      connection-init-sql: "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;"
+      # No connection-init-sql: a pooled connection is not one server-side connection (each
+      # transaction / auto-commit statement is its own Hrana stream). The driver sends
+      # PRAGMA foreign_keys=ON at the start of every stream instead.
+
+# OpenClaw master switch. OPENCLAW_ENABLED=false turns off every OpenClaw integration (webhook
+# client, proactive cron wake, webhook ping, OpenClaw log ingest). REST API + database keep working.
+lifeos:
+  openclaw:
+    enabled: ${OPENCLAW_ENABLED:true}
 
 life:
   owner-timezone: Asia/Tokyo
   schema-path: classpath:schema.sql   # or external path
   openclaw:
-    enabled: ${LIFE_OPENCLAW_WAKE:true}
+    enabled: ${LIFE_OPENCLAW_WAKE:true}   # cron wake only; ignored when OPENCLAW_ENABLED=false
     base-url: ${OPENCLAW_GATEWAY:http://localhost:18789}
     hook-token: ${OPENCLAW_HOOK_TOKEN:}
+    hooks-path: ${OPENCLAW_HOOKS_PATH:/hooks}
+    hook-name: ${OPENCLAW_HOOK_NAME:life-os}
     channel: ${LIFE_WEIXIN_CHANNEL:openclaw-weixin}
     model: ${LIFE_PROACTIVE_MODEL:}
     home: ${LIFE_OPENCLAW_HOME:}

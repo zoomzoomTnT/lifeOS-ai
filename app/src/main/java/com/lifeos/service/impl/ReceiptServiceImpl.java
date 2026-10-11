@@ -8,10 +8,8 @@ import com.lifeos.domain.ReceiptItem;
 import com.lifeos.domain.ReceiptStatus;
 import com.lifeos.mapper.FridgeMapper;
 import com.lifeos.mapper.ReceiptMapper;
-import com.lifeos.repo.EventRepository;
-import com.lifeos.repo.FridgeRepository;
-import com.lifeos.repo.MerchantRepository;
 import com.lifeos.repo.ReceiptRepository;
+import com.lifeos.repo.batch.ReceiptBatchWriter;
 import com.lifeos.service.PersonService;
 import com.lifeos.service.ReceiptService;
 import com.lifeos.web.dto.ReceiptConfirmRequest;
@@ -34,12 +32,10 @@ import java.util.Optional;
 public class ReceiptServiceImpl implements ReceiptService {
 
     private final ReceiptRepository receipts;
-    private final MerchantRepository merchants;
-    private final FridgeRepository fridge;
-    private final EventRepository events;
     private final PersonService people;
     private final ReceiptMapper receiptMapper;
     private final FridgeMapper fridgeMapper;
+    private final ReceiptBatchWriter batchWriter;
 
     @Override
     public ReceiptLookupResponse lookup(ReceiptLookupRequest request) {
@@ -57,31 +53,36 @@ public class ReceiptServiceImpl implements ReceiptService {
         }
 
         long payerId = people.resolveId(handle);
-        long merchantId = ensureMerchant(request.merchantName());
+        String merchantName = request.merchantName() == null || request.merchantName().isBlank()
+                ? "未知商户" : request.merchantName();
         List<ReceiptPreviewRequest.Line> items = request.items() == null ? List.of() : request.items();
         int computed = items.stream().mapToInt(i -> i.amountCents() == null ? 0 : i.amountCents()).sum();
         int total = request.totalCents() == null ? 0 : request.totalCents();
         boolean sumOk = Math.abs(computed - total) <= 2;
 
-        Receipt pending = receiptMapper.toPending(request, merchantId, payerId, fp, total, computed);
+        // merchant id is resolved inside the batch (by name_norm); 0 is a placeholder here.
+        Receipt pending = receiptMapper.toPending(request, 0L, payerId, fp, total, computed);
         Object raw = request.rawOcrJson();
-        long receiptId = receipts.insertPending(
-                pending, raw == null ? null : raw.toString(), request.imagePath(),
-                request.taxCents() == null ? 0 : request.taxCents(),
-                request.discountCents() == null ? 0 : request.discountCents()
-        );
+        pending.setRawOcrJson(raw == null ? null : raw.toString());
+        pending.setImagePath(request.imagePath());
+        pending.setTaxCents(request.taxCents() == null ? 0 : request.taxCents());
+        pending.setDiscountCents(request.discountCents() == null ? 0 : request.discountCents());
 
-        int order = 0;
+        List<ReceiptItem> rows = new ArrayList<>();
         List<ReceiptPreviewResponse.FoodHint> foodItems = new ArrayList<>();
         for (ReceiptPreviewRequest.Line line : items) {
-            ReceiptItem item = receiptMapper.toItem(line, receiptId);
-            receipts.insertItem(receiptId, item, order++);
+            ReceiptItem item = receiptMapper.toItem(line, 0L);
+            rows.add(item);
             if (item.isFood()) {
                 foodItems.add(receiptMapper.toFoodHint(item));
             }
         }
 
-        events.insert("finance", "preview", payerId, "receipts", receiptId, null);
+        // One atomic write: merchant + receipt + items + event (one request on Turso).
+        ReceiptBatchWriter.PreviewIds ids = batchWriter.writePreview(
+                merchantName, Names.norm(merchantName), pending, rows, payerId);
+        long receiptId = ids.receiptId();
+        long merchantId = ids.merchantId();
         return receiptMapper.toCreated(receiptId, fp, sumOk, computed, total, merchantId, foodItems);
     }
 
@@ -92,10 +93,11 @@ public class ReceiptServiceImpl implements ReceiptService {
         if (r.getStatus() != ReceiptStatus.PENDING_CONFIRM) {
             return receiptMapper.toNotPending(r);
         }
-        receipts.markConfirmed(id);
+        long actorId = people.resolveId(handle);
         boolean alsoFridge = request != null && Boolean.TRUE.equals(request.alsoFridge());
-        List<Long> fridgeIds = alsoFridge ? createFridgeFromReceipt(id, handle) : List.of();
-        events.insert("finance", "confirm", people.resolveId(handle), "receipts", id, null);
+        List<FridgeItem> toFridge = alsoFridge ? fridgeFromReceipt(id, actorId) : List.of();
+        // One atomic write: status + fridge rows + event (one request on Turso).
+        List<Long> fridgeIds = batchWriter.writeConfirm(id, toFridge, actorId);
         return receiptMapper.toConfirmed(id, fridgeIds);
     }
 
@@ -104,14 +106,12 @@ public class ReceiptServiceImpl implements ReceiptService {
         return receiptMapper.toResponseList(receipts.list(status, limit));
     }
 
-    private List<Long> createFridgeFromReceipt(long receiptId, String handle) {
-        long ownerId = people.resolveId(handle);
-        List<Long> ids = new ArrayList<>();
+    private List<FridgeItem> fridgeFromReceipt(long receiptId, long ownerId) {
+        List<FridgeItem> out = new ArrayList<>();
         for (ReceiptItem it : receipts.foodItems(receiptId)) {
-            FridgeItem item = fridgeMapper.fromReceiptItem(it, ownerId, receiptId);
-            ids.add(fridge.insertInStock(item, null));
+            out.add(fridgeMapper.fromReceiptItem(it, ownerId, receiptId));
         }
-        return ids;
+        return out;
     }
 
     private Optional<Receipt> findExisting(ReceiptLookupRequest request) {
@@ -129,13 +129,5 @@ public class ReceiptServiceImpl implements ReceiptService {
             return hit;
         }
         return receipts.findByFingerprint(Fingerprints.legacy(barcode, printedAt));
-    }
-
-    private long ensureMerchant(String name) {
-        if (name == null || name.isBlank()) name = "未知商户";
-        String norm = Names.norm(name);
-        String insertName = name;
-        return merchants.findIdByNameNorm(norm)
-                .orElseGet(() -> merchants.insert(insertName, norm));
     }
 }

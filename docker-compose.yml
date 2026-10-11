@@ -10,18 +10,26 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      LIFE_DB: /data/life.db
+      # Turso (libSQL). Values come from the shell (CD passes them) or .env. No default URL on
+      # purpose: if unset, the app refuses to start with a clear message instead of silently
+      # using some database. Local SQLite instead: add docker-compose.local.yml.
+      TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:-}
+      TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
       LIFE_API_PORT: "8787"
+      # OpenClaw master switch (false = REST API + DB only, no OpenClaw calls/ingest/cron wake)
+      OPENCLAW_ENABLED: ${OPENCLAW_ENABLED:-true}
       LIFE_OPENCLAW_WAKE: ${LIFE_OPENCLAW_WAKE:-true}
       OPENCLAW_GATEWAY: ${OPENCLAW_GATEWAY:-http://host.docker.internal:18789}
       OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN:-}
       LIFE_WEIXIN_CHANNEL: ${LIFE_WEIXIN_CHANNEL:-openclaw-weixin}
       LIFE_PROACTIVE_MODEL: ${LIFE_PROACTIVE_MODEL:-}
+      OPENCLAW_HOOKS_PATH: ${OPENCLAW_HOOKS_PATH:-/hooks}
+      OPENCLAW_HOOK_NAME: ${OPENCLAW_HOOK_NAME:-life-os}
       LIFE_OPENCLAW_HOME: /openclaw
       LIFE_OPENCLAW_FILE_LOG: ${LIFE_OPENCLAW_FILE_LOG:-}
     volumes:
-      - ${LIFE_DATA:-./data}:/data
-      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw:ro
+      # OPENCLAW_HOME may be unset when OpenClaw is off; an empty local dir is mounted instead.
+      - ${OPENCLAW_HOME:-./openclaw-disabled}:/openclaw:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8787/actuator/health"]
@@ -42,7 +50,8 @@ services:
     entrypoint: ["/app/sync-skill.sh"]
     environment:
       OPENCLAW_SYNC_ROOT: /openclaw
+      OPENCLAW_ENABLED: ${OPENCLAW_ENABLED:-true}
       LIFE_SKILL_SRC: /opt/life-os-skill
     volumes:
-      - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw
+      - ${OPENCLAW_HOME:-./openclaw-disabled}:/openclaw
     restart: "no"

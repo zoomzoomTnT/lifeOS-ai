@@ -1,10 +1,14 @@
 package com.lifeos.web;
 
+import com.lifeos.config.OpenClawSwitch;
 import com.lifeos.ops.LogIngestService;
+import com.lifeos.ops.OpenClawClient;
 import com.lifeos.ops.OpsService;
 import com.lifeos.ops.ProactiveCronService;
 import com.lifeos.ops.WakeService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,8 +28,11 @@ public class OpsController {
 
     private final OpsService opsService;
     private final WakeService wakeService;
-    private final ProactiveCronService proactiveCronService;
     private final LogIngestService logIngestService;
+    /** Absent when OPENCLAW_ENABLED=false. */
+    private final ObjectProvider<ProactiveCronService> proactiveCronService;
+    /** Absent when OPENCLAW_ENABLED=false. */
+    private final ObjectProvider<OpenClawClient> openClawClient;
 
     @PostMapping("/ai")
     public ResponseEntity<?> recordAi(@RequestBody Map<String, Object> body,
@@ -69,12 +76,32 @@ public class OpsController {
 
     @PostMapping("/proactive/run")
     public ResponseEntity<?> proactiveRun(@RequestBody(required = false) Map<String, Object> body) {
+        ProactiveCronService cron = proactiveCronService.getIfAvailable();
+        if (cron == null) return OpenClawSwitch.disabledResponse();
         boolean force = body != null && Boolean.TRUE.equals(body.get("force"));
-        return ResponseEntity.ok(proactiveCronService.run(force));
+        return ResponseEntity.ok(cron.run(force));
+    }
+
+    /** Always invoke the Gateway Life OS webhook and deliver to WeChat. */
+    @PostMapping("/webhook/ping")
+    public ResponseEntity<?> webhookPing(
+            @RequestBody(required = false) Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "x-openclaw-token", required = false) String openclawToken) {
+        OpenClawClient client = openClawClient.getIfAvailable();
+        ProactiveCronService cron = proactiveCronService.getIfAvailable();
+        if (client == null || cron == null) return OpenClawSwitch.disabledResponse();
+        if (!client.hookTokenMatches(authorization, openclawToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization: Bearer <OPENCLAW_HOOK_TOKEN> required"));
+        }
+        return ResponseEntity.ok(cron.ping(body));
     }
 
     @PostMapping("/logs/ingest")
     public ResponseEntity<?> ingestLogs() {
+        if (!logIngestService.enabled()) return OpenClawSwitch.disabledResponse();
         return ResponseEntity.ok(logIngestService.run());
     }
 

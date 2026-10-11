@@ -112,13 +112,13 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:${TAG}"
 
-      - name: Copy compose file
+      - name: Copy compose + OpenClaw scripts
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml
+          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -128,25 +128,75 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          script_stop: true
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
             IMAGE="${IMAGE:-ghcr.io/zoomzoomtnt/lifeos-ai}"
             TAG="${DEPLOY_TAG}"
+            export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+            # Empty secret -> fall back to TURSO_* in $DEPLOY_DIR/.env
+            [ -n "${TURSO_DATABASE_URL:-}" ] || unset TURSO_DATABASE_URL
+            [ -n "${TURSO_AUTH_TOKEN:-}" ] || unset TURSO_AUTH_TOKEN
 
-            command -v docker >/dev/null
-            docker compose version
+            # Preflight: fail loudly (a bare `command -v docker` under set -e exits 1 with no output).
+            echo "preflight: host=$(hostname) user=$(id -un) groups=$(id -Gn)"
+            if [ -r /etc/os-release ]; then ( . /etc/os-release; echo "preflight: os=${PRETTY_NAME:-unknown}" ); fi
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "::error::docker not found on server (PATH=$PATH). Install Docker Engine + Compose V2 plugin (see docs/cd.md#server-prerequisites)." >&2
+              exit 1
+            fi
+            echo "preflight: docker=$(command -v docker)"
+            if ! docker compose version; then
+              echo "::error::'docker compose' (Compose V2) not available on server. Install the docker-compose-plugin (see docs/cd.md#server-prerequisites)." >&2
+              exit 1
+            fi
+            if ! docker info >/dev/null 2>&1; then
+              echo "::error::docker daemon not reachable as $(id -un). Run: sudo systemctl enable --now docker && sudo usermod -aG docker $(id -un) (then reconnect)." >&2
+              exit 1
+            fi
+            command -v curl >/dev/null 2>&1 || { echo "::error::curl not found on server (needed for health check)." >&2; exit 1; }
 
-            mkdir -p "$DEPLOY_DIR/data/backups"
+            # Preflight: the app has no default database URL, so this deploy must get one
+            # (repo variable/secret, else $DEPLOY_DIR/.env). Fails before anything changes.
+            if [ -z "${TURSO_DATABASE_URL:-}" ] && ! grep -qE '^TURSO_DATABASE_URL=.+' "$DEPLOY_DIR/.env" 2>/dev/null; then
+              echo "::error::TURSO_DATABASE_URL is not set: set repo variable TURSO_DATABASE_URL or put it in $DEPLOY_DIR/.env. Nothing on the host was changed."
+              exit 1
+            fi
+
+            mkdir -p "$DEPLOY_DIR/data/backups" "$DEPLOY_DIR/openclaw-disabled"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
+            cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
+            cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
+            chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh"
             cd "$DEPLOY_DIR"
 
-            if [ ! -f .env ]; then
-              echo "missing $DEPLOY_DIR/.env — create it once on the server, CD will not write secrets" >&2
-              exit 1
+            # OpenClaw master switch: GitHub repo variable OPENCLAW_ENABLED (default true).
+            # Saved into .env so the container (and manual deploy.sh runs) see the same value.
+            OC="$(printf '%s' "${OPENCLAW_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')"
+            case "$OC" in false|0|no|off) OC=false ;; *) OC=true ;; esac
+            export OPENCLAW_ENABLED="$OC"
+            ( umask 077; touch .env )
+            if grep -q '^OPENCLAW_ENABLED=' .env; then
+              sed -i "s/^OPENCLAW_ENABLED=.*/OPENCLAW_ENABLED=$OC/" .env
+            else
+              echo "OPENCLAW_ENABLED=$OC" >> .env
+            fi
+            echo "OPENCLAW_ENABLED=$OC"
+
+            MINTED=0
+            if [ "$OC" = "true" ]; then
+              ENSURE_OUT="$(./ensure-hook-token.sh)"
+              echo "$ENSURE_OUT"
+              echo "$ENSURE_OUT" | grep -q '^MINTED=1$' && MINTED=1
+              eval "$(echo "$ENSURE_OUT" | grep -E '^(OPENCLAW_HOME|OPENCLAW_STATE_DIR|OPENCLAW_CONFIG_PATH)=')"
+              # .env OPENCLAW_HOME is the state dir for compose. CLI must not see it as Unix HOME.
+              export OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-$OPENCLAW_HOME}"
+              export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
+              unset OPENCLAW_HOME
+            else
+              echo "OpenClaw disabled: skipping hook token, OpenClaw config, skill sync"
             fi
 
             if [ -f data/life.db ]; then
@@ -161,18 +211,50 @@ jobs:
             fi
 
             export LIFE_IMAGE="${IMAGE}:${TAG}"
-            echo "LIFE_IMAGE=$LIFE_IMAGE"
-            docker compose -f compose.yaml pull api
-            docker compose -f compose.yaml up -d --no-build --remove-orphans --wait --wait-timeout 120
-            docker compose -f compose.yaml --profile sync run --rm skill-sync
+            echo "LIFE_IMAGE=$LIFE_IMAGE minted=$MINTED OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR:-}"
+            if [ "$OC" = "true" ]; then
+              echo "openclaw config file=$(openclaw config file)"
+              command -v openclaw >/dev/null
+              openclaw config validate
+            fi
 
-            curl -fsS http://127.0.0.1:8787/actuator/health | grep -q '"status":"UP"'
+            docker compose -f compose.yaml pull || true
+            if [ "$MINTED" = "1" ]; then
+              docker compose -f compose.yaml up -d --no-build --force-recreate
+            else
+              docker compose -f compose.yaml up -d --no-build
+            fi
+            if [ "$OC" = "true" ]; then
+              docker compose -f compose.yaml run --rm skill-sync
+            fi
+
+            ok=0
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8787/actuator/health 2>/dev/null | grep -q '"status":"UP"'; then
+                ok=1
+                break
+              fi
+              sleep 4
+            done
+            if [ "$ok" != "1" ]; then
+              echo "::error::lifeos-api did not become healthy within 120s"
+              docker compose -f compose.yaml ps || true
+              docker compose -f compose.yaml logs --no-color --tail=200 api || docker logs --tail=200 lifeos-api || true
+              exit 1
+            fi
             curl -fsS http://127.0.0.1:8787/actuator/info || true
-            docker compose -f compose.yaml ps
-            docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}'
-            command -v openclaw >/dev/null && openclaw skills list || true
+            docker compose -f compose.yaml ps || true
+            docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
+            if [ "$OC" = "true" ]; then
+              echo "waiting 60s for skills watcher after delete+recopy"
+              sleep 60
+              openclaw skills list
+            fi
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
           DEPLOY_TAG: ${{ steps.resolve.outputs.tag }}
+          TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL || secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}

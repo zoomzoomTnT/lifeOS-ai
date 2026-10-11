@@ -27,6 +27,9 @@ public class SchemaInitializer implements ApplicationRunner {
     @Value("${life.schema-path:classpath:schema.sql}")
     private String schemaPath;
 
+    @Value("${spring.datasource.url:}")
+    private String datasourceUrl;
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         Integer count = jdbc.queryForObject(
@@ -51,20 +54,55 @@ public class SchemaInitializer implements ApplicationRunner {
     private void execScript(String location) throws Exception {
         Resource resource = resourceLoader.getResource(location);
         String sql = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
-        for (String stmt : sql.split(";")) {
-            String s = stmt.trim();
-            if (s.isEmpty()) continue;
-            if (s.lines().allMatch(l -> {
-                String t = l.trim();
-                return t.isEmpty() || t.startsWith("--");
-            })) continue;
+        // Not sql.split(";"): that broke statements with ';' in a comment or string literal.
+        boolean libSql = ForeignKeyCheck.isLibSql(datasourceUrl);
+        for (String s : SqlScriptSplitter.split(sql)) {
+            if (libSql && isPragma(s)) {
+                // libSQL: the driver enables foreign_keys on every stream; journal_mode is the
+                // server's (sqld rejects it as an unsupported statement). Don't send script PRAGMAs.
+                log.debug("Not sent on libSQL (handled by driver/server): {}", abbreviate(s));
+                continue;
+            }
             try {
                 jdbc.execute(s);
             } catch (Exception e) {
-                log.warn("Statement failed (may be idempotent): {} → {}",
-                        s.substring(0, Math.min(80, s.length())).replace('\n', ' '),
-                        e.getMessage());
+                String expected = expectedFailure(s, e);
+                if (expected == null) {
+                    throw new IllegalStateException("Schema script " + location + " failed at: "
+                            + abbreviate(s) + " → " + e.getMessage(), e);
+                }
+                if (s.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA")) {
+                    log.info("Skipped (expected, {}): {}", expected, abbreviate(s));
+                } else {
+                    log.debug("Skipped (expected, {}): {}", expected, abbreviate(s)); // every start
+                }
             }
         }
+    }
+
+    /**
+     * The only tolerated failures: additive {@code ALTER TABLE ... ADD COLUMN} re-runs
+     * ("duplicate column name") and PRAGMA statements the server refuses (Turso's legacy HTTP
+     * endpoint rejects {@code PRAGMA foreign_keys = ON} / {@code journal_mode = WAL} from
+     * schema.sql). Returns why it is expected, or null.
+     */
+    static boolean isPragma(String stmt) {
+        return stmt.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA");
+    }
+
+    static String expectedFailure(String stmt, Exception e) {
+        String msg = String.valueOf(e.getMessage()).toLowerCase(java.util.Locale.ROOT);
+        Throwable c = e.getCause();
+        while (c != null) {
+            msg += " " + String.valueOf(c.getMessage()).toLowerCase(java.util.Locale.ROOT);
+            c = c.getCause();
+        }
+        if (msg.contains("duplicate column name")) return "column already exists";
+        if (stmt.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA")) return "PRAGMA not supported here";
+        return null;
+    }
+
+    private static String abbreviate(String s) {
+        return s.substring(0, Math.min(80, s.length())).replace('\n', ' ');
     }
 }
