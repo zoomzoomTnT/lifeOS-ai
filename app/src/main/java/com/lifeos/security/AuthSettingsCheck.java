@@ -26,6 +26,7 @@ public class AuthSettingsCheck {
 
     static void validate(String pepper, boolean localOpen, boolean localProfile, String domain) {
         String problem = problem(pepper, localOpen, localProfile);
+        if (problem == null) problem = AuthProperties.domainProblem(domain);
         if (problem != null) {
             log.error(problem);
             throw new IllegalStateException(problem);

@@ -79,7 +79,9 @@ public class SecurityConfig {
                                  AuthProperties props, ApiKeyStore store, Clock authClock,
                                  RiskPolicy riskPolicy, ApprovalService approvals,
                                  @org.springframework.beans.factory.annotation.Value("${life.auth.passkey-max-age:PT5M}")
-                                 java.time.Duration passkeyMaxAge) throws Exception {
+                                 java.time.Duration passkeyMaxAge,
+                                 @org.springframework.beans.factory.annotation.Qualifier("requestMappingHandlerMapping")
+                                 org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> mvcMappings) throws Exception {
         // Not a bean: an AuthenticationProvider bean would become the global AuthenticationManager and
         // leak into the owner chain. Phase 3 adds a JwtAuthenticationProvider next to it here.
         ApiKeyAuthenticationProvider provider = new ApiKeyAuthenticationProvider(store, hasher, events, authClock);
@@ -114,7 +116,8 @@ public class SecurityConfig {
                 .addFilterAfter(new WriteRateLimitFilter(props.writesPerMinute(), authClock), AuthorizationFilter.class)
                 .addFilterAfter(new IdentityHeaderFilter(events), WriteRateLimitFilter.class)
                 // human-in-the-loop, after scopes: tier 2 → approval_required, tier 3 → owner passkey only
-                .addFilterAfter(new ApprovalGateFilter(riskPolicy, approvals, events, props, authClock, passkeyMaxAge),
+                .addFilterAfter(new ApprovalGateFilter(riskPolicy, approvals, events, props, authClock, passkeyMaxAge,
+                        new com.lifeos.security.approval.RouteCheck(mvcMappings)),
                         IdentityHeaderFilter.class)
                 .authorizeHttpRequests(a -> {
                     for (ScopeRules.Rule r : ScopeRules.RULES) {

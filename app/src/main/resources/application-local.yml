@@ -16,6 +16,7 @@ server:
   servlet:
     session:
       cookie:
+        name: LIFEOS_SESSION                  # no __Host- prefix: that needs Secure, i.e. HTTPS
         secure: ${LIFE_COOKIE_SECURE:false}   # plain http://localhost
 
 life:

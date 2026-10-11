@@ -30,6 +30,24 @@ public record AuthProperties(String pepper, boolean localOpen, int writesPerMinu
                 + ", writesPerMinute=" + writesPerMinute + ", domain=" + domain + ", publicUrl=" + publicUrl + "]";
     }
 
+    /** LIFE_DOMAIN as a host name: trimmed, lower case, no trailing dot. */
+    public String host() {
+        if (!hasDomain()) return null;
+        String h = domain.trim().toLowerCase(java.util.Locale.ROOT);
+        return h.endsWith(".") ? h.substring(0, h.length() - 1) : h;
+    }
+
+    /** Null if LIFE_DOMAIN is empty or a bare host name, else what is wrong with it. */
+    public static String domainProblem(String domain) {
+        if (domain == null || domain.isBlank()) return null;
+        String h = domain.trim();
+        if (!h.matches("(?i)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\\.?")) {
+            return "LIFE_DOMAIN must be a bare host name like life.example.com or 203-0-113-5.sslip.io "
+                    + "(no https://, port, path or trailing slash), got '" + h + "'";
+        }
+        return null;
+    }
+
     public boolean hasDomain() {
         return domain != null && !domain.isBlank();
     }
@@ -37,7 +55,7 @@ public record AuthProperties(String pepper, boolean localOpen, int writesPerMinu
     /** Base URL for links we hand out (approval pages, one-time login). No trailing slash. */
     public String baseUrl() {
         if (publicUrl != null && !publicUrl.isBlank()) return publicUrl.replaceAll("/+$", "");
-        if (hasDomain()) return "https://" + domain.trim();
+        if (hasDomain()) return "https://" + host();
         return "http://localhost:8787";
     }
 }

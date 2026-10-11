@@ -73,14 +73,30 @@ public class OwnerWebConfig {
         return new JdbcOneTimeTokenService(jdbc);
     }
 
+    /** WebAuthn RP ID = LIFE_DOMAIN (bare host, e.g. 203-0-113-5.sslip.io); "localhost" without one. */
     static String rpId(AuthProperties props) {
-        return props.hasDomain() ? props.domain().trim() : "localhost";
+        return props.hasDomain() ? props.host() : "localhost";
     }
 
+    /**
+     * Allowed WebAuthn origins: https://LIFE_DOMAIN, plus the origin (scheme://host[:port], no path)
+     * of LIFE_PUBLIC_URL if that differs. Without a domain: the local URLs.
+     */
     static Set<String> origins(AuthProperties props) {
         Set<String> o = new LinkedHashSet<>();
-        o.add(props.baseUrl());
-        if (!props.hasDomain()) o.add("http://localhost:8787");
+        if (props.hasDomain()) o.add("https://" + props.host());
+        String pub = props.publicUrl();
+        if (pub != null && !pub.isBlank()) {
+            java.net.URI u = java.net.URI.create(pub.trim());
+            if (u.getScheme() != null && u.getHost() != null) {
+                o.add(u.getScheme().toLowerCase(java.util.Locale.ROOT) + "://" + u.getHost().toLowerCase(java.util.Locale.ROOT)
+                        + (u.getPort() == -1 ? "" : ":" + u.getPort()));
+            }
+        }
+        if (!props.hasDomain()) {
+            o.add(props.baseUrl());
+            o.add("http://localhost:8787");
+        }
         return o;
     }
 

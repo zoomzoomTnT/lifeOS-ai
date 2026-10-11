@@ -15,10 +15,14 @@ server:
     session:
       timeout: 30m
       cookie:
-        name: LIFEOS_SESSION
+        # __Host- prefix: the browser only accepts it with Secure, Path=/ and no Domain, so it is
+        # bound to exactly LIFE_DOMAIN. That matters on a shared parent like sslip.io (not a
+        # public suffix): no sibling <other-ip>.sslip.io site can set or overwrite it.
+        name: __Host-LIFEOS_SESSION
+        path: /
         http-only: true
         same-site: strict
-        secure: ${LIFE_COOKIE_SECURE:true}   # sessions only over HTTPS (Caddy)
+        secure: true                         # sessions only over HTTPS (Caddy); required by __Host-
 
 spring:
   application:

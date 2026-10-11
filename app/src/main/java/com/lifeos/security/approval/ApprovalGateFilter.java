@@ -39,10 +39,12 @@ public class ApprovalGateFilter extends OncePerRequestFilter {
     private final AuthProperties props;
     private final Clock clock;
     private final java.time.Duration passkeyMaxAge;
+    private final RouteCheck routes;
 
     public ApprovalGateFilter(RiskPolicy policy, ApprovalService approvals, SecurityEventLog events,
-                              AuthProperties props, Clock clock, java.time.Duration passkeyMaxAge) {
+                              AuthProperties props, Clock clock, java.time.Duration passkeyMaxAge, RouteCheck routes) {
         this.passkeyMaxAge = passkeyMaxAge;
+        this.routes = routes;
         this.policy = policy;
         this.approvals = approvals;
         this.events = events;
@@ -82,6 +84,18 @@ public class ApprovalGateFilter extends OncePerRequestFilter {
             return;
         }
         RiskAssessment r = risk.get();
+        // Only gate requests a handler would actually serve (no approval row for a nonexistent action).
+        if (r.tier() < RiskAssessment.ADMIN && routes != null) {
+            int st = routes.status(req);
+            if (st == 404) {
+                ApiErrors.write(res, 404, ApiErrors.body("not_found", "no such endpoint: " + req.getMethod() + " " + path));
+                return;
+            }
+            if (st == 405) {
+                ApiErrors.write(res, 405, ApiErrors.body("method_not_allowed", req.getMethod() + " is not supported on " + path));
+                return;
+            }
+        }
         if (r.tier() >= RiskAssessment.ADMIN) {
             if (p.kind() != ClientKind.OWNER_SESSION) {
                 events.record(SecurityEventLog.Event.of("owner_only_denied").principal(p).request(req).outcome(r.action()));

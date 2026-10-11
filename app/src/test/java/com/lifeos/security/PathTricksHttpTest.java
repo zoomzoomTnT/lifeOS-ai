@@ -183,4 +183,23 @@ class PathTricksHttpTest extends OwnerHttpTestBase {
         raw("POST", "/api/ops/%70urge", chatKey(), "{}");
         assertThat(count("SELECT COUNT(*) FROM security_events WHERE type = 'non_canonical_path'")).isPositive();
     }
+
+    /** DELETE etc. on routes no handler serves: 404/405 as without the gate, and no approval row. */
+    @Test
+    void unknownRoutesAreNotGatedAndCreateNoApproval() throws Exception {
+        String key = chatKey();
+        long before = count("SELECT COUNT(*) FROM approval_requests");
+        Raw none = raw("DELETE", "/api/fridge/1", key, null);
+        assertThat(none.status()).as(none.body()).isEqualTo(404);
+        assertThat(none.body()).contains("not_found").doesNotContain("approval");
+        Raw other = raw("DELETE", "/api/memos/1", key, null); // PATCH /api/memos/{id} exists
+        assertThat(other.status()).as(other.body()).isEqualTo(405);
+        Raw rec = raw("DELETE", "/api/receipts/1", key, null);
+        assertThat(rec.status()).as(rec.body()).isIn(403, 404, 405); // finance:write rule: still never approval_required
+        assertThat(rec.body()).doesNotContain("approval_required");
+        assertThat(count("SELECT COUNT(*) FROM approval_requests")).isEqualTo(before);
+        // real gated routes still gate
+        long id = bigReceipt(key);
+        assertThat(raw("POST", "/api/receipts/" + id + "/confirm", key, "{}").body()).contains("approval_required");
+    }
 }

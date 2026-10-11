@@ -20,6 +20,9 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
 
     static final JsonMapper JSON = JsonMapper.builder().build();
 
+    @org.springframework.beans.factory.annotation.Autowired
+    com.lifeos.security.approval.RiskPolicy riskPolicy;
+
     static JsonNode json(HttpResponse<String> r) {
         return JSON.readTree(r.body());
     }
@@ -165,9 +168,11 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
         assertThat(price.statusCode()).isEqualTo(403);
         assertThat(json(price).path("action").asString()).isEqualTo("ops.prices.update");
 
+        // DELETE stays tier 2 in the policy, but there is no DELETE handler yet: 404, no approval row
+        assertThat(riskPolicy.assess("DELETE", "/api/fridge/1", null)).get().extracting(a -> a.action()).isEqualTo("delete");
         HttpResponse<String> del = send("DELETE", "/api/fridge/1", key, null);
-        assertThat(json(del).path("error").asString()).isEqualTo("approval_required");
-        assertThat(json(del).path("action").asString()).isEqualTo("delete");
+        assertThat(del.statusCode()).isEqualTo(404);
+        assertThat(count("SELECT COUNT(*) FROM approval_requests WHERE method='DELETE'")).isZero();
     }
 
     @Test
