@@ -1,6 +1,9 @@
 server:
   address: 0.0.0.0
   port: ${LIFE_API_PORT:8787}
+  # Behind Caddy: trust X-Forwarded-For/Proto from internal proxies only (Tomcat RemoteIpValve), so
+  # audit rows get the real client IP and links/cookies know the request was HTTPS.
+  forward-headers-strategy: native
 
 spring:
   application:
@@ -37,6 +40,14 @@ lifeos:
 
 life:
   owner-timezone: Asia/Tokyo
+  auth:
+    # HMAC key for API key hashes. Required (>= 32 chars) outside `local`; the app refuses to start
+    # without it. Env only, never in the DB or the repo. Changing it invalidates every API key.
+    pepper: ${LIFE_KEY_PEPPER:}
+    local-open: false                       # only the `local` profile may turn this on
+    writes-per-minute: ${LIFE_AUTH_WRITES_PER_MINUTE:60}
+    domain: ${LIFE_DOMAIN:}                 # public HTTPS host = passkey RP ID
+    public-url: ${LIFE_PUBLIC_URL:}         # default https://${LIFE_DOMAIN}
   schema-path: classpath:schema.sql   # or external path
   openclaw:
     enabled: ${LIFE_OPENCLAW_WAKE:true}   # cron wake only; ignored when OPENCLAW_ENABLED=false
@@ -64,10 +75,18 @@ management:
     web:
       base-path: /actuator
       exposure:
-        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics,db,scheduledtasks,loggers,mappings,threaddump}
+        # Everything except health needs the owner or an ops:admin credential (agents never have it).
+        # Diagnostic endpoints (loggers, mappings, threaddump, ...) are opt-in via LIFE_ACTUATOR_ENDPOINTS.
+        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics,db}
+    # Writable operations (loggers POST, ...) are off: read-only, even if exposed.
+    access:
+      max-permitted: read-only
   endpoint:
     health:
-      show-details: always
+      # status is public; components/details only for ops:admin
+      show-details: when-authorized
+      show-components: when-authorized
+      roles: SCOPE_ops:admin
       probes:
         enabled: true
   info:
