@@ -105,6 +105,10 @@ jobs:
           docker compose -f docker-compose.yml config --quiet
           LIFE_DOMAIN=ci.example.com docker compose -f docker-compose.yml --profile proxy config --quiet
           docker compose -f docker-compose.yml config | grep -q 'host_ip: 127.0.0.1'
+          # prod compose (no profile): local-open must render false, even if the shell exports true
+          docker compose -f docker-compose.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?false"?$'
+          LIFE_AUTH_LOCAL_OPEN=true docker compose -f docker-compose.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?false"?$'
+          docker compose -f docker-compose.yml -f docker-compose.local.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?true"?$'
           docker run --rm -e LIFE_DOMAIN=ci.example.com -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 

@@ -15,6 +15,7 @@ services:
       # Plain http://localhost: session cookie without Secure; dev pepper unless you set one.
       # LIFE_AUTH_LOCAL_OPEN=false to test real auth (CI does).
       LIFE_COOKIE_SECURE: "false"
+      LIFE_AUTH_LOCAL_OPEN: ${LIFE_AUTH_LOCAL_OPEN:-true}
       LIFE_KEY_PEPPER: ${LIFE_KEY_PEPPER:-local-dev-pepper-not-a-secret-000000}
       LIFE_PUBLIC_URL: ${LIFE_PUBLIC_URL:-http://localhost:8787}
     volumes:

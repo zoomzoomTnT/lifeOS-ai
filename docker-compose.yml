@@ -28,8 +28,9 @@ services:
       LIFE_COOKIE_SECURE: ${LIFE_COOKIE_SECURE:-true}
       LIFE_AUTH_WRITES_PER_MINUTE: ${LIFE_AUTH_WRITES_PER_MINUTE:-60}
       LIFE_ACTUATOR_ENDPOINTS: ${LIFE_ACTUATOR_ENDPOINTS:-health,info,metrics,db}
-      # `local` profile only (docker-compose.local.yml): true = no credentials needed
-      LIFE_AUTH_LOCAL_OPEN: ${LIFE_AUTH_LOCAL_OPEN:-true}
+      # Always false here: the app refuses to start with local-open=true outside the `local` profile.
+      # docker-compose.local.yml turns it on (no credentials needed) for local development only.
+      LIFE_AUTH_LOCAL_OPEN: "false"
       # OpenClaw master switch (false = REST API + DB only, no OpenClaw calls/ingest/cron wake)
       OPENCLAW_ENABLED: ${OPENCLAW_ENABLED:-true}
       LIFE_OPENCLAW_WAKE: ${LIFE_OPENCLAW_WAKE:-true}
