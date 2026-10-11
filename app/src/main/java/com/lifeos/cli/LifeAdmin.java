@@ -89,7 +89,7 @@ public final class LifeAdmin {
         root.addAppender(appender);
     }
 
-    static int run(String[] args, Map<String, String> env, PrintStream out, PrintStream err) {
+    public static int run(String[] args, Map<String, String> env, PrintStream out, PrintStream err) {
         if (args.length == 0 || args[0].equals("help") || args[0].equals("--help")) {
             err.println(USAGE);
             return args.length == 0 ? 2 : 0;

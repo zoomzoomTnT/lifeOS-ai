@@ -523,8 +523,8 @@ CREATE TABLE IF NOT EXISTS user_credentials (
   backup_state                 INTEGER NOT NULL,
   attestation_object           BLOB,
   attestation_client_data_json BLOB,
-  created                      TEXT,
-  last_used                    TEXT,
+  created                      TIMESTAMP,
+  last_used                    TIMESTAMP,
   label                        TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_user_credentials_user ON user_credentials(user_entity_user_id);
@@ -534,7 +534,7 @@ CREATE INDEX IF NOT EXISTS idx_user_credentials_user ON user_credentials(user_en
 CREATE TABLE IF NOT EXISTS one_time_tokens (
   token_value   TEXT    NOT NULL PRIMARY KEY,
   username      TEXT    NOT NULL,
-  expires_at    TEXT    NOT NULL
+  expires_at    TIMESTAMP NOT NULL
 );
 
 -- Risk-tier thresholds (owner-editable). Money in integer cents, like everything else.

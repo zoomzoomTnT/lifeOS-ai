@@ -16,7 +16,10 @@ import org.springframework.security.web.authentication.AuthenticationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
+import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
+
 import java.time.Clock;
+import java.util.Set;
 
 /**
  * Spring Security filter chains (docs/auth.md):
@@ -60,15 +63,12 @@ public class SecurityConfig {
     }
 
     @Bean
-    ApiKeyAuthenticationProvider apiKeyAuthenticationProvider(ApiKeyStore store, KeyHasher hasher,
-                                                              SecurityEventLog events, Clock authClock) {
-        return new ApiKeyAuthenticationProvider(store, hasher, events, authClock);
-    }
-
-    @Bean
     @Order(1)
-    SecurityFilterChain apiChain(HttpSecurity http, ApiKeyAuthenticationProvider provider, SecurityEventLog events,
+    SecurityFilterChain apiChain(HttpSecurity http, SecurityEventLog events, KeyHasher hasher,
                                  AuthProperties props, ApiKeyStore store, Clock authClock) throws Exception {
+        // Not a bean: an AuthenticationProvider bean would become the global AuthenticationManager and
+        // leak into the owner chain. Phase 3 adds a JwtAuthenticationProvider next to it here.
+        ApiKeyAuthenticationProvider provider = new ApiKeyAuthenticationProvider(store, hasher, events, authClock);
         ApiAuthenticationEntryPoint entryPoint = new ApiAuthenticationEntryPoint(events);
         // Not a @Bean on purpose: Boot would also register it as a global servlet filter.
         AuthenticationFilter apiKeyFilter = new AuthenticationFilter(new ProviderManager(provider),
@@ -79,7 +79,12 @@ public class SecurityConfig {
 
         http.securityMatcher("/api/**", "/actuator/**")
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(c -> c.disable()) // no cookies are honoured on this chain
+                // Bearer requests carry no ambient credential, so CSRF only matters for the owner's
+                // session cookie (OwnerSessionBridgeFilter): unsafe methods on that path need the token.
+                .csrf(c -> c.requireCsrfProtectionMatcher(req -> OwnerSessionBridgeFilter.usesSession(req)
+                                && !Set.of("GET", "HEAD", "OPTIONS", "TRACE").contains(req.getMethod()))
+                        // every request "authenticates" here; that must not rotate the owner's session token
+                        .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
                 .httpBasic(b -> b.disable())
                 .formLogin(f -> f.disable())
                 .logout(l -> l.disable())
@@ -87,6 +92,8 @@ public class SecurityConfig {
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(new ApiAccessDeniedHandler(events)))
                 .addFilterBefore(apiKeyFilter, AnonymousAuthenticationFilter.class)
+                // same slot, kept in insertion order: API key → owner session → (local dev)
+                .addFilterBefore(new OwnerSessionBridgeFilter(store::ownerPersonId), AnonymousAuthenticationFilter.class)
                 .addFilterAfter(new WriteRateLimitFilter(props.writesPerMinute(), authClock), AuthorizationFilter.class)
                 .addFilterAfter(new IdentityHeaderFilter(events), WriteRateLimitFilter.class)
                 .authorizeHttpRequests(a -> {
@@ -111,7 +118,7 @@ public class SecurityConfig {
                 .formLogin(f -> f.disable())
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**",
-                                "/ops", "/ops/**", "/favicon.ico", "/error").permitAll()
+                                "/favicon.ico", "/error").permitAll()
                         .anyRequest().denyAll());
         return http.build();
     }

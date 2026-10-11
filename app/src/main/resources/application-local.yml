@@ -12,6 +12,12 @@ spring:
     hikari:
       connection-init-sql: "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;"
 
+server:
+  servlet:
+    session:
+      cookie:
+        secure: ${LIFE_COOKIE_SECURE:false}   # plain http://localhost
+
 life:
   auth:
     # Dev-only pepper so `local` starts without secrets; LIFE_KEY_PEPPER still wins if set.

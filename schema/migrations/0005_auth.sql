@@ -99,18 +99,21 @@ CREATE TABLE IF NOT EXISTS user_credentials (
   backup_state                 INTEGER NOT NULL,
   attestation_object           BLOB,
   attestation_client_data_json BLOB,
-  created                      TEXT,
-  last_used                    TEXT,
+  created                      TIMESTAMP,
+  last_used                    TIMESTAMP,
   label                        TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_user_credentials_user ON user_credentials(user_entity_user_id);
 
+-- Spring-owned timestamp columns are TIMESTAMP (NUMERIC affinity, like Spring's reference DDL): the
+-- libSQL driver stores ISO-8601 UTC text, sqlite-jdbc stores epoch millis; both read back. TEXT
+-- would turn sqlite-jdbc's millis into an unparseable string.
 -- Spring Security one-time-token login (JdbcOneTimeTokenService). Only used to register the
 -- first passkey (or recover); tokens are minted by the admin CLI, valid 5 minutes, single use.
 CREATE TABLE IF NOT EXISTS one_time_tokens (
   token_value   TEXT    NOT NULL PRIMARY KEY,
   username      TEXT    NOT NULL,
-  expires_at    TEXT    NOT NULL
+  expires_at    TIMESTAMP NOT NULL
 );
 
 -- Risk-tier thresholds (owner-editable). Money in integer cents, like everything else.
