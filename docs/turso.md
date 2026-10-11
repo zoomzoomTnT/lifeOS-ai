@@ -57,8 +57,9 @@ Never point these tests at the live DB: they create and drop tables.
 ## Rollback
 
 Actions → CD → Run workflow on `release/0.1.0` with `skip_build=true` and
-`image_tag=sha-bf5ce57`, or
-`gh workflow run cd.yml --ref release/0.1.0 -f skip_build=true -f image_tag=sha-bf5ce57`.
+`image_tag=sha-e2e4938` (the last image before API auth; see docs/auth.md#rollback for what CD does
+with a pre-auth image), or
+`gh workflow run cd.yml --ref release/0.1.0 -f skip_build=true -f image_tag=sha-e2e4938`.
 Same database and schema, so no data step is needed, and the `jdbc:dbeaver:libsql:https://...` URL
 works for both drivers.
 

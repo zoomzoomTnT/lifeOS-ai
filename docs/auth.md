@@ -140,7 +140,7 @@ opt-in via `LIFE_ACTUATOR_ENDPOINTS`. Writes are off.
 | `LIFE_AUTH_WRITES_PER_MINUTE` | 60 | per non-owner client |
 | `LIFE_ACTUATOR_ENDPOINTS` | `health,info,metrics,db` | |
 | `LIFE_COOKIE_SECURE` | true | `false` only for plain http://localhost |
-| `life.auth.local-open` | false | `local` profile only (`LIFE_AUTH_LOCAL_OPEN`, default true there): requests without a key act as the owner. Refused in any other profile |
+| `life.auth.local-open` | false | `local` profile only (`LIFE_AUTH_LOCAL_OPEN`, default true in `docker-compose.local.yml` / `application-local.yml`): requests without a key act as the owner. `docker-compose.yml` always sets false; true in any other profile refuses to start |
 
 ## Cutover
 
@@ -158,6 +158,13 @@ What zoomzoom does, in order. Nothing here is done by CD or by an agent.
    secret store (connector/env secret settings), **not into a chat message** (chats are logged).
    Alternatively let Grok Bot run that command over its SSH access and write the output straight to
    a mode-600 env file on its own box without printing it.
+   **OpenClaw** (only if `OPENCLAW_ENABLED=true`): its skill calls (`/api/memos/$ID/fired`,
+   `/api/ops/summary`, ...) now need `Authorization: Bearer $LIFE_API_KEY` too, or they get 401 and a
+   memo can fire again on the next wake. Mint it a key (`lifeos-admin create-client openclaw --kind agent
+   --scopes "memos:read memos:write ops:read ops:write finance:read finance:write fridge:read fridge:write"`,
+   then `lifeos-admin mint-key openclaw --format env`) and put it into OpenClaw's env as `LIFE_API_KEY`.
+   `POST /api/ops/webhook/ping` is different: it takes the hook token (`Authorization: Bearer
+   $OPENCLAW_HOOK_TOKEN` or `x-openclaw-token: $OPENCLAW_HOOK_TOKEN`), not a `lok_` key.
 6. **Your passkey:** run `docker exec -it lifeos-api lifeos-admin owner-login` **yourself**, open the
    link within 5 minutes, register a passkey (phone or laptop; add a second one as a backup), then sign
    in at `https://$LIFE_DOMAIN/login`.
@@ -167,9 +174,29 @@ What zoomzoom does, in order. Nothing here is done by CD or by an agent.
    read the pepper and the Turso token). Consider removing that key from the agent box, or limit it to
    deploy-only tasks, once the cutover is done.
 
-Rollback: redeploy the previous image tag (`workflow_dispatch`, `skip_build`, `image_tag=sha-…`).
+### Rollback
+
+Target: **`sha-e2e4938`** (release/0.1.0 with the libSQL driver, before auth). `sha-bf5ce57` is older
+still (DBeaver driver, broken writes); don't use it.
+
+```bash
+gh workflow run cd.yml --ref release/0.1.0 -f skip_build=true -f image_tag=sha-e2e4938
+```
+
+That run uses this branch's `cd.yml` and compose file with the old image, and the old image has **no
+API authentication**. CD detects it (no `lifeos.auth=1` image label) and then: does not start Caddy
+(stops and removes it if running), forces `LIFE_API_BIND=127.0.0.1`, and skips the 401 checks. So the
+rolled-back API is reachable only from the server itself (SSH tunnel), never via `https://$LIFE_DOMAIN`.
+If you roll back by hand instead (`docker compose up` on the server), do the same yourself:
+`docker compose --profile proxy rm -sf caddy`, keep `LIFE_API_BIND` unset or `127.0.0.1`, and clear
+the repo variable `LIFE_DOMAIN` until you're back on an auth image.
+
+Callers after a rollback: the old image ignores `Authorization` and needs `X-Life-Handle` again
+(without it writes are attributed to the owner). Keys and passkeys stay in the database and work again
+after rolling forward.
+
 Migration `0005_auth` is additive: new tables plus nullable columns, nothing dropped. The old image
-ignores them.
+ignores them (checked against `e2e4938` on sqld).
 
 ## Later phases
 

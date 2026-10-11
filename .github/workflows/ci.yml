@@ -153,6 +153,7 @@ jobs:
           # Real auth inside the image (local profile, but local-open off): keys come from lifeos-admin.
           export LIFE_AUTH_LOCAL_OPEN=false
           export LIFE_KEY_PEPPER="ci-pepper-$(openssl rand -hex 24)"
+          test "$(docker image inspect lifeos-ai:ci --format '{{ index .Config.Labels "lifeos.auth" }}')" = 1  # CD's proxy guard
           docker compose up -d --wait --wait-timeout 90
           B=http://localhost:8787
           code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }

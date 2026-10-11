@@ -254,6 +254,15 @@ jobs:
             fi
 
             docker compose -f compose.yaml $PROFILES pull || true
+            # Pre-auth image (rollback to sha-e2e4938 or older; no lifeos.auth=1 label): it has NO API
+            # authentication, so never put it behind the public proxy or on a public bind.
+            AUTH_IMAGE="$(docker image inspect "$LIFE_IMAGE" --format '{{ index .Config.Labels "lifeos.auth" }}' 2>/dev/null || true)"
+            if [ "$AUTH_IMAGE" != "1" ]; then
+              echo "::warning::$LIFE_IMAGE is a pre-auth image (no lifeos.auth=1 label): unauthenticated API. Caddy stays off and the API binds 127.0.0.1 only."
+              PROFILES=""
+              export LIFE_API_BIND=127.0.0.1
+              docker compose -f compose.yaml --profile proxy rm -sf caddy || true
+            fi
             if [ "$MINTED" = "1" ]; then
               docker compose -f compose.yaml $PROFILES up -d --no-build --force-recreate --remove-orphans
             else
@@ -277,15 +286,17 @@ jobs:
               docker compose -f compose.yaml logs --no-color --tail=200 api || docker logs --tail=200 lifeos-api || true
               exit 1
             fi
-            # Auth is on: data and admin endpoints refuse anonymous callers.
-            for p in /api/ops/summary /actuator/info /actuator/db; do
-              c="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8787$p")"
-              if [ "$c" != "401" ]; then
-                echo "::error::$p answered $c without credentials (expected 401)"; exit 1
-              fi
-            done
-            echo "auth check: anonymous /api and /actuator -> 401"
-            if [ -n "${LIFE_DOMAIN:-}" ]; then
+            if [ "$AUTH_IMAGE" = "1" ]; then
+              # Auth is on: data and admin endpoints refuse anonymous callers.
+              for p in /api/ops/summary /actuator/info /actuator/db; do
+                c="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8787$p")"
+                if [ "$c" != "401" ]; then
+                  echo "::error::$p answered $c without credentials (expected 401)"; exit 1
+                fi
+              done
+              echo "auth check: anonymous /api and /actuator -> 401"
+            fi
+            if [ "$AUTH_IMAGE" = "1" ] && [ -n "${LIFE_DOMAIN:-}" ]; then
               # first certificate can take a minute; warn only
               for i in $(seq 1 12); do
                 curl -fsS "https://${LIFE_DOMAIN}/actuator/health" >/dev/null 2>&1 && { echo "https://${LIFE_DOMAIN} OK"; break; }

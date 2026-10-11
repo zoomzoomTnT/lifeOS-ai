@@ -9,7 +9,10 @@ RUN mvn -B -DskipTests package
 FROM eclipse-temurin:21-jre-jammy
 LABEL org.opencontainers.image.source="https://github.com/zoomzoomTnT/lifeOS-ai" \
       org.opencontainers.image.title="lifeOS-ai" \
-      org.opencontainers.image.description="Life OS REST API (Turso/libSQL + Spring Boot)"
+      org.opencontainers.image.description="Life OS REST API (Turso/libSQL + Spring Boot)" \
+      lifeos.auth="1"
+# lifeos.auth=1: this image enforces API authentication (docs/auth.md). CD only starts the public
+# HTTPS proxy (Caddy) for images that carry it, so a rollback to a pre-auth image stays loopback-only.
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
