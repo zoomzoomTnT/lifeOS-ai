@@ -1,15 +1,37 @@
 package com.lifeos.security;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 
 import java.net.http.HttpResponse;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Approvals and tier-3 calls need a recent passkey assertion (max age shortened to 2 s here). */
-@TestPropertySource(properties = "life.auth.passkey-max-age=PT2S")
+/** Approvals and tier-3 calls need a recent passkey assertion (default max age 5 min; the auth clock is moved on 6 min). */
 class StalePasskeyHttpTest extends OwnerHttpTestBase {
+
+    /** System time plus an offset the test moves forward. */
+    static final class ShiftedClock extends Clock {
+        volatile Duration offset = Duration.ZERO;
+
+        @Override public ZoneId getZone() { return ZoneOffset.UTC; }
+        @Override public Clock withZone(ZoneId zone) { return this; }
+        @Override public Instant instant() { return Instant.now().plus(offset); }
+    }
+
+    static final ShiftedClock CLOCK = new ShiftedClock();
+
+    @TestBean(name = "authClock")
+    Clock authClock;
+
+    static Clock authClock() {
+        return CLOCK;
+    }
 
     @Test
     void staleSessionMustConfirmWithPasskeyAgain() throws Exception {
@@ -22,7 +44,7 @@ class StalePasskeyHttpTest extends OwnerHttpTestBase {
         String path = ApprovalFlowHttpTest.json(asked).path("approve_url").asString().substring("http://localhost:8787".length());
 
         OwnerBrowser owner = signedInOwner();
-        Thread.sleep(2_500);
+        CLOCK.offset = Duration.ofMinutes(6);
         HttpResponse<String> page = owner.get(path);
         assertThat(page.body()).contains("Confirm with passkey").doesNotContain("Approve (single use)");
         assertThat(owner.postForm(path, "decision=approve&_csrf=" + owner.csrf).statusCode()).isEqualTo(303);

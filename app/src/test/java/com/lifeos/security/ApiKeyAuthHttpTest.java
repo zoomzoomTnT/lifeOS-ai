@@ -101,7 +101,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
     }
 
     @Test
-    void agentsCanNeverHoldOpsAdmin() {
+    void agentsCanNeverHoldOpsAdmin() throws Exception {
         assertThatThrownBy(() -> keys.ensureClient("evil-" + uniq(), "x", ClientKind.AGENT, List.of(Scopes.OPS_ADMIN)))
                 .hasMessageContaining("never granted to an agent");
         // even if the row were edited by hand, the provider strips it for agents
@@ -109,11 +109,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
         String keyId = ApiKeyFormat.parse(key).keyId();
         jdbc.update("UPDATE api_keys SET scopes = scopes || ' ops:admin' WHERE key_id=?", keyId);
         jdbc.update("UPDATE api_clients SET max_scopes = max_scopes || ' ops:admin' WHERE id=(SELECT api_client_id FROM api_keys WHERE key_id=?)", keyId);
-        try {
-            assertThat(get("/actuator/metrics", key).statusCode()).isEqualTo(403);
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
+        assertThat(get("/actuator/metrics", key).statusCode()).isEqualTo(403);
     }
 
     @Test
