@@ -111,7 +111,7 @@ public class RiskPolicy {
         s.put("current", cur.isEmpty() ? "(new model)" : cur.get(0));
         s.put("new", Map.of("input", String.valueOf(b.get("input_usd_micros_per_mtok")),
                 "output", String.valueOf(b.get("output_usd_micros_per_mtok"))));
-        return new RiskAssessment(RiskAssessment.IMPACTFUL, "ops.prices.update",
+        return new RiskAssessment(RiskAssessment.ADMIN, "ops.prices.update",
                 "Change model price for " + provider + "/" + model + " (affects all AI cost figures)", s);
     }
 

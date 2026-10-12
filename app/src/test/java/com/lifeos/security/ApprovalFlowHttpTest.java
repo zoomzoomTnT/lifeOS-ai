@@ -12,8 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Human-in-the-loop over real HTTP: approval_required → (zoomzoom says yes in chat) → the admin client
  * approves → single-use retry of the exact request; body mismatch, other client, replay, expiry (5 min),
- * denial; agents can't approve; requester ≠ approver; tier 3 admin client only; the admin client
- * skips tier 2.
+ * denial; agents can't approve; requester ≠ approver; tier 3 (purge, prices) admin client only.
  */
 class ApprovalFlowHttpTest extends AuthHttpTestBase {
 
@@ -184,16 +183,11 @@ class ApprovalFlowHttpTest extends AuthHttpTestBase {
     }
 
     @Test
-    void bulkRowsAndPriceChangesAndDeletesAreTier2() throws Exception {
+    void bulkRowsAndDeletesAreTier2() throws Exception {
         String key = chatKey();
         long bulk = previewReceipt(key, 2_100, 21); // small total, but > 20 rows
         HttpResponse<String> r = post("/api/receipts/" + bulk + "/confirm", key, "{}");
         assertThat(json(r).path("error").asString()).isEqualTo("approval_required");
-
-        HttpResponse<String> price = send("PUT", "/api/ops/prices", key,
-                "{\"provider\":\"test\",\"model\":\"m-" + uniq() + "\",\"input_usd_micros_per_mtok\":1,\"output_usd_micros_per_mtok\":2}");
-        assertThat(price.statusCode()).isEqualTo(403);
-        assertThat(json(price).path("action").asString()).isEqualTo("ops.prices.update");
 
         // DELETE stays tier 2 in the policy, but there is no DELETE handler yet: 404, no approval row
         assertThat(riskPolicy.assess("DELETE", "/api/fridge/1", null)).get().extracting(a -> a.action()).isEqualTo("delete");
@@ -223,10 +217,24 @@ class ApprovalFlowHttpTest extends AuthHttpTestBase {
     }
 
     @Test
-    void adminClientSkipsTier2() throws Exception {
-        HttpResponse<String> r = send("PUT", "/api/ops/prices", adminKey(),
-                "{\"provider\":\"test\",\"model\":\"admin-" + uniq() + "\",\"input_usd_micros_per_mtok\":1,\"output_usd_micros_per_mtok\":2}");
-        assertThat(r.statusCode()).as(r.body()).isEqualTo(200);
+    void priceChangesAreTier3AdminClientOnly() throws Exception {
+        String model = "m-" + uniq();
+        String body = "{\"provider\":\"test\",\"model\":\"" + model + "\",\"input_usd_micros_per_mtok\":1,\"output_usd_micros_per_mtok\":2}";
+        assertThat(riskPolicy.assess("PUT", "/api/ops/prices", body.getBytes())).get()
+                .extracting(a -> a.tier()).isEqualTo(com.lifeos.security.approval.RiskAssessment.ADMIN);
+        for (String k : List.of(chatKey(), newKey(ClientKind.SERVICE, List.of(Scopes.OPS_WRITE)))) {
+            HttpResponse<String> r = send("PUT", "/api/ops/prices", k, body);
+            assertThat(r.statusCode()).isEqualTo(403);
+            assertThat(json(r).path("error").asString()).isEqualTo("admin_only");
+            assertThat(json(r).path("action").asString()).isEqualTo("ops.prices.update");
+            assertThat(send("PUT", "/api/ops/prices", k, body, "Life-Approval", "apr_x").statusCode()).isEqualTo(403);
+        }
+        assertThat(count("SELECT COUNT(*) FROM approval_requests WHERE path='/api/ops/prices'")).isZero();
+        assertThat(count("SELECT COUNT(*) FROM model_prices WHERE model = ?", model)).isZero();
+
+        HttpResponse<String> ok = send("PUT", "/api/ops/prices", adminKey(), body);
+        assertThat(ok.statusCode()).as(ok.body()).isEqualTo(200);
+        assertThat(count("SELECT COUNT(*) FROM model_prices WHERE model = ?", model)).isEqualTo(1);
     }
 
     @Test

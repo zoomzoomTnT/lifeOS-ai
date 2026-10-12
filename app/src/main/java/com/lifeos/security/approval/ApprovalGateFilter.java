@@ -20,9 +20,9 @@ import java.util.Optional;
 /**
  * Human-in-the-loop gate on the API chain, after scope authorization (docs/auth.md):
  * <ul>
- *   <li>tier 3 (purge, actuator writes): the admin client only; every other key gets
+ *   <li>tier 3 (purge, price changes, actuator writes): the admin client only; every other key gets
  *       {@code 403 admin_only}.</li>
- *   <li>tier 2 (big receipt confirms, price changes, deletes): an agent, app or service key gets
+ *   <li>tier 2 (big receipt confirms, deletes): an agent, app or service key gets
  *       {@code 403 approval_required} with the server-rendered summary. The bot asks zoomzoom in chat;
  *       on yes the admin client approves it, and the caller repeats the identical request with
  *       {@code Life-Approval: <id>} within 5 minutes, which consumes it (single use). The admin

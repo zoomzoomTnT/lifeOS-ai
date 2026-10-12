@@ -71,7 +71,7 @@ public final class ScopeRules {
             Rule.of(POST, "/api/ops/ai", OPS_WRITE),
             Rule.of(POST, "/api/ops/logs/ingest", OPS_WRITE),
             Rule.of(POST, "/api/ops/proactive/run", OPS_WRITE),
-            Rule.of(PUT, "/api/ops/prices", OPS_WRITE)             // tier 2: approval required for agents
+            Rule.of(PUT, "/api/ops/prices", OPS_WRITE)             // tier 3: the admin client only
     );
 
     /** The rule that decides this request, if any (no rule = denied). */

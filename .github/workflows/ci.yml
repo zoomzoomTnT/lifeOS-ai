@@ -237,14 +237,19 @@ jobs:
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
           curl -fsS -H "Authorization: Bearer $ROUTINE" "$B/api/ops/http?limit=10" | grep -q '/api/receipts/lookup'
-          # tier 2: the agent's price change waits for an approval the admin key decides
-          PRICE='{"provider":"xai","model":"ci","input_usd_micros_per_mtok":1,"output_usd_micros_per_mtok":1}'
-          APR="$(curl -s -X PUT $B/api/ops/prices -H "Authorization: Bearer $CHAT" -H "$J" -d "$PRICE" | jq -r 'select(.error=="approval_required") | .approval_id')"
+          # tier 2: the agent's big receipt confirm waits for an approval the admin key decides
+          RID="$(curl -fsS -X POST $B/api/receipts/preview -H "Authorization: Bearer $CHAT" -H "$J" \
+            -d '{"merchant_name":"CI Store","barcode":"ci-big","printed_at":"2026-10-11 10:00:00","currency":"JPY","total_cents":6000000,"items":[{"name":"big","qty":1,"amount_cents":6000000}]}' | jq -r .receipt_id)"
+          APR="$(curl -s -X POST "$B/api/receipts/$RID/confirm" -H "Authorization: Bearer $CHAT" -H "$J" -d '{}' | jq -r 'select(.error=="approval_required") | .approval_id')"
           test -n "$APR"
           test "$(code -X POST -H "Authorization: Bearer $CHAT" "$B/api/admin/approvals/$APR/approve")" = 403
           curl -fsS -X POST -H "Authorization: Bearer $ADMIN" "$B/api/admin/approvals/$APR/approve" | grep -q '"decided_by_client":"lifeos-admin"'
-          test "$(code -X PUT -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d "$PRICE" $B/api/ops/prices)" = 200
-          test "$(code -X PUT -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d "$PRICE" $B/api/ops/prices)" = 403
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d '{}' "$B/api/receipts/$RID/confirm")" = 200
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d '{}' "$B/api/receipts/$RID/confirm")" = 403
+          # tier 3: price changes only with the admin key
+          PRICE='{"provider":"xai","model":"ci","input_usd_micros_per_mtok":1,"output_usd_micros_per_mtok":1}'
+          test "$(code -X PUT -H "Authorization: Bearer $CHAT" -H "$J" -d "$PRICE" $B/api/ops/prices)" = 403
+          test "$(code -X PUT -H "Authorization: Bearer $ADMIN" -H "$J" -d "$PRICE" $B/api/ops/prices)" = 200
           # tier 3: purge only with the admin key
           test "$(code -X POST -H "Authorization: Bearer $CHAT" -H "$J" -d '{}' $B/api/ops/purge)" = 403
           test "$(code -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d '{"older_than_days":3650}' $B/api/ops/purge)" = 200

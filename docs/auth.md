@@ -13,7 +13,7 @@ See [Later phases](#later-phases).
 |---|---|---|---|
 | Grok Bot (chat) | `grokbot-chat` (agent) | `finance:write fridge:write memos:write stocks:write ops:read ops:write` (write implies read) | tier 0–1 directly; tier 2 → `approval_required` |
 | Grok Bot (routines / wake check) | `grokbot-routine` (agent) | `memos:read ops:read` | reads |
-| lifeOS Admin bot | `lifeos-admin` (**admin**, exactly one) | `ops:admin` + `finance:read fridge:read memos:read stocks:read ops:read`, **no data writes** | `/api/admin/**`, approve/deny approvals, tier 3 (purge, actuator), tier 2 directly (e.g. `PUT /api/ops/prices`) |
+| lifeOS Admin bot | `lifeos-admin` (**admin**, exactly one) | `ops:admin` + `finance:read fridge:read memos:read stocks:read ops:read`, **no data writes** | `/api/admin/**`, approve/deny approvals, tier 3 (purge, `PUT /api/ops/prices`, actuator) |
 | Anyone | nothing | | `GET /actuator/health` (status only), `/swagger-ui`, `/v3/api-docs` |
 
 All calls: `Authorization: Bearer lok_…` on `/api/**` and `/actuator/**`. Everything else is denied (403).
@@ -128,8 +128,8 @@ The Admin bot writes minted keys straight into the target bot's secret store, ne
 | Tier | What (today's API) | Agent / service key | Admin client |
 |---|---|---|---|
 | 0–1 | reads; normal writes (fridge, memos, receipt preview, small confirms, AI usage, stock events) | scope + audit + rate limit | reads only (no data-write scopes) |
-| 2 | confirm a receipt with total ≥ `approval.receipt_total_cents` (default 5,000,000 = 50,000.00) or > `approval.bulk_rows` (20) items; `PUT /api/ops/prices`; any `DELETE` | **approval_required** | directly, where its scopes allow |
-| 3 | `POST /api/ops/purge`, actuator writes (also disabled: `access.max-permitted: read-only`) | **never** (`admin_only`) | yes |
+| 2 | confirm a receipt with total ≥ `approval.receipt_total_cents` (default 5,000,000 = 50,000.00) or > `approval.bulk_rows` (20) items; any `DELETE` | **approval_required** | directly, where its scopes allow |
+| 3 | `POST /api/ops/purge`, `PUT /api/ops/prices`, actuator writes (also disabled: `access.max-permitted: read-only`) | **never** (`admin_only`) | yes |
 
 Thresholds are rows in `settings`. The tier is decided by the server from its own data
 (`RiskPolicy`), never from the agent's text.
