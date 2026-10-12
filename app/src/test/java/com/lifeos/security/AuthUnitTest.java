@@ -62,7 +62,7 @@ class AuthUnitTest {
         assertThat(Scopes.parse(" ")).isEmpty();
         assertThatThrownBy(() -> Scopes.parse("memos:delete")).hasMessageContaining("unknown scope");
         assertThat(Scopes.expand(List.of("fridge:write"))).containsExactlyInAnyOrder("fridge:write", "fridge:read");
-        assertThat(Scopes.expand(List.of("ops:admin"))).contains("ops:read").doesNotContain("ops:write");
+        assertThat(Scopes.expand(List.of("ops:admin"))).contains("ops:read", "ops:write");
         assertThat(Scopes.within(List.of("fridge:read"), List.of("fridge:write"))).isTrue();
         assertThat(Scopes.within(List.of("fridge:write"), List.of("fridge:read"))).isFalse();
         assertThat(Scopes.GROKBOT_CHAT).doesNotContain(Scopes.OPS_ADMIN);

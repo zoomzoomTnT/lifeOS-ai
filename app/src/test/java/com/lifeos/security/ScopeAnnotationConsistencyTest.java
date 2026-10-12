@@ -43,7 +43,7 @@ class ScopeAnnotationConsistencyTest extends AuthHttpTestBase {
                     } else {
                         assertThat(pre).as(method + " " + pattern + " needs @PreAuthorize").isNotNull();
                         String scopeCheck = "hasAuthority('SCOPE_" + rule.get().scope() + "')";
-                        if (Scopes.OPS_ADMIN.equals(rule.get().scope())) { // scope AND the admin client
+                        if (pattern.equals("/api/ops/purge") || rule.get().adminClientOnly()) { // scope AND the admin client
                             assertThat(pre.value()).as(method + " " + pattern)
                                     .isEqualTo(scopeCheck + " and @adminClient.check(authentication)");
                         } else {

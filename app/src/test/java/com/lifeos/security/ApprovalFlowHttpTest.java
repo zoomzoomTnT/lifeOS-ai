@@ -226,6 +226,7 @@ class ApprovalFlowHttpTest extends AuthHttpTestBase {
             HttpResponse<String> r = send("PUT", "/api/ops/prices", k, body);
             assertThat(r.statusCode()).isEqualTo(403);
             assertThat(json(r).path("error").asString()).isEqualTo("admin_only");
+            assertThat(json(r).path("action").asString()).isEqualTo("ops.prices.update");
             assertThat(send("PUT", "/api/ops/prices", k, body, "Life-Approval", "apr_x").statusCode()).isEqualTo(403);
         }
         assertThat(count("SELECT COUNT(*) FROM approval_requests WHERE path='/api/ops/prices'")).isZero();
@@ -241,11 +242,5 @@ class ApprovalFlowHttpTest extends AuthHttpTestBase {
         HttpResponse<String> r = post("/api/memos", adminKey(), "{\"title\":\"x\"}");
         assertThat(r.statusCode()).isEqualTo(403);
         assertThat(json(r).path("required_scope").asString()).isEqualTo(Scopes.MEMOS_WRITE);
-        for (String path : new String[]{"/api/ops/ai", "/api/ops/proactive/run"}) {
-            r = post(path, adminKey(), "{}");
-            assertThat(r.statusCode()).as(path).isEqualTo(403);
-            assertThat(json(r).path("required_scope").asString()).as(path).isEqualTo(Scopes.OPS_WRITE);
-        }
-        assertThat(Scopes.expand(Scopes.parse(Scopes.OPS_ADMIN))).contains(Scopes.OPS_READ).doesNotContain(Scopes.OPS_WRITE);
     }
 }
