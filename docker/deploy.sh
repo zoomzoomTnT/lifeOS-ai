@@ -41,6 +41,15 @@ if [ "${#PEPPER}" -lt 32 ]; then
   exit 1
 fi
 unset PEPPER
+# The admin key (lifeOS Admin bot): key id + SHA-256 of its secret (env or .env). The app refuses to
+# start without them (docs/auth.md#admin-key).
+ADMIN_ID="${LIFE_ADMIN_KEY_ID:-$(envval LIFE_ADMIN_KEY_ID)}"
+ADMIN_SHA="${LIFE_ADMIN_KEY_SHA256:-$(envval LIFE_ADMIN_KEY_SHA256)}"
+if ! printf '%s' "$ADMIN_ID" | grep -Eqx '[a-z2-7]{12}' || ! printf '%s' "$ADMIN_SHA" | grep -Eqx '[0-9a-f]{64}'; then
+  echo "LIFE_ADMIN_KEY_ID / LIFE_ADMIN_KEY_SHA256 missing or malformed: add both to $ROOT/.env (the lifeOS Admin bot generates them; docs/auth.md#admin-key)." >&2
+  exit 1
+fi
+unset ADMIN_ID ADMIN_SHA
 # Optional HTTPS proxy (Caddy) when LIFE_DOMAIN is set (env or .env).
 LIFE_DOMAIN="${LIFE_DOMAIN:-$(envval LIFE_DOMAIN)}"
 PROFILES=()
