@@ -1,19 +1,22 @@
 # API authentication and authorization
 
 Spring Security 7.1 (Spring Boot 4.1.1 BOM). Design and threat model: the architecture doc
-(`lifeos-auth-architecture.md`), phases 0–2 implemented here. Phase 3 (OAuth 2.1 tokens via Spring
-Authorization Server) and phase 4 (MCP endpoint) slot in without changing anything below. See
-[Later phases](#later-phases).
+(`lifeos-auth-architecture.md`, revision 2), phases 1–2 implemented here. There is **no human web
+login** (no passkeys, sessions, cookies or login pages): zoomzoom approves in the Grok Bot chat, and the
+lifeOS Admin bot, the only holder of the admin key, carries out admin actions and approvals after an
+explicit yes. Phase 3 (OAuth 2.1 tokens) and phase 4 (MCP) slot in without changing anything below.
+See [Later phases](#later-phases).
 
 ## Who can call what
 
-| Caller | Credential | Where |
-|---|---|---|
-| Grok Bot (chat) | API key `grokbot-chat`: `finance:write fridge:write memos:write stocks:write ops:read ops:write` (write implies read) | `Authorization: Bearer lok_…` on `/api/**` |
-| Grok Bot (routines / wake check) | API key `grokbot-routine`: `memos:read ops:read` | same |
-| A deploy check / backup job | `service` client, e.g. `ops:admin` for `/actuator/**` | same |
-| zoomzoom (owner) | **passkey** (WebAuthn) in the browser; session cookie | `/login`, `/admin`, `/ops`, `/approve/{id}`, and `/api/**` from those pages (CSRF on writes) |
-| Anyone | nothing | `GET /actuator/health` (status only), `/swagger-ui`, `/v3/api-docs`, `/login` |
+| Caller | Client (kind) | Scopes | Can |
+|---|---|---|---|
+| Grok Bot (chat) | `grokbot-chat` (agent) | `finance:write fridge:write memos:write stocks:write ops:read ops:write` (write implies read) | tier 0–1 directly; tier 2 → `approval_required` |
+| Grok Bot (routines / wake check) | `grokbot-routine` (agent) | `memos:read ops:read` | reads |
+| lifeOS Admin bot | `lifeos-admin` (**admin**, exactly one) | `ops:admin` + `finance:read fridge:read memos:read stocks:read ops:read`, **no data writes** | `/api/admin/**`, approve/deny approvals, tier 3 (purge, actuator), tier 2 directly (e.g. `PUT /api/ops/prices`) |
+| Anyone | nothing | | `GET /actuator/health` (status only), `/swagger-ui`, `/v3/api-docs` |
+
+All calls: `Authorization: Bearer lok_…` on `/api/**` and `/actuator/**`. Everything else is denied (403).
 
 * **The acting person comes from the credential.** `X-Life-Handle` is ignored (its use is logged
   once in a while as `identity_header_ignored`), and people are never auto-created from a handle.
@@ -21,20 +24,24 @@ Authorization Server) and phase 4 (MCP endpoint) slot in without changing anythi
   `credential_id`, `request_id` (and `approval_id`) in `events` / `http_requests`.
 * **Ownership:** memo / fridge / receipt writes check that the row belongs to the caller's person
   (else 404).
-* **Agents never get `ops:admin`** (`lifeos-admin` refuses to grant it to an `agent` client).
+* **`ops:admin` only for the admin client.** Creating or minting it for any other kind fails (400), and
+  the provider strips it from any non-admin key even if a row were edited by hand. `/api/admin/**` and
+  tier 3 additionally require the caller to *be* the admin client (`@adminClient`), not just the scope.
 * Unknown `/api` paths are denied (403), not open. Path → scope rules live in `ScopeRules` and are
   mirrored by `@PreAuthorize` on every controller method. A test checks the two agree.
-* Writes are rate-limited per non-owner client (`LIFE_AUTH_WRITES_PER_MINUTE`, default 60 → 429).
+* Writes are rate-limited per client (`LIFE_AUTH_WRITES_PER_MINUTE`, default 60 → 429).
 
 ### Errors (RFC 6750 style)
 
 ```
 401  {"error":"invalid_token" | "unauthorized", ...}   WWW-Authenticate: Bearer realm="lifeos", error="invalid_token"
 403  {"error":"insufficient_scope", "scope":"fridge:write"}   WWW-Authenticate: Bearer ..., scope="fridge:write"
-403  {"error":"approval_required", "approval_id":"apr_…", "approve_url":"https://<domain>/approve/apr_…", "expires_at":"…Z"}
+403  {"error":"approval_required", "approval_id":"apr_…", "summary":"Confirm receipt #42 …", "expires_at":"…Z", "action":…, "tier":2}
 403  {"error":"approval_invalid", "reason":"pending|request_mismatch|other_client|expired|denied|already_used|not_found"}
-403  {"error":"owner_only"}                          tier 3 with any API key
-403  {"error":"passkey_reauth_required", "login_url":…}   owner session older than 5 minutes for tier 3
+403  {"error":"admin_only"}         /api/admin/**, tier 3 or any ops:admin route with a non-admin key
+403  {"error":"self_approval"}      the requester tried to decide its own approval
+409  {"error":"not_pending"}        approve/deny of an approval that is no longer pending
+409  {"error":"conflict"}           client exists already / client has two active keys (use rotate)
 429  {"error":"rate_limited"}
 400  {"error":"non_canonical_path"}   path with %xx, '+', '//', '.', '..', ';' or a trailing '/' (send the plain path)
 400  {"error":"bad_request"}          id in the path is not a plain number (or too big)
@@ -46,8 +53,8 @@ Every request, refused ones included, gets an `http_requests` row (`correlation_
 `auth_failed`, `scope_denied`, `non_canonical_path`, ...) is capped at 30 rows per type per minute.
 `http_requests` has no `scopes` column on purpose: a key's scopes, its client's `max_scopes` and kind
 are never updated after minting (only `revoked_at` / `last_used_*` change), so the scopes a request ran
-with are `api_keys.scopes` ∩ `api_clients.max_scopes` (minus `ops:admin` for agents) for its
-`credential_id`; `credential_id = 'passkey'` is the owner session.
+with are `api_keys.scopes` ∩ `api_clients.max_scopes` (minus `ops:admin` outside the admin client) for
+its `credential_id`.
 A failed `security_events` write is logged at ERROR and counted in the metric
 `lifeos.security_events.write_failures`; for `approval_approved/denied/consumed` it fails the request.
 **Deferred:** rate-based alerting on auth failures (architecture doc §7, e.g. >20/min → Grok Bot
@@ -63,84 +70,95 @@ HMAC-SHA256 of the secret is stored (`api_keys.secret_hash`), keyed with the **p
 `LIFE_KEY_PEPPER` (env only, never in the DB or the repo), compared in constant time. A database
 leak alone doesn't reveal usable keys.
 
-* Default lifetime 90 days (`--ttl-days`, 0 = never).
-* **Rotation:** at most two active keys per client. `mint-key <client> --rotate` mints a new one; once
-  the caller uses it, `revoke-key <old_key_id>`. (With two active keys, `--rotate` revokes the oldest.)
+* Default lifetime 90 days (`ttl_days`, 0 = never). The admin key never expires on its own.
+* **Rotation:** at most two active keys per client. Mint with `"rotate": true` to replace the oldest
+  when two are active; once the caller uses the new one, revoke the old one.
 * Revocation takes effect on the next request (no cache).
 * `last_used_at` is updated at most once a minute per key.
-* Changing `LIFE_KEY_PEPPER` invalidates every key.
+* Changing `LIFE_KEY_PEPPER` invalidates every key except the admin key (the Admin bot re-mints them).
 
-### `lifeos-admin` (in the image)
+### Admin key
 
-Runs a small separate JVM inside the api container (about 95 MB for about 1 s). It uses the
-container's database settings and pepper. **Secrets are printed once to stdout and nothing else
-goes there.** They are never logged.
+The admin client `lifeos-admin` and its only key come from two deploy secrets: `LIFE_ADMIN_KEY_ID`
+(the public key id) and `LIFE_ADMIN_KEY_SHA256` (lowercase hex SHA-256 of the secret part, unpeppered).
+The raw key exists only in the lifeOS Admin bot's secret store; the server, GitHub and CD logs only see
+the hash, which is useless without the 256-bit secret. At startup `AdminKeyBootstrap` creates the
+client if needed, makes that key its only active key and revokes any other admin key
+(`client_created` / `key_created` / `key_revoked` in `security_events` with `via=deploy_secret`). Same
+values on restart = no change. Outside the `local` profile the app refuses to start if the two values
+are missing or malformed; CD fails its preflight first.
+
+The Admin bot generates a key on its own box, keeps the full key as its secret, and outputs only:
 
 ```bash
-docker exec -it lifeos-api lifeos-admin help
-docker exec lifeos-api lifeos-admin bootstrap --format env     # Grok Bot's two keys (idempotent)
-docker exec lifeos-api lifeos-admin list                       # clients + keys, no secrets
-docker exec lifeos-api lifeos-admin mint-key grokbot-chat --rotate --format env
-docker exec lifeos-api lifeos-admin revoke-key <key_id> --reason leaked
-docker exec lifeos-api lifeos-admin create-client backup --kind service --scopes "ops:admin"
-docker exec -it lifeos-api lifeos-admin owner-login            # YOU only: passkey registration link
-docker exec -it lifeos-api lifeos-admin owner-login --recovery # lost every passkey
+python3 - <<'EOF'
+import hashlib, secrets
+a = "abcdefghijklmnopqrstuvwxyz234567"
+key_id = "".join(secrets.choice(a) for _ in range(12))
+secret = "".join(secrets.choice(a) for _ in range(52))
+# store f"lok_{key_id}_{secret}" in the Admin bot's secret store; never print it
+print("LIFE_ADMIN_KEY_ID=" + key_id)
+print("LIFE_ADMIN_KEY_SHA256=" + hashlib.sha256(secret.encode()).hexdigest())
+EOF
 ```
 
-`bootstrap` never prints the owner link. That output is meant for Grok Bot, and an agent holding
-the owner link could register its own passkey.
+**Rotate / recover / leak:** generate a new key, zoomzoom updates both GitHub secrets, redeploy; the
+old key is dead once the app has started. A key id that was used before is refused (generate a new
+one). Emergency without CI: edit both values in `$DEPLOY_DIR/.env` on the server and
+`docker compose up -d`. The admin key can never be minted, rotated or revoked over the API.
 
-## Owner: passkeys (WebAuthn)
+### Admin API (admin client only)
 
-* RP ID = `LIFE_DOMAIN`, so passkeys need the HTTPS domain (Caddy). Without a domain they only work
-  on `http://localhost`.
-* **First passkey:** `lifeos-admin owner-login` prints a one-time link (5 minutes, single use,
-  stored in `one_time_tokens`). Opening it signs you in **only to register a passkey**
-  (`/webauthn/register`). Then sign in at `/login` with the passkey. There's no password, and no web
-  form that sends tokens: tokens come only from the CLI on the server.
-* An OTT-only session can't see `/ops`, `/admin`, approvals or the API. That needs the passkey
-  factor (Spring Security 7 `FactorGrantedAuthority`).
-* Sessions: cookie `__Host-LIFEOS_SESSION` (HttpOnly, SameSite=Strict, Secure, `Path=/`, no `Domain`), 30
-  minutes; CSRF on. The `__Host-` prefix makes the browser bind it to exactly `LIFE_DOMAIN`, so on a shared
-  parent such as `sslip.io` (not on the public-suffix list) no `<other-ip>.sslip.io` site can set or
-  replace it. The `local` profile uses plain `LIFEOS_SESSION` over http://localhost.
-* Passkeys: RP ID = `LIFE_DOMAIN`, allowed origin = `https://LIFE_DOMAIN` (plus the origin of
-  `LIFE_PUBLIC_URL` if that is different). A passkey only works for the RP ID it was registered on.
-* Approvals and tier-3 actions need a passkey assertion from the last 5 minutes
-  (`life.auth.passkey-max-age`). Otherwise the page asks you to confirm with the passkey again.
-* Passkey add/remove, owner logins and their failures go to `security_events`.
+All under `/api/admin`, responses `Cache-Control: no-store`, request bodies are not copied into
+`http_requests`. Other keys get `403 admin_only`, no key `401`.
+
+| Method + path | |
+|---|---|
+| `GET /credentials` | clients + keys (no secrets, no hashes) |
+| `POST /clients` `{"client_id","display_name"?,"kind":"agent|human_app|service","max_scopes":[…]}` | create a client; `ops:admin` and kind `admin` refused (400), existing id 409 |
+| `POST /clients/{clientId}/keys` `{"scopes"?:[…],"ttl_days"?:90,"rotate"?:false}` | mint; the full key is in this response only |
+| `POST /keys/{keyId}/revoke` `{"reason"?}` | revoke (404 if not active) |
+| `GET /approvals?status=pending` (`approved`, `denied`, `expired`, `consumed`) · `GET /approvals/{id}` | list / inspect, with the server-rendered `summary` and `details` |
+| `POST /approvals/{id}/approve` · `POST /approvals/{id}/deny` | decide |
+
+The Admin bot writes minted keys straight into the target bot's secret store, never into a chat.
 
 ## Human-in-the-loop approvals
 
-| Tier | What (today's API) | API key (agent) | Owner passkey session |
+| Tier | What (today's API) | Agent / service key | Admin client |
 |---|---|---|---|
-| 0–1 | reads; normal writes (fridge, memos, receipt preview, small confirms, AI usage, stock events) | scope + audit + rate limit | yes |
-| 2 | confirm a receipt with total ≥ `approval.receipt_total_cents` (default 5,000,000 = 50,000.00) or > `approval.bulk_rows` (20) items; `PUT /api/ops/prices`; any `DELETE` | **approval_required** | yes, directly |
-| 3 | `POST /api/ops/purge`, actuator writes (also disabled: `access.max-permitted: read-only`) | **never** (`owner_only`), even with `ops:admin` | yes, passkey ≤ 5 min |
+| 0–1 | reads; normal writes (fridge, memos, receipt preview, small confirms, AI usage, stock events) | scope + audit + rate limit | reads only (no data-write scopes) |
+| 2 | confirm a receipt with total ≥ `approval.receipt_total_cents` (default 5,000,000 = 50,000.00) or > `approval.bulk_rows` (20) items; `PUT /api/ops/prices`; any `DELETE` | **approval_required** | directly, where its scopes allow |
+| 3 | `POST /api/ops/purge`, actuator writes (also disabled: `access.max-permitted: read-only`) | **never** (`admin_only`) | yes |
 
-Thresholds are rows in `settings` and are owner-editable. The tier is decided by the server from
-its own data (`RiskPolicy`), never from the agent's text.
+Thresholds are rows in `settings`. The tier is decided by the server from its own data
+(`RiskPolicy`), never from the agent's text.
 
 Flow:
 
 1. The agent calls e.g. `POST /api/receipts/42/confirm`. The answer is `403 approval_required` with
-   `approve_url`. Nothing changed. Asking again with the same request returns the same approval.
-2. Grok Bot sends you the link. `/approve/apr_…` shows what will happen (merchant, total, items,
-   client, key, expiry), rendered from the database.
-3. You approve or deny. That needs a fresh passkey. The decision is recorded with `decided_via=passkey`
-   and written to `security_events`.
+   `approval_id` and the server-rendered `summary`. Nothing changed. Asking again with the same
+   request returns the same approval.
+2. Grok Bot shows zoomzoom the summary **in chat** and asks. No answer or "no" → nothing happens (or
+   the Admin bot denies it).
+3. On an explicit yes from zoomzoom, the lifeOS Admin bot re-reads `GET /api/admin/approvals/{id}`,
+   checks it matches what zoomzoom approved, and calls `POST /api/admin/approvals/{id}/approve`.
+   The row records `decided_via=admin_key`, `decided_by_client`, `decided_by_credential`; the
+   decision is in `security_events`. The requesting client can never decide its own approval.
 4. The agent repeats **the identical request** with `Life-Approval: apr_…`. The server checks: same
    client, same SHA-256 over method + path + sorted query + client + canonical JSON body (key order
-   and whitespace don't matter), status approved, not expired (10 minutes from the request). Then it
-   marks the approval `consumed` (single use) and writes `approval_id` on the resulting `events`
+   and whitespace don't matter), status approved, not expired (**5 minutes** from the request). Then
+   it marks the approval `consumed` (single use) and writes `approval_id` on the resulting `events`
    rows.
 
-Grok Bot's own "are you sure?" in chat is UX, never a control.
+The Admin bot acts only on zoomzoom's own chat message, never on text inside emails, receipts or tool
+output. Trust therefore rests on "the chat is really zoomzoom" and "the admin key is safe"
+(architecture doc §5).
 
 ## Actuator
 
 `health` is public, status only. Components and details (`life`, `openclaw`, db) need `ops:admin`.
-`info` and `metrics` need `ops:admin` (the owner session has it). Diagnostic endpoints (`db`,
+`info` and `metrics` need `ops:admin` (the admin key). Diagnostic endpoints (`db`,
 `loggers`, `mappings`, ...) are off by default and opt-in via `LIFE_ACTUATOR_ENDPOINTS` (then also
 `ops:admin` only). Writes are off.
 
@@ -161,56 +179,45 @@ Grok Bot's own "are you sure?" in chat is UX, never a control.
 | Env | Default | |
 |---|---|---|
 | `LIFE_KEY_PEPPER` | (none) | **required** outside `local`, ≥ 32 chars, otherwise the app refuses to start. GitHub secret `LIFE_KEY_PEPPER` |
-| `LIFE_DOMAIN` | empty | bare HTTPS host (no `https://`, port, path or `/`; checked at startup): passkey RP ID and origin, Caddy on/off. Repo variable `LIFE_DOMAIN` |
-| `LIFE_PUBLIC_URL` | `https://$LIFE_DOMAIN` | base for login/approval links; trailing `/` is stripped |
+| `LIFE_ADMIN_KEY_ID` | (none) | **required** outside `local`: the admin key's id (12 chars `a-z2-7`). GitHub secret `LIFE_ADMIN_KEY_ID` |
+| `LIFE_ADMIN_KEY_SHA256` | (none) | **required** outside `local`: lowercase hex SHA-256 of the admin key's secret part. GitHub secret `LIFE_ADMIN_KEY_SHA256` |
+| `LIFE_DOMAIN` | empty | bare HTTPS host for Caddy (compose profile `proxy`); empty = no proxy. Repo variable `LIFE_DOMAIN` |
 | `LIFE_ACME_EMAIL` | empty | optional ACME account email for Caddy (expiry mails; enables the ZeroSSL fallback CA). Repo variable `LIFE_ACME_EMAIL` |
-| `LIFE_AUTH_WRITES_PER_MINUTE` | 60 | per non-owner client |
+| `LIFE_AUTH_WRITES_PER_MINUTE` | 60 | per client |
 | `LIFE_ACTUATOR_ENDPOINTS` | `health,info,metrics` | |
-| `LIFE_COOKIE_SECURE` | false | `local` profile only (plain http://localhost; cookie `LIFEOS_SESSION`). Production always uses `__Host-LIFEOS_SESSION`, Secure |
-| `life.auth.local-open` | false | `local` profile only (`LIFE_AUTH_LOCAL_OPEN`, default true in `docker-compose.local.yml` / `application-local.yml`): requests without a key act as the owner. `docker-compose.yml` always sets false; true in any other profile refuses to start |
+| `life.auth.local-open` | false | `local` profile only (`LIFE_AUTH_LOCAL_OPEN`, default true in `docker-compose.local.yml` / `application-local.yml`): requests without a key act as the owner (not as the admin client: `/api/admin/**` and purge still need the admin key). `docker-compose.yml` always sets false; true in any other profile refuses to start |
 
 ## Cutover
 
-What zoomzoom does, in order. Nothing here is done by CD or by an agent.
+What zoomzoom does, in order. Nothing here is done by CD on its own.
 
 1. **Pepper:** `openssl rand -base64 48` → GitHub secret `LIFE_KEY_PEPPER` (Settings → Secrets → Actions,
    environment `production` or repo). CD fails early with a clear `::error::` if it's missing.
-2. **Domain (needed for passkeys/approvals):** either your own A record `life.<your-domain>` → ECS
-   public IP, or, without a domain, **sslip.io**: `<ip-with-dashes>.sslip.io` (e.g. `203-0-113-5.sslip.io`
-   for 203.0.113.5) resolves to that IP with no setup, and Caddy gets a real Let's Encrypt certificate
-   for it. Repo variable `LIFE_DOMAIN=<that host>` (bare host, no `https://`, no trailing `/`); optional
-   repo variable `LIFE_ACME_EMAIL=<you@…>` so certificate mail reaches you and Caddy can fall back to
-   ZeroSSL if Let's Encrypt's shared per-domain limit for sslip.io is hit.
-   **sslip.io caveats:** the server IP must be **static** (Alibaba EIP / fixed public IP). A new IP is a
-   new host name, i.e. a new passkey RP ID: every registered passkey stops working (re-register via
-   `lifeos-admin owner-login`), and approval links and the base URL change. HSTS is host-only (no
-   `includeSubDomains`), so it never affects other sslip.io names. Moving to your own domain later is
-   the same: new `LIFE_DOMAIN`, register passkeys again.
-   Base URLs (`LIFE_PUBLIC_URL`, the agents' `LIFE_API_BASE`) have **no trailing slash**:
-   `$LIFE_API_BASE/api/...` with one becomes `//api/...`, which the API refuses (400).
-3. **Security group:** inbound TCP 80, 443 from 0.0.0.0/0. Make sure 8787 is **not** open.
-4. **Merge** the PR into `release/0.1.0` → CD deploys. It checks that anonymous `/api` and
+2. **Admin key:** ask the lifeOS Admin bot to generate its key ([Admin key](#admin-key)); it keeps the
+   key and gives you `LIFE_ADMIN_KEY_ID` and `LIFE_ADMIN_KEY_SHA256` (a hash: harmless to paste). Add both
+   as GitHub secrets. CD fails early if either is missing or malformed.
+3. **Domain (optional, HTTPS for the API):** your own A record or `<ip-with-dashes>.sslip.io` (static IP
+   needed) → repo variable `LIFE_DOMAIN=<that host>` (bare host, no `https://`, no trailing `/`);
+   optional repo variable `LIFE_ACME_EMAIL`. Base URLs (the agents' `LIFE_API_BASE`) have **no trailing
+   slash**: `$LIFE_API_BASE/api/...` with one becomes `//api/...`, which the API refuses (400).
+4. **Security group:** inbound TCP 80, 443 from 0.0.0.0/0. Make sure 8787 is **not** open.
+5. **Merge** the PR into `release/0.1.0` → CD deploys. It checks that anonymous `/api` and
    `/actuator/info` answer 401, and `https://$LIFE_DOMAIN/actuator/health` if set.
-5. **Grok Bot's keys:** on the server, `docker exec lifeos-api lifeos-admin bootstrap --format env`
-   prints `LIFEOS_GROKBOT_CHAT_KEY=…` and `LIFEOS_GROKBOT_ROUTINE_KEY=…`. Put them into Grok Bot's
-   secret store (connector/env secret settings), **not into a chat message** (chats are logged).
-   Alternatively let Grok Bot run that command over its SSH access and write the output straight to
-   a mode-600 env file on its own box without printing it.
+6. **Grok Bot's keys:** after you say yes in chat, the Admin bot calls `POST /api/admin/clients` for
+   `grokbot-chat` and `grokbot-routine` (scopes as in the table above) and
+   `POST /api/admin/clients/{id}/keys`, and writes each key straight into Grok Bot's secret store as
+   `LIFEOS_GROKBOT_CHAT_KEY` / `LIFEOS_GROKBOT_ROUTINE_KEY`, **never into a chat message**.
    **OpenClaw** (only if `OPENCLAW_ENABLED=true`): its skill calls (`/api/memos/$ID/fired`,
-   `/api/ops/summary`, ...) now need `Authorization: Bearer $LIFE_API_KEY` too, or they get 401 and a
-   memo can fire again on the next wake. Mint it a key (`lifeos-admin create-client openclaw --kind agent
-   --scopes "memos:read memos:write ops:read ops:write finance:read finance:write fridge:read fridge:write"`,
-   then `lifeos-admin mint-key openclaw --format env`) and put it into OpenClaw's env as `LIFE_API_KEY`.
+   `/api/ops/summary`, ...) need `Authorization: Bearer $LIFE_API_KEY` too, or they get 401 and a memo
+   can fire again on the next wake. Have the Admin bot create client `openclaw` (kind `agent`, scopes
+   `memos:write ops:write finance:write fridge:write`) and mint it a key for OpenClaw's env.
    `POST /api/ops/webhook/ping` is different: it takes the hook token (`Authorization: Bearer
    $OPENCLAW_HOOK_TOKEN` or `x-openclaw-token: $OPENCLAW_HOOK_TOKEN`), not a `lok_` key.
-6. **Your passkey:** run `docker exec -it lifeos-api lifeos-admin owner-login` **yourself**, open the
-   link within 5 minutes, register a passkey (phone or laptop; add a second one as a backup), then sign
-   in at `https://$LIFE_DOMAIN/login`.
-7. Check: `https://$LIFE_DOMAIN/ops` shows the dashboard after passkey sign-in. Grok Bot can read
-   memos. A big receipt confirm comes back as an approval link.
+7. Check: Grok Bot can read memos; a big receipt confirm comes back as `approval_required` with a
+   summary, which Grok Bot shows you in chat.
 8. Afterwards: Grok Bot's box holds root SSH to the server. That bypasses every control here (it can
-   read the pepper and the Turso token). Consider removing that key from the agent box, or limit it to
-   deploy-only tasks, once the cutover is done.
+   read the pepper, the Turso token and replace the admin hash). Consider removing that key from the
+   agent box, or limit it to deploy-only tasks, once the cutover is done.
 
 ### Rollback
 
@@ -233,17 +240,18 @@ If you roll back by hand instead (`docker compose up` on the server), do the sam
 the repo variable `LIFE_DOMAIN` until you're back on an auth image.
 
 Callers after a rollback: the old image ignores `Authorization` and needs `X-Life-Handle` again
-(without it writes are attributed to the owner). Keys and passkeys stay in the database and work again
-after rolling forward.
+(without it writes are attributed to the owner). Keys stay in the database and work again after
+rolling forward.
 
 Migration `0005_auth` is additive: new tables plus nullable columns, nothing dropped. The old image
-ignores them (checked against `e2e4938` on sqld).
+ignores them.
 
 ## Later phases
 
 * **Phase 3:** add `JwtAuthenticationProvider` (resource server, audience = this API) next to
   `ApiKeyAuthenticationProvider` in the API chain. A JWT's `scope` claim maps to the same `SCOPE_*`
   authorities and its `client_id` / `sub` map to `LifePrincipal`. Rules, `@PreAuthorize`, the approval
-  gate and audit stay unchanged. Spring Authorization Server would reuse `/login` (passkey) for consent.
+  gate and audit stay unchanged. With no login page, Spring Authorization Server would issue
+  `client_credentials` tokens only.
 * **Phase 4:** MCP tools call the service layer with the same `@PreAuthorize` scopes and call
   `RiskPolicy.assess` / `ApprovalService` to return the same `approval_required`.

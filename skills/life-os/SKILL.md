@@ -22,7 +22,7 @@ metadata:
 | Owner timezone | `Asia/Tokyo` |
 | Options timezone | `America/New_York` |
 | WeChat channel | `openclaw-weixin` |
-| Auth header | `Authorization: Bearer $LIFE_API_KEY` (a lifeOS API key, `lok_...`; see docs/auth.md). Grok Bot: `LIFE_API_KEY=$LIFEOS_GROKBOT_CHAT_KEY` in chat turns, `$LIFEOS_GROKBOT_ROUTINE_KEY` (read-only) in routines; OpenClaw: the key minted for client `openclaw`. Risky calls answer `403 approval_required`: send the owner the `approve_url`, then repeat the same request with `Life-Approval: <approval_id>` |
+| Auth header | `Authorization: Bearer $LIFE_API_KEY` (a lifeOS API key, `lok_...`; see docs/auth.md). Grok Bot: `LIFE_API_KEY=$LIFEOS_GROKBOT_CHAT_KEY` in chat turns, `$LIFEOS_GROKBOT_ROUTINE_KEY` (read-only) in routines; OpenClaw: the key minted for client `openclaw`. Risky calls answer `403 approval_required`: show zoomzoom the `summary` in chat and ask; nothing happens without an explicit yes. On yes the lifeOS Admin bot approves `approval_id` (within 5 minutes); then repeat the identical request with `Life-Approval: <approval_id>`. Never approve it yourself |
 
 All mutations go through the REST API. Do not write SQLite from this skill.
 

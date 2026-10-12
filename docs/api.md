@@ -5,7 +5,7 @@ Base URL: `http://localhost:8787` (or `$LIFE_API_BASE`)
 **Try it in the browser:** [Swagger UI](http://localhost:8787/swagger-ui.html)  
 OpenAPI JSON: `/v3/api-docs` (groups: `/v3/api-docs/api`, `/v3/api-docs/actuator`)
 
-1. Open Swagger UI, top-right **Authorize**, paste a lifeOS API key (`lok_...`, from `lifeos-admin`).
+1. Open Swagger UI, top-right **Authorize**, paste a lifeOS API key (`lok_...`, minted by the Admin bot via `/api/admin`).
 2. Dropdown **api** vs **actuator**.
 3. Expand an operation → **Try it out** → **Execute**.
 
@@ -13,7 +13,7 @@ This markdown is still the field-level contract (cents, fingerprints). Swagger r
 
 All responses are JSON. Money fields are **integer cents**. Times are UTC ISO-8601 with `Z` unless noted.
 
-Authentication: `Authorization: Bearer <lifeOS API key>`, scoped per client; the acting person comes from the key (`X-Life-Handle` is ignored). Risky calls answer `403 approval_required`. See [auth.md](auth.md).
+Authentication: `Authorization: Bearer <lifeOS API key>`, scoped per client; the acting person comes from the key (`X-Life-Handle` is ignored). Risky calls answer `403 approval_required`: ask zoomzoom in chat; after the admin client approves, repeat the request with `Life-Approval`. See [auth.md](auth.md).
 
 Common error shape:
 ```json

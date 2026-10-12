@@ -64,9 +64,11 @@ Unset or `true` = current behavior. `false` = the deploy skips `ensure-hook-toke
 | `SERVER_PK` | Private key PEM / OpenSSH |
 | `TURSO_AUTH_TOKEN` | Turso token for the production database |
 | `LIFE_KEY_PEPPER` | **Required.** HMAC key for API key hashes (`openssl rand -base64 48`). CD fails early without it and writes it to `~/lifeos/.env` (mode 600). See [auth.md](auth.md#cutover) |
+| `LIFE_ADMIN_KEY_ID` | **Required.** Key id of the lifeOS Admin bot's key. CD fails early without it and writes it to `~/lifeos/.env`. See [auth.md](auth.md#admin-key) |
+| `LIFE_ADMIN_KEY_SHA256` | **Required.** Lowercase hex SHA-256 of that key's secret part (never the key itself). Changing both and redeploying replaces the admin key |
 
 Repo **variable** `LIFE_DOMAIN` (optional): HTTPS host for Caddy (compose profile `proxy`, ports
-80/443, Let's Encrypt) and the passkey RP ID. After deploy CD checks anonymous `/api` and
+80/443, Let's Encrypt). After deploy CD checks anonymous `/api` and
 `/actuator/info` → 401.
 
 Repo **variable** `TURSO_DATABASE_URL` (or a secret of that name): the production database URL.
@@ -82,7 +84,7 @@ $HOME/lifeos/
   compose.yaml
   ensure-hook-token.sh
   docker/Caddyfile     # used when LIFE_DOMAIN is set
-  .env                 # mode 600; CD upserts LIFE_KEY_PEPPER, LIFE_DOMAIN, OPENCLAW_*
+  .env                 # mode 600; CD upserts LIFE_KEY_PEPPER, LIFE_ADMIN_KEY_*, LIFE_DOMAIN, OPENCLAW_*
   data/life.db
   data/backups/
 ```

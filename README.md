@@ -182,7 +182,7 @@ openclaw skills list    # 应有 life-os
 
 `skills.load.watch` 默认 `true`，改 `SKILL.md` 下一轮对话会刷新。
 
-skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `Authorization: Bearer $LIFE_API_KEY`（`lifeos-admin` 生成，按客户端限定 scope；身份来自 key，`X-Life-Handle` 已忽略）。认证/审批/passkey 见 [docs/auth.md](docs/auth.md)。  
+skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `Authorization: Bearer $LIFE_API_KEY`（由 lifeOS Admin bot 通过 `/api/admin` 签发，按客户端限定 scope；身份来自 key，`X-Life-Handle` 已忽略）。认证/审批见 [docs/auth.md](docs/auth.md)。  
 把 `people.handle` 从占位 `owner` 改成真实微信 id。时区默认 **Asia/Tokyo**；期权 cron 用 **America/New_York**。
 
 自动加载失败时：
@@ -214,7 +214,7 @@ skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `Authorization
 docker compose up -d --build
 docker compose --profile sync run --rm skill-sync
 curl -fsS http://localhost:8787/actuator/health
-curl -fsS http://localhost:8787/api/ops/should-wake -H "Authorization: Bearer $LIFE_API_KEY"   # key: lifeos-admin bootstrap / mint-key
+curl -fsS http://localhost:8787/api/ops/should-wake -H "Authorization: Bearer $LIFE_API_KEY"   # key: minted by the Admin bot (POST /api/admin/clients/{id}/keys)
 ```
 
 - API: http://localhost:8787/actuator/health

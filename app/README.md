@@ -35,5 +35,5 @@ Swagger UI: http://localhost:8787/swagger-ui.html
 ## Notes
 
 - Schema auto-applied on first start if `people` table missing.
-- Auth: `Authorization: Bearer lok_...` API keys, owner passkeys, approvals for risky calls (see `docs/auth.md`). `X-Life-Handle` is ignored.
+- Auth: `Authorization: Bearer lok_...` API keys, one admin client (`lifeos-admin`, key from the deploy secrets), approvals for risky calls decided by it after a yes in chat (see `docs/auth.md`). `X-Life-Handle` is ignored.
 - This is a skeleton: expiry memo auto-creation, food_knowledge defaults, stock events still thin.
