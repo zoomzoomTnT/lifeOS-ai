@@ -1,8 +1,12 @@
 package com.lifeos.security.approval;
 
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.UnsatisfiedServletRequestParameterException;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.util.ServletRequestPathUtils;
 
@@ -20,7 +24,7 @@ public class RouteCheck {
     }
 
     /** 200 = handled, 404 = no such route, 405 = route exists for other methods. */
-    public int status(HttpServletRequest req) {
+    public int status(HttpServletRequest req) throws ServletException {
         RequestMappingHandlerMapping m = mappings.getIfAvailable();
         if (m == null) return 200; // no MVC (not in this app): don't block
         Object previous = req.getAttribute(ServletRequestPathUtils.PATH_ATTRIBUTE);
@@ -29,8 +33,11 @@ public class RouteCheck {
             return m.getHandler(req) != null ? 200 : 404;
         } catch (HttpRequestMethodNotSupportedException e) {
             return 405;
+        } catch (HttpMediaTypeNotSupportedException | HttpMediaTypeNotAcceptableException
+                 | UnsatisfiedServletRequestParameterException e) {
+            return 200; // the route exists but this request doesn't fit it: let MVC answer (415/406/400)
         } catch (Exception e) {
-            return 200; // e.g. media type mismatch: the route exists; let MVC answer
+            throw new ServletException("handler lookup failed for " + req.getMethod() + " " + req.getRequestURI(), e);
         } finally {
             if (previous != null) req.setAttribute(ServletRequestPathUtils.PATH_ATTRIBUTE, previous);
             else req.removeAttribute(ServletRequestPathUtils.PATH_ATTRIBUTE);
