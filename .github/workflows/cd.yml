@@ -129,7 +129,7 @@ jobs:
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED,LIFE_KEY_PEPPER,LIFE_DOMAIN,LIFE_ACME_EMAIL,EXPLICIT_IMAGE
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED,LIFE_KEY_PEPPER,LIFE_ADMIN_KEY_ID,LIFE_ADMIN_KEY_SHA256,LIFE_DOMAIN,LIFE_ACME_EMAIL,EXPLICIT_IMAGE
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -140,6 +140,8 @@ jobs:
             [ -n "${TURSO_DATABASE_URL:-}" ] || unset TURSO_DATABASE_URL
             [ -n "${TURSO_AUTH_TOKEN:-}" ] || unset TURSO_AUTH_TOKEN
             [ -n "${LIFE_KEY_PEPPER:-}" ] || unset LIFE_KEY_PEPPER
+            [ -n "${LIFE_ADMIN_KEY_ID:-}" ] || unset LIFE_ADMIN_KEY_ID
+            [ -n "${LIFE_ADMIN_KEY_SHA256:-}" ] || unset LIFE_ADMIN_KEY_SHA256
 
             # Preflight: fail loudly (a bare `command -v docker` under set -e exits 1 with no output).
             echo "preflight: host=$(hostname) user=$(id -un) groups=$(id -Gn)"
@@ -180,6 +182,18 @@ jobs:
             fi
             echo "preflight: LIFE_KEY_PEPPER present (${PEPPER_LEN} chars)"
 
+            # Preflight: the admin key (lifeOS Admin bot) as key id + SHA-256 of its secret. The app
+            # refuses to start without them. GitHub secrets of the same names, else $DEPLOY_DIR/.env.
+            envval() { [ -r "$DEPLOY_DIR/.env" ] || return 0; sed -n "s/^$1=//p" "$DEPLOY_DIR/.env" | tail -n 1; }
+            ADMIN_ID="${LIFE_ADMIN_KEY_ID:-$(envval LIFE_ADMIN_KEY_ID)}"
+            ADMIN_SHA="${LIFE_ADMIN_KEY_SHA256:-$(envval LIFE_ADMIN_KEY_SHA256)}"
+            if ! printf '%s' "$ADMIN_ID" | grep -Eqx '[a-z2-7]{12}' || ! printf '%s' "$ADMIN_SHA" | grep -Eqx '[0-9a-f]{64}'; then
+              echo "::error::LIFE_ADMIN_KEY_ID / LIFE_ADMIN_KEY_SHA256 missing or malformed. zoomzoom: add both GitHub secrets (the lifeOS Admin bot generates them; see docs/auth.md#admin-key) and re-run. Nothing on the host was changed."
+              exit 1
+            fi
+            echo "preflight: admin key id ${ADMIN_ID}"
+            unset ADMIN_SHA
+
             mkdir -p "$DEPLOY_DIR/data/backups" "$DEPLOY_DIR/openclaw-disabled" "$DEPLOY_DIR/docker"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
             cp /tmp/lifeos-cd/docker/Caddyfile "$DEPLOY_DIR/docker/Caddyfile"
@@ -201,8 +215,8 @@ jobs:
             fi
             echo "OPENCLAW_ENABLED=$OC"
 
-            # Auth settings into .env (mode 600) so restarts and `docker exec lifeos-api lifeos-admin`
-            # see the same values. Written with awk, never echoed.
+            # Auth settings into .env (mode 600) so restarts and manual deploys see the same values.
+            # Written with awk, never echoed.
             upsert_env() {
               local k="$1" v="$2" tmp
               tmp="$(mktemp "$DEPLOY_DIR/.env.XXXXXX")"
@@ -210,6 +224,8 @@ jobs:
               chmod 600 "$tmp"; mv "$tmp" .env
             }
             if [ -n "${LIFE_KEY_PEPPER:-}" ]; then upsert_env LIFE_KEY_PEPPER "$LIFE_KEY_PEPPER"; fi
+            if [ -n "${LIFE_ADMIN_KEY_ID:-}" ]; then upsert_env LIFE_ADMIN_KEY_ID "$LIFE_ADMIN_KEY_ID"; fi
+            if [ -n "${LIFE_ADMIN_KEY_SHA256:-}" ]; then upsert_env LIFE_ADMIN_KEY_SHA256 "$LIFE_ADMIN_KEY_SHA256"; fi
             upsert_env LIFE_DOMAIN "${LIFE_DOMAIN:-}"
             upsert_env LIFE_ACME_EMAIL "${LIFE_ACME_EMAIL:-}"
             chmod 600 .env
@@ -218,7 +234,7 @@ jobs:
               PROFILES="--profile proxy"
               echo "LIFE_DOMAIN=${LIFE_DOMAIN}: Caddy HTTPS proxy on 80/443"
             else
-              echo "LIFE_DOMAIN not set: no HTTPS proxy; API on 127.0.0.1:8787 only (passkeys need the domain)"
+              echo "LIFE_DOMAIN not set: no HTTPS proxy; API on 127.0.0.1:8787 only"
             fi
 
             MINTED=0
@@ -318,9 +334,6 @@ jobs:
                 sleep 5
               done
             fi
-            if ! docker exec lifeos-api lifeos-admin list 2>/dev/null | grep -q 'grokbot-chat'; then
-              echo "::notice::No Grok Bot keys yet. On the server: docker exec lifeos-api lifeos-admin bootstrap (see docs/auth.md#cutover)."
-            fi
             docker compose -f compose.yaml ps || true
             docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
             if [ "$OC" = "true" ]; then
@@ -337,6 +350,8 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}
           LIFE_KEY_PEPPER: ${{ secrets.LIFE_KEY_PEPPER }}
+          LIFE_ADMIN_KEY_ID: ${{ secrets.LIFE_ADMIN_KEY_ID }}
+          LIFE_ADMIN_KEY_SHA256: ${{ secrets.LIFE_ADMIN_KEY_SHA256 }}
           LIFE_DOMAIN: ${{ vars.LIFE_DOMAIN }}
           LIFE_ACME_EMAIL: ${{ vars.LIFE_ACME_EMAIL }}
           # Only a manual run naming an image (rollback) may deploy a pre-auth image.

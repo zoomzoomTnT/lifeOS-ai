@@ -22,8 +22,7 @@ RUN apt-get update \
 COPY --from=build /build/target/life-os-app.jar /app/app.jar
 COPY skills/life-os /opt/life-os-skill
 COPY docker/sync-skill.sh /app/sync-skill.sh
-COPY docker/lifeos-admin.sh /usr/local/bin/lifeos-admin
-RUN chmod +x /app/sync-skill.sh /usr/local/bin/lifeos-admin
+RUN chmod +x /app/sync-skill.sh
 
 WORKDIR /app
 

@@ -111,6 +111,9 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.local.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?true"?$'
           # prod: diagnostic actuator endpoints (db, ...) are opt-in
           docker compose -f docker-compose.yml config | grep -Eq 'LIFE_ACTUATOR_ENDPOINTS: "?health,info,metrics"?$'
+          # the admin key's id + hash reach the app; nothing passkey-related is left
+          LIFE_ADMIN_KEY_ID=abcdefghijkl LIFE_ADMIN_KEY_SHA256=00ff docker compose -f docker-compose.yml config --format json \
+            | jq -e '.services.api.environment | .LIFE_ADMIN_KEY_ID == "abcdefghijkl" and .LIFE_ADMIN_KEY_SHA256 == "00ff" and (has("LIFE_PUBLIC_URL") or has("LIFE_DOMAIN") | not)'
           docker run --rm -e LIFE_DOMAIN=ci.example.com -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           # with LIFE_ACME_EMAIL, as compose renders it (global "email" option)
@@ -157,42 +160,57 @@ jobs:
             '{"type":"session","timestamp":"2026-08-26T00:00:00Z","id":"ci-sess"}' \
             '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
             > "$OPENCLAW_HOME/agents/main/sessions/ci.jsonl"
-          # Real auth inside the image (local profile, but local-open off): keys come from lifeos-admin.
+          # Real auth inside the image (local profile, but local-open off). Like CD: a throwaway admin
+          # key generated here; the app only gets its key id + SHA-256. Agent keys are minted over REST.
           export LIFE_AUTH_LOCAL_OPEN=false
           export LIFE_KEY_PEPPER="ci-pepper-$(openssl rand -hex 24)"
+          b32() { python3 -c "import secrets,sys;a='abcdefghijklmnopqrstuvwxyz234567';print(''.join(secrets.choice(a) for _ in range(int(sys.argv[1]))))" "$1"; }
+          ADMIN_ID="$(b32 12)"; ADMIN_SECRET="$(b32 52)"
+          ADMIN="lok_${ADMIN_ID}_${ADMIN_SECRET}"
+          export LIFE_ADMIN_KEY_ID="$ADMIN_ID"
+          export LIFE_ADMIN_KEY_SHA256="$(printf '%s' "$ADMIN_SECRET" | sha256sum | cut -d' ' -f1)"
           test "$(docker image inspect lifeos-ai:ci --format '{{ index .Config.Labels "lifeos.auth" }}')" = 1  # CD's proxy guard
           docker compose up -d --wait --wait-timeout 90
           B=http://localhost:8787
           code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          J='Content-Type: application/json'
 
-          # public: health status only, docs, ops page shell
+          # public: health status only, docs; no login page of any kind
           curl -fsS $B/actuator/health | grep -q '"status":"UP"'
           ! curl -fsS $B/actuator/health | grep -q '"components"'
           curl -fsS $B/v3/api-docs/api | grep -q '"openapi"'
           curl -fsS $B/swagger-ui/index.html | grep -qi swagger
-          curl -fsS $B/login | grep -q 'Sign in with a passkey'
+          test "$(code $B/login)" = 403
+          test "$(code $B/ops/index.html)" = 403
 
           # no credential / bad credential
           test "$(code $B/api/ops/summary)" = 401
           test "$(code -H 'Authorization: Bearer lok_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' $B/api/ops/summary)" = 401
           test "$(code -H 'X-Life-Handle: owner' $B/api/ops/summary)" = 401
           test "$(code $B/actuator/db)" = 401
+          test "$(code -X POST -H "$J" -d '{"client_id":"x","kind":"agent","max_scopes":["memos:read"]}' $B/api/admin/clients)" = 401
 
-          # the CLI in the image: Grok Bot's two keys (stdout = keys only) + an ops:admin service key
-          docker compose exec -T api lifeos-admin bootstrap --format env > /tmp/keys.env
-          test "$(wc -l < /tmp/keys.env)" = 2
-          . /tmp/keys.env
-          docker compose exec -T api lifeos-admin create-client ci-ops --kind service --scopes "ops:admin"
-          OPS="$(docker compose exec -T api lifeos-admin mint-key ci-ops --format env | sed -n 's/^[A-Z_]*=//p')"
-          CHAT="$LIFEOS_GROKBOT_CHAT_KEY"; ROUTINE="$LIFEOS_GROKBOT_ROUTINE_KEY"
-          # bootstrap is idempotent: no new keys the second time
-          test "$(docker compose exec -T api lifeos-admin bootstrap --format env | wc -l)" = 0
+          # the admin key (from the hash in env) works; it mints Grok Bot's two keys over REST
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/api/admin/credentials | grep -q lifeos-admin
+          mint() {
+            curl -fsS -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d "{\"client_id\":\"$1\",\"kind\":\"agent\",\"max_scopes\":$2}" $B/api/admin/clients >/dev/null
+            curl -fsS -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d '{}' -D /tmp/mint.h "$B/api/admin/clients/$1/keys" | jq -r .key
+          }
+          CHAT="$(mint grokbot-chat '["finance:write","fridge:write","memos:write","stocks:write","ops:read","ops:write"]')"
+          grep -qi '^cache-control: no-store' /tmp/mint.h
+          ROUTINE="$(mint grokbot-routine '["memos:read","ops:read"]')"
+          case "$CHAT" in lok_*) ;; *) echo "mint failed"; exit 1 ;; esac
+          # never ops:admin for an agent
+          test "$(code -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d '{"client_id":"ci-evil","kind":"agent","max_scopes":["ops:admin"]}' $B/api/admin/clients)" = 400
+          # agent keys can't use the admin API
+          test "$(code -H "Authorization: Bearer $CHAT" $B/api/admin/credentials)" = 403
           # secrets never reach the container log
           ! docker compose logs api | grep -qF "${CHAT#lok_*_}"
+          ! docker compose logs api | grep -qF "$ADMIN_SECRET"
 
-          curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/health | grep -q '"life"'
-          curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/db | grep -q ownerTimezone   # local profile exposes all
-          curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/info | grep -q life-os-app
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/actuator/health | grep -q '"life"'
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/actuator/db | grep -q ownerTimezone   # local profile exposes all
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/actuator/info | grep -q life-os-app
           test "$(code -H "Authorization: Bearer $CHAT" $B/actuator/db)" = 403
 
           AI=$(curl -fsS -X POST $B/api/ops/ai \
@@ -217,13 +235,18 @@ jobs:
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
           curl -fsS -H "Authorization: Bearer $ROUTINE" "$B/api/ops/http?limit=10" | grep -q '/api/receipts/lookup'
-          # tier 2: price change by the agent waits for the owner; tier 3: purge never with a key
-          curl -s -X PUT $B/api/ops/prices -H "Authorization: Bearer $CHAT" -H 'Content-Type: application/json' \
-            -d '{"provider":"xai","model":"ci","input_usd_micros_per_mtok":1,"output_usd_micros_per_mtok":1}' | grep -q approval_required
-          test "$(code -X POST -H "Authorization: Bearer $OPS" -H 'Content-Type: application/json' -d '{}' $B/api/ops/purge)" = 403
-          # the ops page itself needs the owner's passkey session
-          test "$(code $B/ops/index.html)" = 302
-          rm -f /tmp/keys.env
+          # tier 2: the agent's price change waits for an approval the admin key decides
+          PRICE='{"provider":"xai","model":"ci","input_usd_micros_per_mtok":1,"output_usd_micros_per_mtok":1}'
+          APR="$(curl -s -X PUT $B/api/ops/prices -H "Authorization: Bearer $CHAT" -H "$J" -d "$PRICE" | jq -r 'select(.error=="approval_required") | .approval_id')"
+          test -n "$APR"
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" "$B/api/admin/approvals/$APR/approve")" = 403
+          curl -fsS -X POST -H "Authorization: Bearer $ADMIN" "$B/api/admin/approvals/$APR/approve" | grep -q '"decided_by_client":"lifeos-admin"'
+          test "$(code -X PUT -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d "$PRICE" $B/api/ops/prices)" = 200
+          test "$(code -X PUT -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d "$PRICE" $B/api/ops/prices)" = 403
+          # tier 3: purge only with the admin key
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" -H "$J" -d '{}' $B/api/ops/purge)" = 403
+          test "$(code -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d '{"older_than_days":3650}' $B/api/ops/purge)" = 200
+          rm -f /tmp/mint.h
           ING=$(curl -fsS -X POST -H "Authorization: Bearer $CHAT" http://localhost:8787/api/ops/logs/ingest)
           echo "$ING"
           echo "$ING" | grep -q 'session_rows'

@@ -1,7 +1,6 @@
 # HTTPS front for lifeos-api. Certificates are issued and renewed automatically (Let's Encrypt)
 # for $LIFE_DOMAIN, which must resolve to this server and have ports 80 + 443 reachable.
-# Caddy only adds TLS (+ X-Forwarded-*); the app does all authentication. Passkeys need this
-# HTTPS origin: the WebAuthn RP ID is $LIFE_DOMAIN.
+# Caddy only adds TLS (+ X-Forwarded-*); the app does all authentication (Bearer API keys).
 # Global options. LIFE_ACME_EMAIL (optional) becomes "email <addr>": the ACME account address for
 # expiry notices and for ZeroSSL, Caddy's fallback CA when Let's Encrypt refuses (e.g. the shared
 # rate limit on sslip.io names). Unset = no email line.

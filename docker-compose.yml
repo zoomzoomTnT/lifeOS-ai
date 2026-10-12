@@ -8,7 +8,7 @@ services:
     ports:
       # Loopback only by default: expose via the `proxy` profile (Caddy, HTTPS) below.
       # LIFE_API_BIND=0.0.0.0 publishes plain HTTP on all interfaces (not recommended: API keys
-      # and session cookies would travel unencrypted, and passkeys need HTTPS anyway).
+      # would travel unencrypted).
       - "${LIFE_API_BIND:-127.0.0.1}:${LIFE_API_PORT:-8787}:8787"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -20,11 +20,13 @@ services:
       TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
       LIFE_API_PORT: "8787"
       # Auth (docs/auth.md). LIFE_KEY_PEPPER: HMAC key for API key hashes, >= 32 chars, required in
-      # production (the app refuses to start without it). Changing it invalidates every API key.
+      # production (the app refuses to start without it). Changing it invalidates every API key
+      # except the admin key.
       LIFE_KEY_PEPPER: ${LIFE_KEY_PEPPER:-}
-      # Public HTTPS host (Caddy) = passkey RP ID; owner login and approval links use it.
-      LIFE_DOMAIN: ${LIFE_DOMAIN:-}
-      LIFE_PUBLIC_URL: ${LIFE_PUBLIC_URL:-}
+      # The lifeOS Admin bot's key (client lifeos-admin): key id + SHA-256 of the secret part, never
+      # the key itself. Required in production; changing them replaces the admin key at startup.
+      LIFE_ADMIN_KEY_ID: ${LIFE_ADMIN_KEY_ID:-}
+      LIFE_ADMIN_KEY_SHA256: ${LIFE_ADMIN_KEY_SHA256:-}
       LIFE_AUTH_WRITES_PER_MINUTE: ${LIFE_AUTH_WRITES_PER_MINUTE:-60}
       LIFE_ACTUATOR_ENDPOINTS: ${LIFE_ACTUATOR_ENDPOINTS:-health,info,metrics}
       # Always false here: the app refuses to start with local-open=true outside the `local` profile.
