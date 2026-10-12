@@ -254,7 +254,9 @@ jobs:
               openclaw config validate
             fi
 
-            docker compose -f compose.yaml $PROFILES pull || true
+            if ! docker compose -f compose.yaml $PROFILES pull; then
+              echo "::error::docker compose pull failed; not deploying"; exit 1
+            fi
             # Fail closed: the image must be inspectable, and only an explicit rollback (manual run with
             # image_tag) may deploy a pre-auth image (no lifeos.auth=1 label, e.g. sha-e2e4938). That one
             # has NO API authentication: never behind the public proxy, never on a public bind.
