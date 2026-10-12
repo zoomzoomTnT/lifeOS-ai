@@ -28,6 +28,11 @@ public final class ScopeRules {
         public boolean isPublic() {
             return scope == null;
         }
+
+        /** Needs the admin client itself (kind admin), not just the scope. */
+        public boolean adminClientOnly() {
+            return pattern.startsWith("/api/admin/");
+        }
     }
 
     private static final HttpMethod GET = HttpMethod.GET, POST = HttpMethod.POST, PUT = HttpMethod.PUT;
@@ -37,7 +42,9 @@ public final class ScopeRules {
             Rule.of(GET, "/actuator/health", null),
             Rule.of(GET, "/actuator/health/**", null),
             Rule.of(POST, "/api/ops/webhook/ping", null),          // OPENCLAW_HOOK_TOKEN, checked in the controller
-            // actuator: owner / ops:admin only
+            // admin client only (kind admin + ops:admin): keys, clients, approvals
+            Rule.of(null, "/api/admin/**", OPS_ADMIN),
+            // actuator: ops:admin only
             Rule.of(null, "/actuator/**", OPS_ADMIN),
             // finance
             Rule.of(GET, "/api/receipts", FINANCE_READ),
@@ -59,7 +66,7 @@ public final class ScopeRules {
             Rule.of(null, "/api/holdings", STOCKS_WRITE),
             Rule.of(null, "/api/holdings/**", STOCKS_WRITE),
             // ops
-            Rule.of(POST, "/api/ops/purge", OPS_ADMIN),            // tier 3: never an agent
+            Rule.of(POST, "/api/ops/purge", OPS_ADMIN),            // tier 3: the admin client only
             Rule.of(GET, "/api/ops/**", OPS_READ),
             Rule.of(POST, "/api/ops/ai", OPS_WRITE),
             Rule.of(POST, "/api/ops/logs/ingest", OPS_WRITE),

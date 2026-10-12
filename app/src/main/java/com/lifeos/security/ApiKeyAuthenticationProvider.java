@@ -22,15 +22,19 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Verifies {@code lok_<keyId>_<secret>} against api_keys: HMAC matches (constant time), not revoked,
- * not expired, client enabled. Effective scopes = key scopes ∩ client ceiling, never ops:admin for an
- * agent, then expanded (write ⇒ read). Every check hits the database, so revocation is immediate.
+ * Verifies {@code lok_<keyId>_<secret>} against api_keys: the stored hash matches (constant time), not
+ * revoked, not expired, client enabled. Normal keys store HMAC-SHA256(pepper, secret); the admin
+ * client's key stores the unpeppered SHA-256 it was configured with (LIFE_ADMIN_KEY_SHA256). Effective
+ * scopes = key scopes ∩ client ceiling, never ops:admin outside the admin client, then expanded
+ * (write ⇒ read). Every check hits the database, so revocation is immediate.
  */
 public class ApiKeyAuthenticationProvider implements AuthenticationProvider {
 
     private static final Logger log = LoggerFactory.getLogger(ApiKeyAuthenticationProvider.class);
 
     public static final String ROLE_API_CLIENT = "ROLE_API_CLIENT";
+    /** Only the admin client's key carries it; /api/admin/** requires it next to ops:admin. */
+    public static final String ROLE_ADMIN_CLIENT = "ROLE_ADMIN_CLIENT";
     /** last_used_at is refreshed at most this often per key (fewer writes), or on a new IP. */
     static final long TOUCH_EVERY_SECONDS = 60;
 
@@ -57,7 +61,11 @@ public class ApiKeyAuthenticationProvider implements AuthenticationProvider {
             hasher.hash(parsed.secret()); // same work as a real check
             throw new ApiKeyAuthenticationException("unknown_key", parsed.keyId());
         }
-        if (!hasher.matches(parsed.secret(), key.secretHash())) {
+        ClientKind kind = ClientKind.fromDb(key.clientKind());
+        boolean secretOk = kind == ClientKind.ADMIN
+                ? KeyHasher.equalHex(KeyHasher.sha256Hex(parsed.secret()), key.secretHash())
+                : hasher.matches(parsed.secret(), key.secretHash());
+        if (!secretOk) {
             throw new ApiKeyAuthenticationException("bad_secret", key.keyId());
         }
         Instant now = Instant.now(clock);
@@ -67,17 +75,18 @@ public class ApiKeyAuthenticationProvider implements AuthenticationProvider {
         }
         if (key.clientDisabledAt() != null) throw new ApiKeyAuthenticationException("client_disabled", key.keyId());
 
-        ClientKind kind = ClientKind.fromDb(key.clientKind());
         Set<String> ceiling = Scopes.expand(Scopes.parse(key.maxScopes()));
         Set<String> scopes = new TreeSet<>(Scopes.parse(key.scopes()));
         scopes.retainAll(ceiling);
-        if (kind == ClientKind.AGENT) scopes.remove(Scopes.OPS_ADMIN);
+        if (kind != ClientKind.ADMIN) scopes.remove(Scopes.OPS_ADMIN);
         Set<String> effective = Set.copyOf(Scopes.expand(scopes));
 
         touch(key, now);
 
         LifePrincipal principal = new LifePrincipal(key.personId(), key.clientId(), key.keyId(), kind, effective);
-        return new ApiKeyAuthenticationToken(principal, authorities(effective));
+        List<GrantedAuthority> authorities = authorities(effective);
+        if (kind == ClientKind.ADMIN) authorities.add(new SimpleGrantedAuthority(ROLE_ADMIN_CLIENT));
+        return new ApiKeyAuthenticationToken(principal, authorities);
     }
 
     static List<GrantedAuthority> authorities(Set<String> scopes) {

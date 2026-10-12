@@ -77,8 +77,13 @@ class AuthUnitTest {
         assertThat(AuthSettingsCheck.problem("x".repeat(32), true, false)).contains("only allowed with the `local` profile");
         assertThat(AuthSettingsCheck.problem("x".repeat(32), false, false)).isNull();
         assertThat(AuthSettingsCheck.problem("x".repeat(32), true, true)).isNull();
-        assertThatThrownBy(() -> AuthSettingsCheck.validate(null, false, false, "x.example.com"))
+        assertThatThrownBy(() -> AuthSettingsCheck.validate(null, false, false, null, null))
                 .isInstanceOf(IllegalStateException.class);
+        String sha = KeyHasher.sha256Hex("s");
+        assertThatThrownBy(() -> AuthSettingsCheck.validate("x".repeat(32), false, false, null, null))
+                .hasMessageContaining("LIFE_ADMIN_KEY_ID and LIFE_ADMIN_KEY_SHA256 are not set");
+        AuthSettingsCheck.validate("x".repeat(32), false, false, "abcdefghijkl", sha);
+        AuthSettingsCheck.validate("x".repeat(32), false, true, null, null);
     }
 
     @Test
@@ -100,9 +105,9 @@ class AuthUnitTest {
         // reads are never limited
         f.doFilter(new MockHttpServletRequest("GET", "/api/memos/due"), new MockHttpServletResponse(), chain);
         assertThat(passed[0]).isEqualTo(4);
-        // owner sessions are not limited
-        LifePrincipal owner = new LifePrincipal(1, "owner-web", "passkey", ClientKind.OWNER_SESSION, Set.of());
-        SecurityContextHolder.getContext().setAuthentication(new ApiKeyAuthenticationToken(owner, List.of()));
+        // local development (local-open) is not limited
+        LifePrincipal local = new LifePrincipal(1, "local-dev", "local", ClientKind.LOCAL_DEV, Set.of());
+        SecurityContextHolder.getContext().setAuthentication(new ApiKeyAuthenticationToken(local, List.of()));
         f.doFilter(new MockHttpServletRequest("POST", "/api/memos"), new MockHttpServletResponse(), chain);
         assertThat(passed[0]).isEqualTo(5);
     }

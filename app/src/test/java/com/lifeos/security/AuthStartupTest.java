@@ -12,7 +12,10 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Production (default profile) refuses to start without a pepper; local-open is local-only. */
+/**
+ * Production (default profile) refuses to start without a pepper; local-open is local-only; `local`
+ * starts without any secret (the admin key checks are in {@link AdminKeyBootstrapTest}).
+ */
 class AuthStartupTest {
 
     static final String[] QUIET = {"--life.openclaw.enabled=false", "--life.proactive.cron=-",

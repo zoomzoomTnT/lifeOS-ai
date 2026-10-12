@@ -35,15 +35,17 @@ class ScopeAnnotationConsistencyTest extends AuthHttpTestBase {
                     req.setServletPath(path);
                     var rule = ScopeRules.match(req);
                     assertThat(rule).as(method + " " + pattern + " has a ScopeRules entry").isPresent();
-                    PreAuthorize pre = e.getValue().getMethodAnnotation(PreAuthorize.class);
+                    PreAuthorize pre = e.getValue().hasMethodAnnotation(PreAuthorize.class)
+                            ? e.getValue().getMethodAnnotation(PreAuthorize.class)
+                            : e.getValue().getBeanType().getAnnotation(PreAuthorize.class);
                     if (rule.get().isPublic()) {
                         assertThat(pre).as(method + " " + pattern + " is public").isNull();
                     } else {
                         assertThat(pre).as(method + " " + pattern + " needs @PreAuthorize").isNotNull();
                         String scopeCheck = "hasAuthority('SCOPE_" + rule.get().scope() + "')";
-                        if (pattern.equals("/api/ops/purge")) { // tier 3: scope AND fresh owner passkey
+                        if (pattern.equals("/api/ops/purge") || rule.get().adminClientOnly()) { // scope AND the admin client
                             assertThat(pre.value()).as(method + " " + pattern)
-                                    .isEqualTo(scopeCheck + " and @tier3.freshOwner(authentication)");
+                                    .isEqualTo(scopeCheck + " and @adminClient.check(authentication)");
                         } else {
                             assertThat(pre.value()).as(method + " " + pattern).isEqualTo(scopeCheck);
                         }

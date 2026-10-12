@@ -66,6 +66,12 @@ public class ApiExceptionHandler {
                         + (rid == null ? "?" : rid) + ")", "details", Map.of()));
     }
 
+    @ExceptionHandler(com.lifeos.security.ApiKeyService.Conflict.class)
+    public ResponseEntity<?> conflict(com.lifeos.security.ApiKeyService.Conflict ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "conflict", "message", String.valueOf(ex.getMessage()), "details", Map.of()));
+    }
+
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<?> notFound(NotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)

@@ -1,5 +1,6 @@
 package com.lifeos.security.approval;
 
+import com.lifeos.security.ClientKind;
 import com.lifeos.security.LifePrincipal;
 import com.lifeos.security.SecurityEventLog;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -15,20 +16,22 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * approval_requests: create (pending, 10 min), owner decision (approved / denied, passkey), and the
- * single-use consume when the agent retries with {@code Life-Approval}. Every step writes
+ * approval_requests: create (pending, 5 min), decision by the admin client (approved / denied, after
+ * zoomzoom said yes in chat), and the single-use consume when the agent retries the identical request
+ * with {@code Life-Approval}. The requester can never be the approver. Every step writes
  * security_events. All timestamps are ISO-8601 UTC strings written here (driver independent).
  */
 public class ApprovalService {
 
-    public static final Duration TTL = Duration.ofMinutes(10);
+    public static final Duration TTL = Duration.ofMinutes(5);
     public static final String HEADER = "Life-Approval";
     private static final char[] B32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
 
     public record Approval(long id, String publicId, String clientId, String credentialId, long personId,
                            String action, String method, String path, String requestHash, String headline,
                            Map<String, Object> summary, int tier, String status, Instant createdAt,
-                           Instant expiresAt, Instant decidedAt, String decidedVia) {
+                           Instant expiresAt, Instant decidedAt, String decidedVia, String decidedByClient,
+                           String decidedByCredential) {
         public boolean expired(Instant now) {
             return !now.isBefore(expiresAt);
         }
@@ -36,6 +39,11 @@ public class ApprovalService {
 
     /** Why a Life-Approval header was not accepted. */
     public enum Rejection { NOT_FOUND, OTHER_CLIENT, REQUEST_MISMATCH, PENDING, DENIED, EXPIRED, ALREADY_USED }
+
+    /** Outcome of {@link #approve} / {@link #deny}. */
+    public enum Decision { DONE, NOT_FOUND, NOT_PENDING, SELF_APPROVAL }
+
+    public record DecisionResult(Decision decision, Approval approval) {}
 
     public record Verdict(Approval approval, Rejection rejection) {
         public boolean ok() {
@@ -119,20 +127,48 @@ public class ApprovalService {
         return find(publicId).map(this::refresh);
     }
 
-    /** The owner's decision (passkey-authenticated, freshness checked by the caller). */
-    public Optional<Approval> decide(String publicId, boolean approve, long ownerPersonId) {
-        Optional<Approval> cur = view(publicId);
-        if (cur.isEmpty() || !cur.get().status().equals("pending")) return cur;
-        int n = jdbc.update("UPDATE approval_requests SET status = ?, decided_at = ?, decided_by = ?, decided_via = 'passkey' "
-                        + "WHERE id = ? AND status = 'pending' AND expires_at > ?",
-                approve ? "approved" : "denied", iso(now()), ownerPersonId, cur.get().id(), iso(now()));
-        Approval a = find(publicId).orElseThrow();
-        if (n == 1) {
-            events.record(SecurityEventLog.Event.of(approve ? "approval_approved" : "approval_denied")
-                    .client(LifePrincipal.OWNER_WEB_CLIENT).credential("passkey").person(ownerPersonId)
-                    .outcome(a.action()).detail(Map.of("approval", publicId, "requested_by", a.clientId())));
+    /** Approvals with this status, newest first; overdue ones are marked expired first. */
+    public List<Approval> list(String status, int limit) {
+        jdbc.update("UPDATE approval_requests SET status = 'expired' WHERE status IN ('pending','approved') AND expires_at <= ?",
+                iso(now()));
+        return jdbc.query("SELECT * FROM approval_requests WHERE status = ? ORDER BY id DESC LIMIT ?", this::map,
+                status, limit);
+    }
+
+    /** The admin client approves (zoomzoom said yes in chat). */
+    public DecisionResult approve(String publicId, LifePrincipal approver) {
+        return decide(publicId, true, approver);
+    }
+
+    public DecisionResult deny(String publicId, LifePrincipal approver) {
+        return decide(publicId, false, approver);
+    }
+
+    private DecisionResult decide(String publicId, boolean approve, LifePrincipal approver) {
+        if (approver.kind() != ClientKind.ADMIN) {
+            throw new IllegalArgumentException("only the admin client decides approvals, not kind " + approver.kind());
         }
-        return Optional.of(a);
+        Optional<Approval> cur = view(publicId);
+        if (cur.isEmpty()) return new DecisionResult(Decision.NOT_FOUND, null);
+        Approval a = cur.get();
+        if (a.clientId().equals(approver.clientId())) {
+            events.record(SecurityEventLog.Event.of("approval_self_denied").principal(approver).outcome(a.action())
+                    .detail(Map.of("approval", publicId)));
+            return new DecisionResult(Decision.SELF_APPROVAL, a);
+        }
+        if (!a.status().equals("pending")) return new DecisionResult(Decision.NOT_PENDING, a);
+        int n = jdbc.update("""
+                        UPDATE approval_requests SET status = ?, decided_at = ?, decided_by = ?, decided_via = 'admin_key',
+                               decided_by_client = ?, decided_by_credential = ?
+                         WHERE id = ? AND status = 'pending' AND expires_at > ?""",
+                approve ? "approved" : "denied", iso(now()), approver.personId(), approver.clientId(),
+                approver.credentialId(), a.id(), iso(now()));
+        Approval after = refresh(find(publicId).orElseThrow());
+        if (n != 1) return new DecisionResult(Decision.NOT_PENDING, after);
+        events.record(SecurityEventLog.Event.of(approve ? "approval_approved" : "approval_denied").principal(approver)
+                .outcome(after.action()).detail(Map.of("approval", publicId, "requested_by", after.clientId(),
+                        "decided_by_client", approver.clientId(), "decided_via", "admin_key")));
+        return new DecisionResult(Decision.DONE, after);
     }
 
     /** Checks a Life-Approval header against the retried request and consumes it (single use). */
@@ -171,14 +207,11 @@ public class ApprovalService {
                 rs.getString("credential_id"), rs.getLong("person_id"), rs.getString("action"),
                 rs.getString("method"), rs.getString("path"), rs.getString("request_hash"), headline, summary,
                 rs.getInt("risk_tier"), rs.getString("status"), parse(rs.getString("created_at")),
-                parse(rs.getString("expires_at")), parse(rs.getString("decided_at")), rs.getString("decided_via"));
+                parse(rs.getString("expires_at")), parse(rs.getString("decided_at")), rs.getString("decided_via"),
+                rs.getString("decided_by_client"), rs.getString("decided_by_credential"));
     }
 
     static Instant parse(String s) {
         return s == null ? null : Instant.parse(s);
-    }
-
-    public List<Approval> recent(int limit) {
-        return jdbc.query("SELECT * FROM approval_requests ORDER BY id DESC LIMIT ?", this::map, limit);
     }
 }

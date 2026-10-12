@@ -27,8 +27,9 @@ public class OpenApiConfig {
                         .description("Life OS REST. Money = integer cents. Times = UTC ISO with Z. "
                                 + "Every /api call needs Authorization: Bearer <lifeOS API key> (lok_...), scoped per "
                                 + "client (finance/fridge/memos/stocks/ops :read/:write). The acting person comes from the "
-                                + "key; X-Life-Handle is ignored. Risky calls answer 403 approval_required: the owner "
-                                + "approves the link with a passkey, then repeat the request with Life-Approval: <id>. "
+                                + "key; X-Life-Handle is ignored. Risky calls answer 403 approval_required: ask zoomzoom "
+                                + "in chat; once the admin client approves, repeat the request with Life-Approval: <id>. "
+                                + "/api/admin/** and tier-3 actions: the admin client (lifeOS Admin bot) only. "
                                 + "See docs/auth.md."
                                 + (openclawEnabled ? "" : " OpenClaw integration is off (OPENCLAW_ENABLED=false).")))
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
@@ -36,6 +37,6 @@ public class OpenApiConfig {
                         new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
-                                .description("lifeOS API key: lok_<key_id>_<secret> (minted with lifeos-admin)")));
+                                .description("lifeOS API key: lok_<key_id>_<secret> (minted by the admin client via /api/admin)")));
     }
 }

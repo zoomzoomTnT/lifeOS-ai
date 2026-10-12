@@ -4,18 +4,16 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
  * `local` profile with life.auth.local-open=true only (AuthSettingsCheck enforces that): a request
- * with no Authorization header and no session acts as the owner, so curl and the ops page work
+ * with no Authorization header acts as the owner, so curl works
  * without keys. A request that does send a key is still verified normally.
  */
 public class LocalDevAuthFilter extends OncePerRequestFilter {
@@ -32,12 +30,10 @@ public class LocalDevAuthFilter extends OncePerRequestFilter {
         var ctx = SecurityContextHolder.getContext();
         if (ctx.getAuthentication() == null && BearerApiKeyConverter.bearer(req) == null) {
             Set<String> all = Set.copyOf(Scopes.ALL);
-            var authorities = new ArrayList<>(ApiKeyAuthenticationProvider.authorities(all));
-            authorities.add(new SimpleGrantedAuthority(OwnerAccess.ROLE_OWNER));
             LifePrincipal p = new LifePrincipal(ownerId.getAsLong(), LifePrincipal.LOCAL_DEV_CLIENT, "local",
                     ClientKind.LOCAL_DEV, all);
             var empty = SecurityContextHolder.createEmptyContext();
-            empty.setAuthentication(new ApiKeyAuthenticationToken(p, authorities));
+            empty.setAuthentication(new ApiKeyAuthenticationToken(p, ApiKeyAuthenticationProvider.authorities(all)));
             SecurityContextHolder.setContext(empty);
         }
         chain.doFilter(req, res);

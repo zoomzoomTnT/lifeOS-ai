@@ -6,22 +6,23 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.http.HttpResponse;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Human-in-the-loop (doc §5 Phase 2 acceptance + §6 tiers) over real HTTP with a real passkey
- * session: approval_required → owner approves with a passkey → single-use retry; body mismatch,
- * other client, replay, expiry, denial; tier 3 owner-only; owner sessions skip approvals.
+ * Human-in-the-loop over real HTTP: approval_required → (zoomzoom says yes in chat) → the admin client
+ * approves → single-use retry of the exact request; body mismatch, other client, replay, expiry (5 min),
+ * denial; agents can't approve; requester ≠ approver; tier 3 admin client only; the admin client
+ * skips tier 2.
  */
-class ApprovalFlowHttpTest extends OwnerHttpTestBase {
+class ApprovalFlowHttpTest extends AuthHttpTestBase {
 
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     @org.springframework.beans.factory.annotation.Autowired
     com.lifeos.security.approval.RiskPolicy riskPolicy;
+    @org.springframework.beans.factory.annotation.Autowired
+    com.lifeos.security.approval.ApprovalService approvals;
 
     static JsonNode json(HttpResponse<String> r) {
         return JSON.readTree(r.body());
@@ -46,19 +47,8 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
         return jdbc.queryForObject("SELECT status FROM receipts WHERE id = ?", String.class, receiptId);
     }
 
-    String approvalPath(HttpResponse<String> r) {
-        String url = json(r).path("approve_url").asString();
-        assertThat(url).startsWith("http://localhost:8787/approve/apr_");
-        return url.substring("http://localhost:8787".length());
-    }
-
-    /** The owner opens the link and presses a button, as in the browser. */
-    HttpResponse<String> ownerDecides(OwnerBrowser owner, String path, String decision) throws Exception {
-        HttpResponse<String> page = owner.get(path);
-        assertThat(page.statusCode()).isEqualTo(200);
-        Matcher m = Pattern.compile("name=\"_csrf\" value=\"([^\"]+)\"").matcher(page.body());
-        assertThat(m.find()).as(page.body()).isTrue();
-        return owner.postForm(path, "decision=" + decision + "&_csrf=" + m.group(1));
+    HttpResponse<String> adminDecides(String approvalId, String decision) throws Exception {
+        return post("/api/admin/approvals/" + approvalId + "/" + decision, adminKey(), null);
     }
 
     @Test
@@ -71,7 +61,7 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
     }
 
     @Test
-    void bigConfirmNeedsTheOwnersPasskeyApprovalOnceForThatExactRequest() throws Exception {
+    void bigConfirmNeedsTheAdminClientsApprovalOnceForThatExactRequest() throws Exception {
         String key = chatKey(), otherAgent = chatKey();
         long id = previewReceipt(key, 6_000_000, 2); // 60,000.00 >= 50,000.00
         String confirm = "/api/receipts/" + id + "/confirm";
@@ -82,7 +72,10 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
         assertThat(json(asked).path("error").asString()).isEqualTo("approval_required");
         assertThat(json(asked).path("action").asString()).isEqualTo("receipt.confirm");
         String approvalId = json(asked).path("approval_id").asString();
-        assertThat(json(asked).path("expires_at").asString()).endsWith("Z");
+        assertThat(json(asked).path("summary").asString()).contains("Confirm receipt #" + id).contains("60,000.00 JPY");
+        assertThat(json(asked).has("approve_url")).isFalse();
+        java.time.Instant expires = java.time.Instant.parse(json(asked).path("expires_at").asString());
+        assertThat(expires).isBetween(java.time.Instant.now().plusSeconds(4 * 60), java.time.Instant.now().plusSeconds(5 * 60 + 1));
         assertThat(status(id)).isEqualTo("pending_confirm");
         assertThat(json(post(confirm, key, "{ \"also_fridge\" : false }")).path("approval_id").asString()).isEqualTo(approvalId);
         assertThat(count("SELECT COUNT(*) FROM approval_requests WHERE public_id = ? AND status='pending'", approvalId)).isEqualTo(1);
@@ -91,23 +84,40 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
         HttpResponse<String> early = post(confirm, key, "{\"also_fridge\":false}", "Life-Approval", approvalId);
         assertThat(json(early).path("reason").asString()).isEqualTo("pending");
 
-        // 3. the owner sees the server's own description and approves with a passkey
-        OwnerBrowser owner = signedInOwner();
-        HttpResponse<String> page = owner.get(approvalPath(asked));
-        assertThat(page.body()).contains("60,000.00 JPY").contains("Confirm receipt #" + id).contains("Approve");
-        HttpResponse<String> decided = ownerDecides(owner, approvalPath(asked), "approve");
-        assertThat(decided.body()).contains("Approved.");
-        assertThat(count("SELECT COUNT(*) FROM security_events WHERE type='approval_approved' AND detail_json LIKE ?",
-                "%" + approvalId + "%")).isEqualTo(1);
+        // 3. agents can't approve (their own request or anyone's)
+        HttpResponse<String> self = post("/api/admin/approvals/" + approvalId + "/approve", key, null);
+        assertThat(self.statusCode()).isEqualTo(403);
+        assertThat(json(self).path("error").asString()).isEqualTo("admin_only");
+        assertThat(post("/api/admin/approvals/" + approvalId + "/approve", otherAgent, null).statusCode()).isEqualTo(403);
 
-        // 4. it can't be used by another client or for a different body
+        // 4. the admin client re-reads the server's own description, then approves (after a yes in chat)
+        HttpResponse<String> seen = get("/api/admin/approvals/" + approvalId, adminKey());
+        assertThat(seen.statusCode()).isEqualTo(200);
+        assertThat(json(seen).path("summary").asString()).contains("60,000.00 JPY").contains("Confirm receipt #" + id);
+        assertThat(json(seen).path("status").asString()).isEqualTo("pending");
+        HttpResponse<String> pending = get("/api/admin/approvals?status=pending", adminKey());
+        assertThat(pending.body()).contains(approvalId);
+        HttpResponse<String> decided = adminDecides(approvalId, "approve");
+        assertThat(decided.statusCode()).as(decided.body()).isEqualTo(200);
+        assertThat(json(decided).path("status").asString()).isEqualTo("approved");
+        assertThat(json(decided).path("decided_via").asString()).isEqualTo("admin_key");
+        assertThat(json(decided).path("decided_by_client").asString()).isEqualTo("lifeos-admin");
+        assertThat(jdbc.queryForObject("SELECT decided_by_credential FROM approval_requests WHERE public_id = ?",
+                String.class, approvalId)).isEqualTo(com.lifeos.testsupport.TestAdminKey.KEY_ID);
+        assertThat(count("SELECT COUNT(*) FROM security_events WHERE type='approval_approved' AND client_id='lifeos-admin' "
+                + "AND detail_json LIKE ? AND detail_json LIKE '%\"decided_by_client\":\"lifeos-admin\"%'",
+                "%" + approvalId + "%")).isEqualTo(1);
+        // deciding twice does nothing
+        assertThat(adminDecides(approvalId, "deny").statusCode()).isEqualTo(409);
+
+        // 5. it can't be used by another client or for a different body
         assertThat(json(post(confirm, otherAgent, "{\"also_fridge\":false}", "Life-Approval", approvalId))
                 .path("reason").asString()).isEqualTo("other_client");
         assertThat(json(post(confirm, key, "{\"also_fridge\":true}", "Life-Approval", approvalId))
                 .path("reason").asString()).isEqualTo("request_mismatch");
         assertThat(status(id)).isEqualTo("pending_confirm");
 
-        // 5. the exact request (key order / whitespace don't matter) goes through once
+        // 6. the exact request (key order / whitespace don't matter) goes through once
         HttpResponse<String> ok = post(confirm, key, "{ \"also_fridge\": false }", "Life-Approval", approvalId);
         assertThat(ok.statusCode()).as(ok.body()).isEqualTo(200);
         assertThat(status(id)).isEqualTo("confirmed");
@@ -116,7 +126,7 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
         assertThat(jdbc.queryForObject("SELECT status FROM approval_requests WHERE id = ?", String.class, approvalRow))
                 .isEqualTo("consumed");
 
-        // 6. replay is refused
+        // 7. replay is refused
         HttpResponse<String> replay = post(confirm, key, "{\"also_fridge\":false}", "Life-Approval", approvalId);
         assertThat(replay.statusCode()).isEqualTo(403);
         assertThat(json(replay).path("reason").asString()).isEqualTo("already_used");
@@ -125,14 +135,12 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
     }
 
     @Test
-    void approvalsExpireAndDenialsStick() throws Exception {
+    void approvalsExpireAfterFiveMinutesAndDenialsStick() throws Exception {
         String key = chatKey();
-        OwnerBrowser owner = signedInOwner();
 
         long a = previewReceipt(key, 7_000_000, 1);
-        HttpResponse<String> askA = post("/api/receipts/" + a + "/confirm", key, "{}");
-        String idA = json(askA).path("approval_id").asString();
-        ownerDecides(owner, approvalPath(askA), "approve");
+        String idA = json(post("/api/receipts/" + a + "/confirm", key, "{}")).path("approval_id").asString();
+        assertThat(adminDecides(idA, "approve").statusCode()).isEqualTo(200);
         jdbc.update("UPDATE approval_requests SET expires_at = '2020-01-01T00:00:00Z' WHERE public_id = ?", idA);
         assertThat(json(post("/api/receipts/" + a + "/confirm", key, "{}", "Life-Approval", idA)).path("reason").asString())
                 .isEqualTo("expired");
@@ -140,20 +148,39 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
 
         // an expired pending request can't be approved any more
         long b = previewReceipt(key, 8_000_000, 1);
-        HttpResponse<String> askB = post("/api/receipts/" + b + "/confirm", key, "{}");
-        String idB = json(askB).path("approval_id").asString();
+        String idB = json(post("/api/receipts/" + b + "/confirm", key, "{}")).path("approval_id").asString();
         jdbc.update("UPDATE approval_requests SET expires_at = '2020-01-01T00:00:00Z' WHERE public_id = ?", idB);
-        HttpResponse<String> late = owner.get(approvalPath(askB));
-        assertThat(late.body()).contains("expired").doesNotContain("Approve (single use)");
+        HttpResponse<String> late = adminDecides(idB, "approve");
+        assertThat(late.statusCode()).isEqualTo(409);
+        assertThat(json(get("/api/admin/approvals/" + idB, adminKey())).path("status").asString()).isEqualTo("expired");
+        assertThat(get("/api/admin/approvals?status=expired", adminKey()).body()).contains(idB);
 
         // denied stays denied
         long c = previewReceipt(key, 9_000_000, 1);
-        HttpResponse<String> askC = post("/api/receipts/" + c + "/confirm", key, "{}");
-        String idC = json(askC).path("approval_id").asString();
-        assertThat(ownerDecides(owner, approvalPath(askC), "deny").body()).contains("Denied.");
+        String idC = json(post("/api/receipts/" + c + "/confirm", key, "{}")).path("approval_id").asString();
+        HttpResponse<String> denied = adminDecides(idC, "deny");
+        assertThat(json(denied).path("status").asString()).isEqualTo("denied");
+        assertThat(count("SELECT COUNT(*) FROM security_events WHERE type='approval_denied' AND client_id='lifeos-admin' "
+                + "AND detail_json LIKE ?", "%" + idC + "%")).isEqualTo(1);
         assertThat(json(post("/api/receipts/" + c + "/confirm", key, "{}", "Life-Approval", idC)).path("reason").asString())
                 .isEqualTo("denied");
         assertThat(status(c)).isEqualTo("pending_confirm");
+
+        assertThat(adminDecides("apr_doesnotexist", "approve").statusCode()).isEqualTo(404);
+        assertThat(get("/api/admin/approvals?status=bogus", adminKey()).statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void theRequesterCanNeverBeTheApprover() {
+        LifePrincipal admin = new LifePrincipal(1, "lifeos-admin", com.lifeos.testsupport.TestAdminKey.KEY_ID, ClientKind.ADMIN, java.util.Set.of());
+        var risk = new com.lifeos.security.approval.RiskAssessment(2, "test.self", "Self test", java.util.Map.of());
+        var a = approvals.request(admin, risk, "POST", "/api/x", "hash-" + uniq());
+        var d = approvals.approve(a.publicId(), admin);
+        assertThat(d.decision()).isEqualTo(com.lifeos.security.approval.ApprovalService.Decision.SELF_APPROVAL);
+        assertThat(approvals.view(a.publicId()).orElseThrow().status()).isEqualTo("pending");
+        LifePrincipal agent = new LifePrincipal(1, "x", "y", ClientKind.AGENT, java.util.Set.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> approvals.approve(a.publicId(), agent))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -176,52 +203,36 @@ class ApprovalFlowHttpTest extends OwnerHttpTestBase {
     }
 
     @Test
-    void approvalPagesNeedTheOwnersPasskey() throws Exception {
-        String key = chatKey();
-        long id = previewReceipt(key, 6_500_000, 1);
-        String path = approvalPath(post("/api/receipts/" + id + "/confirm", key, "{}"));
-        // no session: off to the passkey login; the agent's key is useless here
-        OwnerBrowser stranger = new OwnerBrowser(port);
-        assertThat(stranger.get(path).statusCode()).isEqualTo(302);
-        HttpResponse<String> withKey = send("GET", path, key, null);
-        assertThat(withKey.statusCode()).isEqualTo(302);
-        // a forged POST without CSRF does nothing
-        OwnerBrowser owner = signedInOwner();
-        assertThat(owner.postForm(path, "decision=approve").statusCode()).isEqualTo(403);
-        assertThat(count("SELECT COUNT(*) FROM approval_requests WHERE status='approved' AND path = ?",
-                "/api/receipts/" + id + "/confirm")).isZero();
-        assertThat(owner.get("/approve/apr_doesnotexist").statusCode()).isEqualTo(404);
-    }
-
-    @Test
-    void tier3IsOwnerPasskeyOnly() throws Exception {
+    void tier3IsAdminClientOnly() throws Exception {
         jdbc.update("INSERT INTO http_requests (method, path, status, created_at) VALUES ('GET','/old',200,'2020-01-01T00:00:00Z')");
         String purge = "{\"older_than_days\":30}";
 
-        // Grok Bot never has ops:admin
-        assertThat(post("/api/ops/purge", chatKey(), purge).statusCode()).isEqualTo(403);
-        // even a service key that holds ops:admin can't: owner only
-        String svc = newKey(ClientKind.SERVICE, List.of(Scopes.OPS_ADMIN));
-        HttpResponse<String> s = post("/api/ops/purge", svc, purge);
-        assertThat(s.statusCode()).isEqualTo(403);
-        assertThat(json(s).path("error").asString()).isEqualTo("owner_only");
+        for (String k : List.of(chatKey(), routineKey(), newKey(ClientKind.SERVICE, List.of(Scopes.OPS_WRITE)))) {
+            HttpResponse<String> r = post("/api/ops/purge", k, purge);
+            assertThat(r.statusCode()).isEqualTo(403);
+            assertThat(json(r).path("error").asString()).isEqualTo("admin_only");
+            // no approval id smuggling either
+            assertThat(post("/api/ops/purge", k, purge, "Life-Approval", "apr_x").statusCode()).isEqualTo(403);
+        }
         assertThat(count("SELECT COUNT(*) FROM http_requests WHERE path='/old'")).isEqualTo(1);
-        assertThat(count("SELECT COUNT(*) FROM security_events WHERE type='owner_only_denied'")).isPositive();
-        // the agent can't smuggle an approval id in either
-        assertThat(post("/api/ops/purge", svc, purge, "Life-Approval", "apr_x").statusCode()).isEqualTo(403);
+        assertThat(count("SELECT COUNT(*) FROM approval_requests WHERE path='/api/ops/purge'")).isZero();
 
-        // the owner, freshly signed in with a passkey, can
-        OwnerBrowser owner = signedInOwner();
-        HttpResponse<String> ok = owner.send("POST", "/api/ops/purge", purge, true);
+        HttpResponse<String> ok = post("/api/ops/purge", adminKey(), purge);
         assertThat(ok.statusCode()).as(ok.body()).isEqualTo(200);
         assertThat(count("SELECT COUNT(*) FROM http_requests WHERE path='/old'")).isZero();
     }
 
     @Test
-    void ownerSessionSkipsTier2() throws Exception {
-        OwnerBrowser owner = signedInOwner();
-        HttpResponse<String> r = owner.send("PUT", "/api/ops/prices",
-                "{\"provider\":\"test\",\"model\":\"owner-" + uniq() + "\",\"input_usd_micros_per_mtok\":1,\"output_usd_micros_per_mtok\":2}", true);
+    void adminClientSkipsTier2() throws Exception {
+        HttpResponse<String> r = send("PUT", "/api/ops/prices", adminKey(),
+                "{\"provider\":\"test\",\"model\":\"admin-" + uniq() + "\",\"input_usd_micros_per_mtok\":1,\"output_usd_micros_per_mtok\":2}");
         assertThat(r.statusCode()).as(r.body()).isEqualTo(200);
+    }
+
+    @Test
+    void theAdminClientHasNoDataWrites() throws Exception {
+        HttpResponse<String> r = post("/api/memos", adminKey(), "{\"title\":\"x\"}");
+        assertThat(r.statusCode()).isEqualTo(403);
+        assertThat(json(r).path("required_scope").asString()).isEqualTo(Scopes.MEMOS_WRITE);
     }
 }

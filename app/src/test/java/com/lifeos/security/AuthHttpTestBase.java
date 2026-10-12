@@ -20,7 +20,8 @@ import java.util.UUID;
 
 /**
  * Whole app over real HTTP (random port), `local` profile on a fresh SQLite file, with
- * local-open OFF so every request is authenticated exactly like production.
+ * local-open OFF so every request is authenticated exactly like production, and the test admin key
+ * ({@link com.lifeos.testsupport.TestAdminKey}) configured the way CD does it (key id + SHA-256).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("local")
@@ -63,8 +64,12 @@ public abstract class AuthHttpTestBase {
     /** A fresh client of the given kind with a single key; returns the full key. */
     String newKey(ClientKind kind, List<String> scopes) {
         String id = "test-" + kind.name().toLowerCase() + "-" + uniq();
-        keys.ensureClient(id, id, kind, scopes);
+        keys.createClient(id, id, kind, scopes);
         return keys.mint(id, null, 90, false).key();
+    }
+
+    String adminKey() {
+        return com.lifeos.testsupport.TestAdminKey.FULL;
     }
 
     String chatKey() {

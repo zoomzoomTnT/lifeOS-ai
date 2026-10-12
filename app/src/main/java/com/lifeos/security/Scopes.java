@@ -23,7 +23,7 @@ public final class Scopes {
     public static final String MEMOS_READ = "memos:read", MEMOS_WRITE = "memos:write";
     public static final String STOCKS_READ = "stocks:read", STOCKS_WRITE = "stocks:write";
     public static final String OPS_READ = "ops:read", OPS_WRITE = "ops:write";
-    /** Purge, actuator, key management. Never held by an agent credential. */
+    /** Purge, actuator, key management, approvals. Only the admin client (kind admin) holds it. */
     public static final String OPS_ADMIN = "ops:admin";
 
     public static final List<String> ALL = List.of(FINANCE_READ, FINANCE_WRITE, FRIDGE_READ, FRIDGE_WRITE,
@@ -35,6 +35,11 @@ public final class Scopes {
     /** Grok Bot chat: domain read/write + ops usage logging. */
     public static final List<String> GROKBOT_CHAT = List.of(FINANCE_WRITE, FRIDGE_WRITE, MEMOS_WRITE,
             STOCKS_WRITE, OPS_READ, OPS_WRITE);
+    /** The lifeOS Admin bot: ops:admin plus reads, no data writes. */
+    public static final List<String> ADMIN_CLIENT = List.of(OPS_ADMIN, FINANCE_READ, FRIDGE_READ, MEMOS_READ,
+            STOCKS_READ, OPS_READ);
+    /** Data writes the admin client may never hold (it administers; it does not act as the assistant). */
+    public static final List<String> DATA_WRITES = List.of(FINANCE_WRITE, FRIDGE_WRITE, MEMOS_WRITE, STOCKS_WRITE);
     /** Grok Bot routine (wake check): read-only. */
     public static final List<String> GROKBOT_ROUTINE = List.of(MEMOS_READ, OPS_READ);
 

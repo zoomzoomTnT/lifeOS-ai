@@ -20,22 +20,22 @@ import org.springframework.security.web.authentication.AuthenticationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
-import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManagers;
 
 import com.lifeos.security.approval.ApprovalGateFilter;
 import com.lifeos.security.approval.ApprovalService;
 import com.lifeos.security.approval.RiskPolicy;
 
 import java.time.Clock;
-import java.util.Set;
 
 /**
  * Spring Security filter chains (docs/auth.md):
  * <ol>
- *   <li>{@code apiChain}: /api/**, /actuator/** — stateless, Bearer API keys, path → scope rules
+ *   <li>{@code apiChain}: /api/**, /actuator/** — stateless, Bearer API keys only, path → scope rules
  *       ({@link ScopeRules}), 401/403 JSON with RFC 6750 challenges. Phase 3 adds
  *       {@code oauth2ResourceServer(jwt)} here; Phase 4 adds /mcp/** to the matcher.</li>
- *   <li>{@code defaultChain}: docs and static pages public, everything else denied.</li>
+ *   <li>{@code defaultChain}: API docs public, everything else denied. No login, no session.</li>
  * </ol>
  * Method security (@PreAuthorize on controllers) repeats the scope checks.
  */
@@ -77,6 +77,11 @@ public class SecurityConfig {
     }
 
     @Bean
+    AdminKeyBootstrap adminKeyBootstrap(ApiKeyService keys, AuthProperties props) {
+        return new AdminKeyBootstrap(keys, props);
+    }
+
+    @Bean
     ApprovalService approvalService(JdbcTemplate jdbc, SecurityEventLog events, Clock authClock) {
         return new ApprovalService(jdbc, events, authClock);
     }
@@ -86,12 +91,10 @@ public class SecurityConfig {
     SecurityFilterChain apiChain(HttpSecurity http, SecurityEventLog events, KeyHasher hasher,
                                  AuthProperties props, ApiKeyStore store, Clock authClock,
                                  RiskPolicy riskPolicy, ApprovalService approvals,
-                                 @org.springframework.beans.factory.annotation.Value("${life.auth.passkey-max-age:PT5M}")
-                                 java.time.Duration passkeyMaxAge,
                                  @org.springframework.beans.factory.annotation.Qualifier("requestMappingHandlerMapping")
                                  org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> mvcMappings) throws Exception {
         // Not a bean: an AuthenticationProvider bean would become the global AuthenticationManager and
-        // leak into the owner chain. Phase 3 adds a JwtAuthenticationProvider next to it here.
+        // leak into the default chain. Phase 3 adds a JwtAuthenticationProvider next to it here.
         ApiKeyAuthenticationProvider provider = new ApiKeyAuthenticationProvider(store, hasher, events, authClock);
         ApiAuthenticationEntryPoint entryPoint = new ApiAuthenticationEntryPoint(events);
         // Not a @Bean on purpose: Boot would also register it as a global servlet filter.
@@ -103,12 +106,8 @@ public class SecurityConfig {
 
         http.securityMatcher("/api/**", "/actuator/**")
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // Bearer requests carry no ambient credential, so CSRF only matters for the owner's
-                // session cookie (OwnerSessionBridgeFilter): unsafe methods on that path need the token.
-                .csrf(c -> c.requireCsrfProtectionMatcher(req -> OwnerSessionBridgeFilter.usesSession(req)
-                                && !Set.of("GET", "HEAD", "OPTIONS", "TRACE").contains(req.getMethod()))
-                        // every request "authenticates" here; that must not rotate the owner's session token
-                        .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
+                // Bearer only: no cookie, no session, no ambient credential, so nothing for CSRF to protect
+                .csrf(c -> c.disable())
                 .httpBasic(b -> b.disable())
                 .formLogin(f -> f.disable())
                 .logout(l -> l.disable())
@@ -118,18 +117,19 @@ public class SecurityConfig {
                 // before anything else decides on the path (rules, risk tier, fingerprint, routing)
                 .addFilterBefore(new CanonicalPathFilter(events), DisableEncodeUrlFilter.class)
                 .addFilterBefore(apiKeyFilter, AnonymousAuthenticationFilter.class)
-                // same slot, kept in insertion order: API key → owner session → (local dev)
-                .addFilterBefore(new OwnerSessionBridgeFilter(store::ownerPersonId), AnonymousAuthenticationFilter.class)
                 .addFilterAfter(new PrincipalAttributeFilter(), AnonymousAuthenticationFilter.class)
                 .addFilterAfter(new WriteRateLimitFilter(props.writesPerMinute(), authClock), AuthorizationFilter.class)
                 .addFilterAfter(new IdentityHeaderFilter(events), WriteRateLimitFilter.class)
-                // human-in-the-loop, after scopes: tier 2 → approval_required, tier 3 → owner passkey only
-                .addFilterAfter(new ApprovalGateFilter(riskPolicy, approvals, events, props, authClock, passkeyMaxAge,
+                // human-in-the-loop, after scopes: tier 2 → approval_required, tier 3 → admin client only
+                .addFilterAfter(new ApprovalGateFilter(riskPolicy, approvals, events,
                         new com.lifeos.security.approval.RouteCheck(mvcMappings)),
                         IdentityHeaderFilter.class)
                 .authorizeHttpRequests(a -> {
                     for (ScopeRules.Rule r : ScopeRules.RULES) {
                         if (r.isPublic()) a.requestMatchers(r.matcher()).permitAll();
+                        else if (r.adminClientOnly()) a.requestMatchers(r.matcher()).access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAuthority(Scopes.authority(r.scope())),
+                                AuthorityAuthorizationManager.hasAuthority(ApiKeyAuthenticationProvider.ROLE_ADMIN_CLIENT)));
                         else a.requestMatchers(r.matcher()).hasAuthority(Scopes.authority(r.scope()));
                     }
                     a.anyRequest().denyAll();
@@ -147,6 +147,8 @@ public class SecurityConfig {
                 .csrf(c -> c.disable())
                 .httpBasic(b -> b.disable())
                 .formLogin(f -> f.disable())
+                .logout(l -> l.disable())
+                .requestCache(r -> r.disable())
                 .authorizeHttpRequests(a -> a
                         // the error page only as an error dispatch, never as a URL of its own
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()

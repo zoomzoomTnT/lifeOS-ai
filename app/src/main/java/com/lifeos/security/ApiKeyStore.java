@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** SQL for api_clients / api_keys. Plain JdbcTemplate so the admin CLI can use it without Spring. */
+/** SQL for api_clients / api_keys. */
 public class ApiKeyStore {
 
     private final JdbcTemplate jdbc;
@@ -49,6 +49,15 @@ public class ApiKeyStore {
                   FROM api_clients WHERE client_id = ?""", (rs, i) -> new ClientRecord(rs.getLong(1),
                 rs.getString(2), rs.getString(3), rs.getString(4), rs.getLong(5), rs.getString(6),
                 rs.getString(7)), clientId).stream().findFirst();
+    }
+
+    /** The single client of kind admin, if it exists yet. */
+    public Optional<ClientRecord> findAdminClient() {
+        return jdbc.query("""
+                SELECT id, client_id, display_name, kind, person_id, max_scopes, disabled_at
+                  FROM api_clients WHERE kind = 'admin'""", (rs, i) -> new ClientRecord(rs.getLong(1),
+                rs.getString(2), rs.getString(3), rs.getString(4), rs.getLong(5), rs.getString(6),
+                rs.getString(7))).stream().findFirst();
     }
 
     public long insertClient(String clientId, String displayName, String kind, long personId, String maxScopes) {

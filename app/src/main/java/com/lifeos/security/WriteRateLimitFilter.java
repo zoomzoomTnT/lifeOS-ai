@@ -34,7 +34,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         var auth = SecurityContextHolder.getContext().getAuthentication();
         if (perMinute > 0 && !SAFE.contains(req.getMethod()) && auth != null
-                && auth.getPrincipal() instanceof LifePrincipal p && !p.isOwnerSession()) {
+                && auth.getPrincipal() instanceof LifePrincipal p && p.kind() != ClientKind.LOCAL_DEV) {
             long now = clock.millis();
             long m = now / 60_000;
             if (m != minute) {

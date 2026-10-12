@@ -5,6 +5,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
@@ -33,6 +34,20 @@ public final class KeyHasher {
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", e);
         }
+    }
+
+    /** Unpeppered SHA-256 hex of a secret: the admin key's stored hash (it arrives as a deploy secret). */
+    public static String sha256Hex(String secret) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(secret.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    public static boolean equalHex(String a, String b) {
+        return a != null && b != null && MessageDigest.isEqual(a.getBytes(StandardCharsets.US_ASCII),
+                b.getBytes(StandardCharsets.US_ASCII));
     }
 
     public boolean matches(String secret, String expectedHex) {

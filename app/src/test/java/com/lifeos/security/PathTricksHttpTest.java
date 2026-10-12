@@ -24,10 +24,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Path tricks against the tier-2/3 gate (QA, PR #29): encoded, '+', '//', dot segments, ';' params,
- * trailing slash... must never reach a risky handler without the approval / owner check. Requests
+ * trailing slash... must never reach a risky handler without the approval / admin-client check. Requests
  * go over a raw socket so the client library cannot normalize the path first.
  */
-class PathTricksHttpTest extends OwnerHttpTestBase {
+class PathTricksHttpTest extends AuthHttpTestBase {
 
     static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -65,10 +65,6 @@ class PathTricksHttpTest extends OwnerHttpTestBase {
 
     String status(long id) {
         return jdbc.queryForObject("SELECT status FROM receipts WHERE id = ?", String.class, id);
-    }
-
-    String svcAdminKey() {
-        return newKey(ClientKind.SERVICE, List.of(Scopes.OPS_ADMIN, Scopes.FINANCE_WRITE));
     }
 
     /** Variants of /api/receipts/{id}/confirm for a big receipt: none may confirm it. */
@@ -118,9 +114,9 @@ class PathTricksHttpTest extends OwnerHttpTestBase {
     @ParameterizedTest
     @ValueSource(strings = {"/api/ops/%70urge", "/api/ops/purg%65", "/api/ops/purge/", "/api/ops//purge",
             "/api/ops/./purge", "/api/ops/a/../purge", "/api/ops/purge;x", "/api/%6Fps/purge", "/api/ops/PURGE"})
-    void purgeVariantsWithAnOpsAdminKeyAreRefused(String path) throws Exception {
+    void purgeVariantsWithTheAdminKeyAreRefused(String path) throws Exception {
         jdbc.update("INSERT INTO http_requests (method, path, status, created_at) VALUES ('GET','/old',200,'2000-01-01T00:00:00Z')");
-        Raw r = raw("POST", path, svcAdminKey(), "{\"older_than_days\":1}");
+        Raw r = raw("POST", path, adminKey(), "{\"older_than_days\":1}");
         assertThat(r.status()).as(path + " -> " + r.body()).isIn(400, 403, 404);
         assertThat(count("SELECT COUNT(*) FROM http_requests WHERE path = '/old'")).isPositive();
     }
@@ -136,10 +132,11 @@ class PathTricksHttpTest extends OwnerHttpTestBase {
     @Autowired
     OpsController ops;
 
-    /** Method security alone (no filter in the way): an ops:admin API key cannot run purge. */
-    @Test
-    void purgeHandlerItselfNeedsTheFreshOwnerSession() {
-        var p = new LifePrincipal(1, "svc-x", "kid", ClientKind.SERVICE, Set.of(Scopes.OPS_ADMIN));
+    /** Method security alone (no filter in the way): ops:admin without the admin client cannot run purge. */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ClientKind.class, names = {"AGENT", "SERVICE", "LOCAL_DEV"})
+    void purgeHandlerItselfNeedsTheAdminClient(ClientKind kind) {
+        var p = new LifePrincipal(1, "x", "kid", kind, Set.of(Scopes.OPS_ADMIN));
         var ctx = SecurityContextHolder.createEmptyContext();
         ctx.setAuthentication(new ApiKeyAuthenticationToken(p, ApiKeyAuthenticationProvider.authorities(Set.of(Scopes.OPS_ADMIN))));
         SecurityContextHolder.setContext(ctx);

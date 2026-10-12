@@ -46,8 +46,9 @@ abstract class AbstractAuthStoresTest {
     @Test
     void mintAuthenticateRotateRevoke() {
         String client = "store-" + uniq();
-        keys.ensureClient(client, "Store test", ClientKind.AGENT, Scopes.GROKBOT_CHAT);
-        keys.ensureClient(client, "again (no-op)", ClientKind.AGENT, Scopes.GROKBOT_CHAT);
+        keys.createClient(client, "Store test", ClientKind.AGENT, Scopes.GROKBOT_CHAT);
+        assertThatThrownBy(() -> keys.createClient(client, "again", ClientKind.AGENT, Scopes.GROKBOT_CHAT))
+                .isInstanceOf(ApiKeyService.Conflict.class);
         ApiKeyService.MintedKey k1 = keys.mint(client, null, 90, false);
         ApiKeyService.MintedKey k2 = keys.mint(client, List.of(Scopes.MEMOS_READ), 0, false);
         assertThat(k1.expiresAt()).endsWith("Z");
@@ -70,8 +71,8 @@ abstract class AbstractAuthStoresTest {
                 .isInstanceOf(ApiKeyAuthenticationException.class).hasMessageContaining("revoked");
         provider.authenticate(ApiKeyAuthenticationToken.unauthenticated(k3.key()));
 
-        assertThat(keys.revoke(k3.keyId(), "test")).isTrue();
-        assertThat(keys.revoke(k3.keyId(), "test")).isFalse();
+        assertThat(keys.revokeNonAdmin(k3.keyId(), "test")).isTrue();
+        assertThat(keys.revokeNonAdmin(k3.keyId(), "test")).isFalse();
         assertThatThrownBy(() -> provider.authenticate(ApiKeyAuthenticationToken.unauthenticated(k3.key())))
                 .hasMessageContaining("revoked");
 
@@ -84,88 +85,20 @@ abstract class AbstractAuthStoresTest {
         assertThat(keys.listKeys()).anySatisfy(row -> assertThat(row.get("key_id")).isEqualTo(k3.keyId()));
     }
 
-    @Autowired
-    org.springframework.security.web.webauthn.management.PublicKeyCredentialUserEntityRepository userEntities;
-    @Autowired
-    org.springframework.security.web.webauthn.management.UserCredentialRepository credentials;
-    @Autowired
-    org.springframework.security.authentication.ott.OneTimeTokenService ott;
-
-    /** Spring Security's stock WebAuthn JDBC repositories: blobs, booleans, instants, transports. */
+    /** The admin key from the (test) deploy secrets: SHA-256 branch, admin authority, at most one admin client. */
     @Test
-    void webauthnRepositoriesRoundTrip() {
-        var userId = org.springframework.security.web.webauthn.api.Bytes.random();
-        String name = "owner-" + uniq();
-        userEntities.save(org.springframework.security.web.webauthn.api.ImmutablePublicKeyCredentialUserEntity.builder()
-                .name(name).id(userId).displayName("Owner").build());
-        var found = userEntities.findByUsername(name);
-        assertThat(found).isNotNull();
-        assertThat(found.getId()).isEqualTo(userId);
-        assertThat(userEntities.findById(userId).getName()).isEqualTo(name);
-
-        byte[] cose = new byte[77];
-        new java.util.Random(7).nextBytes(cose);
-        cose[0] = 0; // includes a NUL byte: must survive as a real blob
-        var credId = org.springframework.security.web.webauthn.api.Bytes.random();
-        java.time.Instant created = java.time.Instant.parse("2026-10-11T05:00:00.123Z");
-        var rec = org.springframework.security.web.webauthn.api.ImmutableCredentialRecord.builder()
-                .credentialType(org.springframework.security.web.webauthn.api.PublicKeyCredentialType.PUBLIC_KEY)
-                .credentialId(credId).userEntityUserId(userId)
-                .publicKey(new org.springframework.security.web.webauthn.api.ImmutablePublicKeyCose(cose))
-                .signatureCount(3).uvInitialized(true).backupEligible(true).backupState(false)
-                .transports(java.util.Set.of(org.springframework.security.web.webauthn.api.AuthenticatorTransport.INTERNAL,
-                        org.springframework.security.web.webauthn.api.AuthenticatorTransport.HYBRID))
-                .attestationObject(new org.springframework.security.web.webauthn.api.Bytes(new byte[]{1, 0, 2}))
-                .attestationClientDataJSON(new org.springframework.security.web.webauthn.api.Bytes("{}".getBytes()))
-                .created(created).lastUsed(created).label("laptop").build();
-        credentials.save(rec);
-        var back = credentials.findByCredentialId(credId);
-        assertThat(back).isNotNull();
-        assertThat(back.getPublicKey().getBytes()).isEqualTo(cose);
-        assertThat(back.getSignatureCount()).isEqualTo(3);
-        assertThat(back.isUvInitialized()).isTrue();
-        assertThat(back.isBackupEligible()).isTrue();
-        assertThat(back.isBackupState()).isFalse();
-        assertThat(back.getTransports()).hasSize(2);
-        assertThat(back.getCreated()).isEqualTo(created);
-        assertThat(back.getLabel()).isEqualTo("laptop");
-        assertThat(credentials.findByUserId(userId)).hasSize(1);
-
-        // sign-in updates the counter and last_used (UPDATE path)
-        java.time.Instant later = created.plusSeconds(60);
-        credentials.save(org.springframework.security.web.webauthn.api.ImmutableCredentialRecord.fromCredentialRecord(back)
-                .signatureCount(4).lastUsed(later).build());
-        assertThat(credentials.findByCredentialId(credId).getSignatureCount()).isEqualTo(4);
-        assertThat(credentials.findByCredentialId(credId).getLastUsed()).isEqualTo(later);
-        assertThat(count("SELECT COUNT(*) FROM security_events WHERE type='passkey_registered' AND detail_json LIKE ?",
-                "%" + credId.toBase64UrlString() + "%")).isEqualTo(1); // only the insert is audited
-
-        credentials.delete(credId);
-        assertThat(credentials.findByCredentialId(credId)).isNull();
-        userEntities.delete(userId);
-        assertThat(userEntities.findByUsername(name)).isNull();
-    }
-
-    /** Spring's JdbcOneTimeTokenService and the CLI's own insert agree on the format; single use. */
-    @Test
-    void oneTimeTokensAreSingleUseAndExpire() {
-        var t = ott.generate(new org.springframework.security.authentication.ott.GenerateOneTimeTokenRequest("u-" + uniq()));
-        var consumed = ott.consume(new org.springframework.security.authentication.ott.OneTimeTokenAuthenticationToken(t.getTokenValue()));
-        assertThat(consumed).isNotNull();
-        assertThat(consumed.getUsername()).isEqualTo(t.getUsername());
-        assertThat(ott.consume(new org.springframework.security.authentication.ott.OneTimeTokenAuthenticationToken(t.getTokenValue()))).isNull();
-
-        // the CLI path (lifeos-admin owner-login) binds a java.sql.Timestamp
-        String cli = java.util.UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO one_time_tokens (token_value, username, expires_at) VALUES (?,?,?)", cli, "owner",
-                java.sql.Timestamp.from(java.time.Instant.now().plusSeconds(300)));
-        assertThat(ott.consume(new org.springframework.security.authentication.ott.OneTimeTokenAuthenticationToken(cli))).isNotNull();
-
-        String old = java.util.UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO one_time_tokens (token_value, username, expires_at) VALUES (?,?,?)", old, "owner",
-                java.sql.Timestamp.from(java.time.Instant.now().minusSeconds(1)));
-        assertThat(ott.consume(new org.springframework.security.authentication.ott.OneTimeTokenAuthenticationToken(old))).isNull();
-        assertThat(count("SELECT COUNT(*) FROM one_time_tokens WHERE token_value IN (?,?)", cli, old)).isZero();
+    void adminKeyThroughTheDriver() {
+        Authentication a = provider.authenticate(ApiKeyAuthenticationToken.unauthenticated(com.lifeos.testsupport.TestAdminKey.FULL));
+        LifePrincipal p = (LifePrincipal) a.getPrincipal();
+        assertThat(p.clientId()).isEqualTo(AdminKeyBootstrap.ADMIN_CLIENT_ID);
+        assertThat(p.kind()).isEqualTo(ClientKind.ADMIN);
+        assertThat(p.scopes()).contains(Scopes.OPS_ADMIN).doesNotContainAnyElementsOf(Scopes.DATA_WRITES);
+        assertThat(a.getAuthorities()).extracting(Object::toString).contains(ApiKeyAuthenticationProvider.ROLE_ADMIN_CLIENT);
+        assertThat(keys.installAdminKey(com.lifeos.testsupport.TestAdminKey.KEY_ID,
+                KeyHasher.sha256Hex(com.lifeos.testsupport.TestAdminKey.SECRET))).isFalse(); // same values: no-op
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO api_clients (client_id, display_name, kind, person_id, max_scopes) "
+                + "VALUES (?, 'x', 'admin', 1, 'ops:admin')", "second-admin-" + uniq()))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class);
     }
 
     @Autowired
@@ -180,11 +113,18 @@ abstract class AbstractAuthStoresTest {
         var a = approvals.request(p, risk, "POST", "/api/receipts/1/confirm", "h1");
         assertThat(a.status()).isEqualTo("pending");
         assertThat(a.publicId()).startsWith("apr_").hasSize(36);
-        assertThat(a.expiresAt()).isEqualTo(a.createdAt().plus(com.lifeos.security.approval.ApprovalService.TTL));
+        assertThat(a.expiresAt()).isEqualTo(a.createdAt().plus(java.time.Duration.ofMinutes(5)));
         assertThat(approvals.request(p, risk, "POST", "/api/receipts/1/confirm", "h1").id()).isEqualTo(a.id());
         assertThat(approvals.consume(a.publicId(), p, "h1").rejection())
                 .isEqualTo(com.lifeos.security.approval.ApprovalService.Rejection.PENDING);
-        assertThat(approvals.decide(a.publicId(), true, 1).orElseThrow().status()).isEqualTo("approved");
+        var admin = new LifePrincipal(1, AdminKeyBootstrap.ADMIN_CLIENT_ID, com.lifeos.testsupport.TestAdminKey.KEY_ID,
+                ClientKind.ADMIN, java.util.Set.of());
+        var decided = approvals.approve(a.publicId(), admin);
+        assertThat(decided.approval().status()).isEqualTo("approved");
+        assertThat(decided.approval().decidedVia()).isEqualTo("admin_key");
+        assertThat(decided.approval().decidedByClient()).isEqualTo(AdminKeyBootstrap.ADMIN_CLIENT_ID);
+        assertThat(decided.approval().decidedByCredential()).isEqualTo(com.lifeos.testsupport.TestAdminKey.KEY_ID);
+        assertThat(approvals.list("approved", 100)).extracting(x -> x.publicId()).contains(a.publicId());
         assertThat(approvals.consume(a.publicId(), p, "h2").rejection())
                 .isEqualTo(com.lifeos.security.approval.ApprovalService.Rejection.REQUEST_MISMATCH);
         assertThat(approvals.consume(a.publicId(), p, "h1").ok()).isTrue();

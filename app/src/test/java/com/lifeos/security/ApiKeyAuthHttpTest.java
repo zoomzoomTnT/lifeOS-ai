@@ -95,15 +95,20 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
 
         HttpResponse<String> purge = post("/api/ops/purge", chat, "{\"older_than_days\":1}");
         assertThat(purge.statusCode()).isEqualTo(403);
-        assertThat(purge.body()).contains("owner_only");
+        assertThat(purge.body()).contains("admin_only");
         assertThat(get("/actuator/metrics", chat).statusCode()).isEqualTo(403);
         assertThat(get("/actuator/db", chat).statusCode()).isEqualTo(403);
     }
 
     @Test
     void agentsCanNeverHoldOpsAdmin() throws Exception {
-        assertThatThrownBy(() -> keys.ensureClient("evil-" + uniq(), "x", ClientKind.AGENT, List.of(Scopes.OPS_ADMIN)))
-                .hasMessageContaining("never granted to an agent");
+        assertThatThrownBy(() -> keys.createClient("evil-" + uniq(), "x", ClientKind.AGENT, List.of(Scopes.OPS_ADMIN)))
+                .hasMessageContaining("only for the admin client");
+        assertThatThrownBy(() -> keys.createClient("evil-" + uniq(), "x", ClientKind.SERVICE, List.of(Scopes.OPS_ADMIN)))
+                .hasMessageContaining("only for the admin client");
+        assertThatThrownBy(() -> keys.createClient("evil-" + uniq(), "x", ClientKind.ADMIN, List.of(Scopes.OPS_ADMIN)))
+                .hasMessageContaining("deploy secret");
+        assertThatThrownBy(() -> keys.mint("lifeos-admin", null, 90, true)).hasMessageContaining("deploy secret");
         // even if the row were edited by hand, the provider strips it for agents
         String key = chatKey();
         String keyId = ApiKeyFormat.parse(key).keyId();
@@ -115,7 +120,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
     @Test
     void unmappedApiPathsAreDeniedEvenWithAValidKey() throws Exception {
         String chat = chatKey();
-        HttpResponse<String> r = get("/api/admin/keys", chat);
+        HttpResponse<String> r = get("/api/nothing-here", chat);
         assertThat(r.statusCode()).isEqualTo(403);
         assertThat(r.body()).contains("no access rule");
     }
@@ -126,7 +131,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
     void revokedKeyStopsOnTheNextRequest() throws Exception {
         String key = chatKey();
         assertThat(get("/api/memos/due", key).statusCode()).isEqualTo(200);
-        assertThat(keys.revoke(ApiKeyFormat.parse(key).keyId(), "test")).isTrue();
+        assertThat(keys.revokeNonAdmin(ApiKeyFormat.parse(key).keyId(), "test")).isTrue();
         HttpResponse<String> r = get("/api/memos/due", key);
         assertThat(r.statusCode()).isEqualTo(401);
         assertThat(count("SELECT COUNT(*) FROM security_events WHERE type='auth_failed' AND outcome='revoked' AND credential_id=?",
@@ -153,7 +158,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
     @Test
     void rotationAllowsTwoActiveKeysThenRevokesTheOldest() throws Exception {
         String client = "rot-" + uniq();
-        keys.ensureClient(client, client, ClientKind.AGENT, Scopes.GROKBOT_ROUTINE);
+        keys.createClient(client, client, ClientKind.AGENT, Scopes.GROKBOT_ROUTINE);
         String k1 = keys.mint(client, null, 90, false).key();
         String k2 = keys.mint(client, null, 90, false).key();
         assertThat(get("/api/memos/due", k1).statusCode()).isEqualTo(200);
@@ -170,7 +175,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
     @Test
     void mintedScopesMustStayWithinTheClientCeiling() {
         String client = "ceil-" + uniq();
-        keys.ensureClient(client, client, ClientKind.AGENT, Scopes.GROKBOT_ROUTINE);
+        keys.createClient(client, client, ClientKind.AGENT, Scopes.GROKBOT_ROUTINE);
         assertThatThrownBy(() -> keys.mint(client, List.of(Scopes.FINANCE_WRITE), 90, false))
                 .hasMessageContaining("exceed client max_scopes");
         assertThat(keys.mint(client, List.of(Scopes.MEMOS_READ), 0, false).scopes()).containsExactly(Scopes.MEMOS_READ);
@@ -255,7 +260,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
         assertThat(anon.body()).contains("\"status\":\"UP\"").doesNotContain("components");
         assertThat(get("/actuator/health/liveness", null).statusCode()).isEqualTo(200);
 
-        String admin = newKey(ClientKind.SERVICE, List.of(Scopes.OPS_ADMIN));
+        String admin = adminKey();
         assertThat(get("/actuator/health", admin).body()).contains("components").contains("\"life\"");
         assertThat(get("/actuator/db", admin).statusCode()).isEqualTo(200);
         assertThat(get("/actuator/metrics", admin).statusCode()).isEqualTo(200);
@@ -264,7 +269,7 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
 
     @Test
     void actuatorWritesAreOffEvenForAdmin() throws Exception {
-        String admin = newKey(ClientKind.SERVICE, List.of(Scopes.OPS_ADMIN));
+        String admin = adminKey();
         HttpResponse<String> r = post("/actuator/loggers/com.lifeos", admin, "{\"configuredLevel\":\"TRACE\"}");
         assertThat(r.statusCode()).isNotIn(200, 204);
     }
@@ -280,10 +285,12 @@ class ApiKeyAuthHttpTest extends AuthHttpTestBase {
 
     @Test
     void unknownNonApiPathsAreDenied() throws Exception {
-        // owner pages: off to the passkey login, never served (an API key doesn't count there)
-        HttpResponse<String> admin = get("/admin/secret", chatKey());
-        assertThat(admin.statusCode()).isEqualTo(302);
-        assertThat(admin.headers().firstValue("Location").orElse("")).endsWith("/login");
+        // no login pages of any kind: denied, never a redirect to a login
+        for (String p : List.of("/admin/secret", "/login", "/approve/apr_x", "/webauthn/register/options", "/ops")) {
+            HttpResponse<String> r = get(p, chatKey());
+            assertThat(r.statusCode()).as(p).isEqualTo(403);
+            assertThat(r.headers().firstValue("Set-Cookie")).as(p).isEmpty();
+        }
         assertThat(get("/random", null).statusCode()).isIn(401, 403);
     }
 

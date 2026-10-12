@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  * Which requests are tier 2 / 3. Tier 0-1 (reads, normal reversible writes) return empty and are
  * governed by scopes + rate limit only. Thresholds come from {@code settings}
  * ({@code approval.receipt_total_cents}, {@code approval.bulk_rows}); changing settings is itself
- * an owner-only operation. Phase 4 MCP tools call {@link #assess} with the same inputs.
+ * an admin-only operation. Phase 4 MCP tools call {@link #assess} with the same inputs.
  */
 @Component
 public class RiskPolicy {

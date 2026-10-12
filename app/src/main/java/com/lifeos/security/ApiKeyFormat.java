@@ -44,6 +44,11 @@ public final class ApiKeyFormat {
         return new String(out);
     }
 
+    /** A well-formed public key id (12 lowercase base32 chars). */
+    public static boolean isKeyId(String s) {
+        return s != null && s.length() == KEY_ID_LEN && isB32(s);
+    }
+
     public static boolean looksLikeKey(String token) {
         return token != null && token.startsWith(PREFIX);
     }

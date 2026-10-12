@@ -48,6 +48,9 @@ class SchemaInitializerSqliteTest {
                 .containsEntry("notes", "estimate; prefer invoice / TokenHub");
         assertThat(count(jdbc, "SELECT COUNT(*) FROM schema_migrations WHERE name='0004_session_v3'")).isEqualTo(1);
         assertThat(count(jdbc, "SELECT COUNT(*) FROM schema_migrations WHERE name='0005_auth'")).isEqualTo(1);
+        for (String t : new String[]{"user_entities", "user_credentials", "one_time_tokens"}) { // no web login
+            assertThat(count(jdbc, "SELECT COUNT(*) FROM sqlite_master WHERE name='" + t + "'")).as(t).isZero();
+        }
     }
 
     @Test
@@ -71,8 +74,7 @@ class SchemaInitializerSqliteTest {
         JdbcTemplate jdbc = sqlite();
         runInit(jdbc);
         // Simulate prod before 0005: no auth tables, events/http_requests without the audit columns.
-        for (String t : new String[]{"api_keys", "api_clients", "security_events", "approval_requests",
-                "user_entities", "user_credentials", "one_time_tokens"}) {
+        for (String t : new String[]{"api_keys", "api_clients", "security_events", "approval_requests"}) {
             jdbc.execute("DROP TABLE " + t);
         }
         jdbc.execute("ALTER TABLE events DROP COLUMN client_id");
@@ -87,8 +89,7 @@ class SchemaInitializerSqliteTest {
         runInit(jdbc);
         runInit(jdbc);
 
-        for (String t : new String[]{"api_clients", "api_keys", "security_events", "approval_requests",
-                "user_entities", "user_credentials", "one_time_tokens"}) {
+        for (String t : new String[]{"api_clients", "api_keys", "security_events", "approval_requests"}) {
             assertThat(count(jdbc, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='" + t + "'"))
                     .as(t).isEqualTo(1);
         }
@@ -96,6 +97,9 @@ class SchemaInitializerSqliteTest {
         jdbc.queryForList("SELECT client_id, credential_id FROM http_requests");
         assertThat(count(jdbc, "SELECT COUNT(*) FROM settings WHERE key LIKE 'approval.%'")).isEqualTo(2);
         assertThat(count(jdbc, "SELECT COUNT(*) FROM schema_migrations WHERE name='0005_auth'")).isEqualTo(1);
+        for (String t : new String[]{"user_entities", "user_credentials", "one_time_tokens"}) { // no web login
+            assertThat(count(jdbc, "SELECT COUNT(*) FROM sqlite_master WHERE name='" + t + "'")).as(t).isZero();
+        }
     }
 
     /** Captures this class's log output during one run. */
