@@ -6,6 +6,9 @@ import org.springframework.web.util.pattern.PathPatternParser;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.LinkedHashMap;
@@ -22,6 +25,8 @@ import java.util.regex.Pattern;
  */
 @Component
 public class RiskPolicy {
+
+    private static final Logger log = LoggerFactory.getLogger(RiskPolicy.class);
 
     // Matched like Spring MVC routes them (PathPattern on the decoded path), not on the raw string:
     // /api/receipts/%31/confirm or /api/ops/pric%65s must land in the same tier as the plain path.
@@ -142,6 +147,7 @@ public class RiskPolicy {
         try {
             return v.isEmpty() ? dflt : Long.parseLong(v.get(0).trim());
         } catch (NumberFormatException e) {
+            log.warn("settings {}='{}' is not a number; using the default {}", key, v.get(0), dflt);
             return dflt;
         }
     }
@@ -152,8 +158,8 @@ public class RiskPolicy {
         try {
             Object o = json.readValue(body, Object.class);
             return o instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
-        } catch (Exception e) {
-            return Map.of();
+        } catch (JacksonException e) {
+            return Map.of(); // not JSON: MVC rejects the request with 400 after the gate
         }
     }
 }

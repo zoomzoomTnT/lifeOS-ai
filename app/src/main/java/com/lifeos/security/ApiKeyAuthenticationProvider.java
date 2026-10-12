@@ -1,6 +1,9 @@
 package com.lifeos.security;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -24,6 +27,8 @@ import java.util.TreeSet;
  * agent, then expanded (write ⇒ read). Every check hits the database, so revocation is immediate.
  */
 public class ApiKeyAuthenticationProvider implements AuthenticationProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiKeyAuthenticationProvider.class);
 
     public static final String ROLE_API_CLIENT = "ROLE_API_CLIENT";
     /** last_used_at is refreshed at most this often per key (fewer writes), or on a new IP. */
@@ -90,8 +95,9 @@ public class ApiKeyAuthenticationProvider implements AuthenticationProvider {
         if (!newIp && !stale) return;
         try {
             store.touch(key.id(), now.truncatedTo(ChronoUnit.SECONDS).toString(), ip);
-        } catch (RuntimeException e) {
-            return; // bookkeeping only
+        } catch (DataAccessException e) {
+            // bookkeeping only: the request is still authenticated; the security event below is still written
+            log.warn("api key {}: last_used not updated: {}", key.keyId(), e.getMessage());
         }
         if (key.lastUsedAt() == null || newIp) {
             events.record(SecurityEventLog.Event.of(key.lastUsedAt() == null ? "key_first_use" : "key_new_ip")

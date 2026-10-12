@@ -1,10 +1,12 @@
 package com.lifeos.security.approval;
 
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -26,7 +28,7 @@ public final class RequestFingerprint {
         if (body == null || body.length == 0) return "";
         try {
             return "json:" + CANON.writeValueAsString(CANON.readValue(body, Object.class));
-        } catch (Exception e) {
+        } catch (JacksonException e) {
             return "raw:" + Base64.getEncoder().encodeToString(body);
         }
     }
@@ -42,7 +44,7 @@ public final class RequestFingerprint {
         String s = method + "\n" + path + "\n" + sortedQuery(query) + "\n" + clientId + "\n" + canonicalBody(body);
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) {
+        } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
     }

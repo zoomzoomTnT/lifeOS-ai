@@ -10,6 +10,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StreamUtils;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -36,15 +38,13 @@ public class SchemaInitializer implements SmartInitializingSingleton {
     public void afterSingletonsInstantiated() {
         try {
             apply();
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException("schema init failed: " + e.getMessage(), e);
+        } catch (IOException e) {
+            throw new UncheckedIOException("schema init: cannot read script: " + e.getMessage(), e);
         }
     }
 
     /** Apply schema.sql / migrations now (also the entry point for tests and tools). */
-    public void apply() throws Exception {
+    public void apply() throws IOException {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='people'",
                 Integer.class);
@@ -66,7 +66,7 @@ public class SchemaInitializer implements SmartInitializingSingleton {
         execScript("classpath:migrations/0005_auth.sql");
     }
 
-    private void execScript(String location) throws Exception {
+    private void execScript(String location) throws IOException {
         Resource resource = resourceLoader.getResource(location);
         String sql = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
         // Not sql.split(";"): that broke statements with ';' in a comment or string literal.

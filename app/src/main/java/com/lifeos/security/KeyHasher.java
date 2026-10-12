@@ -3,6 +3,7 @@ package com.lifeos.security;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 
@@ -29,7 +30,7 @@ public final class KeyHasher {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(key);
             return HexFormat.of().formatHex(mac.doFinal(secret.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) {
+        } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", e);
         }
     }
@@ -38,14 +39,5 @@ public final class KeyHasher {
         if (secret == null || expectedHex == null) return false;
         return MessageDigest.isEqual(hash(secret).getBytes(StandardCharsets.US_ASCII),
                 expectedHex.getBytes(StandardCharsets.US_ASCII));
-    }
-
-    /** SHA-256 hex of arbitrary bytes (request hashes for approvals). */
-    public static String sha256Hex(byte[] data) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
     }
 }
