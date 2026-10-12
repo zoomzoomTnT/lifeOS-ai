@@ -62,7 +62,7 @@ public final class Scopes {
         Set<String> out = new LinkedHashSet<>(scopes);
         for (String s : scopes) {
             if (s.endsWith(":write")) out.add(s.substring(0, s.length() - "write".length()) + "read");
-            if (s.equals(OPS_ADMIN)) { out.add(OPS_WRITE); out.add(OPS_READ); }
+            if (s.equals(OPS_ADMIN)) out.add(OPS_READ); // never ops:write: the admin client does no ops writes
         }
         return out;
     }
