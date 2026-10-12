@@ -246,6 +246,15 @@ rolling forward.
 Migration `0005_auth` is additive: new tables plus nullable columns, nothing dropped. The old image
 ignores them.
 
+### Old 0005 databases
+
+`0005_auth` was rewritten in place before release (PR #29 was never merged), so a **dev/test**
+database migrated by an earlier PR #29 build (e.g. `a4e5e7d`: passkey / one-time-token tables,
+`approval_requests` without `decided_by_client`, `api_clients` without kind `admin`) can't run this
+version. The app detects that at startup and stops with a message instead of crash-looping on a
+CHECK constraint failure. There is no automatic upgrade: recreate that database (delete the SQLite
+file, or create a new Turso/sqld database). Production never ran the old 0005.
+
 ## Later phases
 
 * **Phase 3:** add `JwtAuthenticationProvider` (resource server, audience = this API) next to

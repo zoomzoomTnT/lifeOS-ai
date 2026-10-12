@@ -62,8 +62,38 @@ public class SchemaInitializer implements SmartInitializingSingleton {
         execScript("classpath:migrations/0003_logs.sql");
         log.info("Applying session-v3 migration 0004 (idempotent)");
         execScript("classpath:migrations/0004_session_v3.sql");
+        String stale = staleAuthSchema();
+        if (stale != null) {
+            String msg = "This database has the auth tables of an earlier PR #29 build of migration 0005 (" + stale
+                    + "). 0005 was rewritten in place before release and is not upgraded automatically. It only "
+                    + "exists in dev/test databases: recreate this database (delete the SQLite file, or create a "
+                    + "new Turso/sqld database) and start again. See docs/auth.md (\"Old 0005 databases\").";
+            log.error(msg);
+            throw new IllegalStateException(msg);
+        }
         log.info("Applying auth migration 0005 (idempotent)");
         execScript("classpath:migrations/0005_auth.sql");
+    }
+
+    /**
+     * Null if 0005 has not run yet or ran in its final form, else what gives away the earlier build
+     * (passkey / one-time-token tables, approval_requests without decided_by_client, or api_clients
+     * without the admin kind).
+     */
+    String staleAuthSchema() {
+        var legacy = jdbc.queryForList("SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+                + "('user_entities','user_credentials','one_time_tokens') ORDER BY name", String.class);
+        if (!legacy.isEmpty()) return "tables " + String.join(", ", legacy);
+        String approvals = tableSql("approval_requests");
+        if (approvals != null && !approvals.contains("decided_by_client")) return "approval_requests has no decided_by_client";
+        String clients = tableSql("api_clients");
+        if (clients != null && !clients.contains("'admin'")) return "api_clients does not allow kind 'admin'";
+        return null;
+    }
+
+    private String tableSql(String table) {
+        var sql = jdbc.queryForList("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?", String.class, table);
+        return sql.isEmpty() ? null : sql.get(0);
     }
 
     private void execScript(String location) throws IOException {

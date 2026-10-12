@@ -178,4 +178,23 @@ class SchemaInitializerSqliteTest {
                 .hasMessageContaining("INSERT INTO no_such_table")
                 .hasMessageContaining("no such table");
     }
+
+    /** A dev/test DB migrated by an earlier PR #29 build of 0005 (e.g. a4e5e7d): refuse to start, never upgrade. */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "CREATE TABLE user_entities (id TEXT PRIMARY KEY, name TEXT)",
+            "ALTER TABLE approval_requests DROP COLUMN decided_by_client",
+            "DROP TABLE api_keys; DROP TABLE api_clients; CREATE TABLE api_clients (id INTEGER PRIMARY KEY, "
+                    + "client_id TEXT, kind TEXT CHECK (kind IN ('agent','human_app','service')))"})
+    void anOld0005DatabaseFailsFastWithARecreateMessage(String makeOld) throws Exception {
+        JdbcTemplate jdbc = sqlite();
+        runInit(jdbc);
+        for (String stmt : makeOld.split(";")) jdbc.execute(stmt);
+        int before = count(jdbc, "SELECT COUNT(*) FROM sqlite_master");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> runInit(jdbc))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("earlier PR #29 build of migration 0005")
+                .hasMessageContaining("recreate this database");
+        assertThat(count(jdbc, "SELECT COUNT(*) FROM sqlite_master")).isEqualTo(before); // nothing touched
+    }
 }
