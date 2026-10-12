@@ -105,7 +105,7 @@ public class SchemaInitializer implements SmartInitializingSingleton {
         return stmt.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA");
     }
 
-    public static String expectedFailure(String stmt, Exception e) {
+    static String expectedFailure(String stmt, Exception e) {
         String msg = String.valueOf(e.getMessage()).toLowerCase(java.util.Locale.ROOT);
         Throwable c = e.getCause();
         while (c != null) {
@@ -113,10 +113,6 @@ public class SchemaInitializer implements SmartInitializingSingleton {
             c = c.getCause();
         }
         if (msg.contains("duplicate column name")) return "column already exists";
-        // guarded one-off renames in a migration: already renamed (or created with the new name)
-        if (msg.contains("no such column") && stmt.toUpperCase(java.util.Locale.ROOT).matches("(?s)(\\s*--[^\\n]*\\n)*\\s*ALTER TABLE \\S+ RENAME COLUMN .*")) {
-            return "column already renamed";
-        }
         if (stmt.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA")) return "PRAGMA not supported here";
         return null;
     }

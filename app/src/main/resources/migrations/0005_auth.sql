@@ -36,9 +36,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
   revoked_at    TEXT
 );
--- Dev/test DBs that ran the first 0005 (c73473f) have api_keys.client_id: rename it. On any other
--- DB this fails with "no such column" (tolerated for RENAME COLUMN only); the index follows the rename.
-ALTER TABLE api_keys RENAME COLUMN client_id TO api_client_id;
 CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(api_client_id);
 
 -- Append-only security audit: auth failures, key create/revoke/new IP, scope denials,
@@ -57,8 +54,6 @@ CREATE TABLE IF NOT EXISTS security_events (
   request_id    TEXT,                               -- = http_requests.correlation_id = events.request_id
   detail_json   TEXT
 );
--- request_id came after the first 0005 (c73473f): add it there (duplicate column elsewhere, tolerated).
-ALTER TABLE security_events ADD COLUMN request_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_security_events_at   ON security_events(at);
 CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(type, at);
 
