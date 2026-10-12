@@ -96,8 +96,8 @@ management:
       base-path: /actuator
       exposure:
         # Everything except health needs the owner or an ops:admin credential (agents never have it).
-        # Diagnostic endpoints (loggers, mappings, threaddump, ...) are opt-in via LIFE_ACTUATOR_ENDPOINTS.
-        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics,db}
+        # Diagnostic endpoints (db, loggers, mappings, threaddump, ...) are opt-in via LIFE_ACTUATOR_ENDPOINTS.
+        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics}
     # Writable operations (loggers POST, ...) are off: read-only, even if exposed.
     access:
       max-permitted: read-only

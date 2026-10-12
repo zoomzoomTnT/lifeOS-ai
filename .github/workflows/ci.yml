@@ -189,7 +189,7 @@ jobs:
           ! docker compose logs api | grep -qF "${CHAT#lok_*_}"
 
           curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/health | grep -q '"life"'
-          curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/db | grep -q ownerTimezone
+          test "$(code -H "Authorization: Bearer $OPS" $B/actuator/db)" = 404   # diagnostic endpoints are opt-in
           curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/info | grep -q life-os-app
           test "$(code -H "Authorization: Bearer $CHAT" $B/actuator/db)" = 403
 

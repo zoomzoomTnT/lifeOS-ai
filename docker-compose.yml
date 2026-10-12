@@ -26,7 +26,7 @@ services:
       LIFE_DOMAIN: ${LIFE_DOMAIN:-}
       LIFE_PUBLIC_URL: ${LIFE_PUBLIC_URL:-}
       LIFE_AUTH_WRITES_PER_MINUTE: ${LIFE_AUTH_WRITES_PER_MINUTE:-60}
-      LIFE_ACTUATOR_ENDPOINTS: ${LIFE_ACTUATOR_ENDPOINTS:-health,info,metrics,db}
+      LIFE_ACTUATOR_ENDPOINTS: ${LIFE_ACTUATOR_ENDPOINTS:-health,info,metrics}
       # Always false here: the app refuses to start with local-open=true outside the `local` profile.
       # docker-compose.local.yml turns it on (no credentials needed) for local development only.
       LIFE_AUTH_LOCAL_OPEN: "false"
