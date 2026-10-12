@@ -109,6 +109,8 @@ jobs:
           docker compose -f docker-compose.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?false"?$'
           LIFE_AUTH_LOCAL_OPEN=true docker compose -f docker-compose.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?false"?$'
           docker compose -f docker-compose.yml -f docker-compose.local.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?true"?$'
+          # prod: diagnostic actuator endpoints (db, ...) are opt-in
+          docker compose -f docker-compose.yml config | grep -Eq 'LIFE_ACTUATOR_ENDPOINTS: "?health,info,metrics"?$'
           docker run --rm -e LIFE_DOMAIN=ci.example.com -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           # with LIFE_ACME_EMAIL, as compose renders it (global "email" option)
@@ -189,7 +191,7 @@ jobs:
           ! docker compose logs api | grep -qF "${CHAT#lok_*_}"
 
           curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/health | grep -q '"life"'
-          test "$(code -H "Authorization: Bearer $OPS" $B/actuator/db)" = 404   # diagnostic endpoints are opt-in
+          curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/db | grep -q ownerTimezone   # local profile exposes all
           curl -fsS -H "Authorization: Bearer $OPS" $B/actuator/info | grep -q life-os-app
           test "$(code -H "Authorization: Bearer $CHAT" $B/actuator/db)" = 403
 
