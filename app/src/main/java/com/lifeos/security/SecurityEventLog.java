@@ -3,7 +3,9 @@ package com.lifeos.security;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
@@ -11,11 +13,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Append-only writer for security_events (there is no update/delete path, and purge skips it).
  * Noisy types from unauthenticated traffic are capped per minute so a scanner can't fill the
- * database; the cap is logged. Writing never breaks the request that triggered it.
+ * database; the cap is logged. A failed write is logged at ERROR and counted; for owner decisions
+ * and consumed approvals ({@link #REQUIRED}) it is rethrown, so those never pass unaudited.
  */
 public class SecurityEventLog {
 
@@ -24,12 +28,15 @@ public class SecurityEventLog {
     static final Set<String> THROTTLED = Set.of("auth_failed", "scope_denied", "approval_rejected",
             "identity_header_ignored", "non_canonical_path", "auth_missing");
     static final int PER_TYPE_PER_MINUTE = 30;
+    /** Types whose audit row must exist: a failed write fails the operation. */
+    static final Set<String> REQUIRED = Set.of("approval_approved", "approval_denied", "approval_consumed");
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final JsonMapper json = JsonMapper.builder().build();
     private final Map<String, AtomicInteger> window = new ConcurrentHashMap<>();
     private volatile long windowMinute = -1;
+    private final AtomicLong failures = new AtomicLong();
 
     public SecurityEventLog(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
@@ -86,9 +93,16 @@ public class SecurityEventLog {
                     VALUES (?,?,?,?,?,?,?,?,?,?)""", e.type, e.clientId, e.credentialId, e.personId, e.ip, e.method,
                     e.path == null ? null : e.path.substring(0, Math.min(500, e.path.length())), e.outcome, e.requestId,
                     e.detail == null ? null : json.writeValueAsString(e.detail));
-        } catch (Exception ex) {
-            log.warn("security event {} not recorded: {}", e.type, ex.getMessage());
+        } catch (DataAccessException | JacksonException ex) {
+            failures.incrementAndGet();
+            log.error("security event {} not recorded", e.type, ex);
+            if (REQUIRED.contains(e.type)) throw ex;
         }
+    }
+
+    /** Security events that could not be written since start (exposed as a metric). */
+    public long failures() {
+        return failures.get();
     }
 
     private boolean allow(String type) {

@@ -1,5 +1,7 @@
 package com.lifeos.security;
 
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.binder.MeterBinder;
 import org.springframework.security.web.session.DisableEncodeUrlFilter;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -61,6 +63,12 @@ public class SecurityConfig {
     @Bean
     SecurityEventLog securityEventLog(JdbcTemplate jdbc, Clock authClock) {
         return new SecurityEventLog(jdbc, authClock);
+    }
+
+    @Bean
+    MeterBinder securityEventFailures(SecurityEventLog events) {
+        return r -> Gauge.builder("lifeos.security_events.write_failures", events, SecurityEventLog::failures)
+                .description("security_events rows that could not be written since start").register(r);
     }
 
     @Bean
