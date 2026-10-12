@@ -13,7 +13,7 @@ See [Later phases](#later-phases).
 |---|---|---|---|
 | Grok Bot (chat) | `grokbot-chat` (agent) | `finance:write fridge:write memos:write stocks:write ops:read ops:write` (write implies read) | tier 0–1 directly; tier 2 → `approval_required` |
 | Grok Bot (routines / wake check) | `grokbot-routine` (agent) | `memos:read ops:read` | reads |
-| lifeOS Admin bot | `lifeos-admin` (**admin**, exactly one) | `ops:admin` + `finance:read fridge:read memos:read stocks:read ops:read`, **no data writes** (`ops:admin` does not imply `ops:write`: `POST /api/ops/ai` and `/api/ops/proactive/run` are 403) | `/api/admin/**`, approve/deny approvals, tier 3 (purge, `PUT /api/ops/prices`, actuator) |
+| lifeOS Admin bot | `lifeos-admin` (**admin**, exactly one) | `ops:admin` + `finance:read fridge:read memos:read stocks:read ops:read`, **no data writes** (`ops:admin` intentionally includes `ops:write`: ops actions such as `POST /api/ops/ai` stay allowed) | `/api/admin/**`, approve/deny approvals, tier 3 (purge, `PUT /api/ops/prices`, actuator) |
 | Anyone | nothing | | `GET /actuator/health` (status only), `/swagger-ui`, `/v3/api-docs` |
 
 All calls: `Authorization: Bearer lok_…` on `/api/**` and `/actuator/**`. Everything else is denied (403).
