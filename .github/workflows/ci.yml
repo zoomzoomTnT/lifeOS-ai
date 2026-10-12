@@ -29,9 +29,11 @@ jobs:
       - name: Required tables exist
         run: |
           sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -E '^(people|receipts|fridge_items|memos|holdings|http_requests|ai_calls|model_prices|settings|app_logs|ai_session_logs)$'
-          for t in api_clients api_keys security_events approval_requests user_entities user_credentials one_time_tokens; do
+          for t in api_clients api_keys security_events approval_requests; do
             sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -qx "$t" || { echo "missing table $t"; exit 1; }
           done
+          # no human web login: no passkey / one-time-token tables
+          test "$(sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('user_entities','user_credentials','one_time_tokens');")" = 0
           sqlite3 /tmp/life-ci.db "SELECT client_id, credential_id, approval_id FROM events LIMIT 0;"
           sqlite3 /tmp/life-ci.db "SELECT handle, role FROM people WHERE id = 1;"
           sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;" | grep -v '^0$'
