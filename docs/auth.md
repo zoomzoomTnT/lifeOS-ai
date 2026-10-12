@@ -44,8 +44,19 @@ Authorization Server) and phase 4 (MCP endpoint) slot in without changing anythi
 Every request, refused ones included, gets an `http_requests` row (`correlation_id` = `X-Request-Id`).
 `security_events` rows carry the same id in `request_id`; unauthenticated noise (`auth_missing`,
 `auth_failed`, `scope_denied`, `non_canonical_path`, ...) is capped at 30 rows per type per minute.
+`http_requests` has no `scopes` column on purpose: a key's scopes, its client's `max_scopes` and kind
+are never updated after minting (only `revoked_at` / `last_used_*` change), so the scopes a request ran
+with are `api_keys.scopes` ∩ `api_clients.max_scopes` (minus `ops:admin` for agents) for its
+`credential_id`; `credential_id = 'passkey'` is the owner session.
+A failed `security_events` write is logged at ERROR and counted in the metric
+`lifeos.security_events.write_failures`; for `approval_approved/denied/consumed` it fails the request.
+**Deferred:** rate-based alerting on auth failures (architecture doc §7, e.g. >20/min → Grok Bot
+notification) is not built yet; the rows are there, and the alert comes in a later phase.
 
 ## API keys
+
+No legacy key: the single `LIFE_API_KEY` / `owner-legacy` client from the architecture doc's Phase 1
+is intentionally dropped, because Phase 0 (PR #28) never shipped, so no such key exists to keep working.
 
 Format `lok_<key_id>_<secret>` (base32; `key_id` is public, shown in logs and lists). Only an
 HMAC-SHA256 of the secret is stored (`api_keys.secret_hash`), keyed with the **pepper**
@@ -129,8 +140,9 @@ Grok Bot's own "are you sure?" in chat is UX, never a control.
 ## Actuator
 
 `health` is public, status only. Components and details (`life`, `openclaw`, db) need `ops:admin`.
-`info`, `metrics` and `db` need `ops:admin` (the owner session has it). Other endpoints are
-opt-in via `LIFE_ACTUATOR_ENDPOINTS`. Writes are off.
+`info` and `metrics` need `ops:admin` (the owner session has it). Diagnostic endpoints (`db`,
+`loggers`, `mappings`, ...) are off by default and opt-in via `LIFE_ACTUATOR_ENDPOINTS` (then also
+`ops:admin` only). Writes are off.
 
 ## Network exposure
 
@@ -153,7 +165,7 @@ opt-in via `LIFE_ACTUATOR_ENDPOINTS`. Writes are off.
 | `LIFE_PUBLIC_URL` | `https://$LIFE_DOMAIN` | base for login/approval links; trailing `/` is stripped |
 | `LIFE_ACME_EMAIL` | empty | optional ACME account email for Caddy (expiry mails; enables the ZeroSSL fallback CA). Repo variable `LIFE_ACME_EMAIL` |
 | `LIFE_AUTH_WRITES_PER_MINUTE` | 60 | per non-owner client |
-| `LIFE_ACTUATOR_ENDPOINTS` | `health,info,metrics,db` | |
+| `LIFE_ACTUATOR_ENDPOINTS` | `health,info,metrics` | |
 | `LIFE_COOKIE_SECURE` | false | `local` profile only (plain http://localhost; cookie `LIFEOS_SESSION`). Production always uses `__Host-LIFEOS_SESSION`, Secure |
 | `life.auth.local-open` | false | `local` profile only (`LIFE_AUTH_LOCAL_OPEN`, default true in `docker-compose.local.yml` / `application-local.yml`): requests without a key act as the owner. `docker-compose.yml` always sets false; true in any other profile refuses to start |
 
