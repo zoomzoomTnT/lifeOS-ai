@@ -42,6 +42,9 @@ public class ApiKeyService {
         }
     }
 
+    private static final java.time.format.DateTimeFormatter REVOKED_AT =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(java.time.ZoneOffset.UTC);
+
     String now() {
         return Instant.now(clock).truncatedTo(ChronoUnit.SECONDS).toString();
     }
@@ -137,7 +140,8 @@ public class ApiKeyService {
     }
 
     boolean revoke(String keyId, String reason, String via) {
-        boolean done = store.revoke(keyId, now()) == 1;
+        // Millisecond precision: the admin key rollback picks the key revoked most recently.
+        boolean done = store.revoke(keyId, REVOKED_AT.format(Instant.now(clock))) == 1;
         if (done) {
             Map<String, Object> detail = new java.util.LinkedHashMap<>(Map.of("reason", reason == null ? "manual" : reason));
             if (via != null) detail.put("via", via);
@@ -149,7 +153,9 @@ public class ApiKeyService {
     /**
      * Makes {@code keyId} with {@code sha256Hex} = SHA-256(secret) the admin client's only active key
      * (creating client {@value AdminKeyBootstrap#ADMIN_CLIENT_ID} if needed) and revokes every other
-     * admin key. Same values again = no change.
+     * admin key. Same values again = no change. The immediately previous admin key id (the one revoked
+     * most recently) may come back to roll a rotation back: it is reactivated and the current one
+     * revoked. Any older id is refused.
      *
      * @return true if anything changed
      */
@@ -167,9 +173,24 @@ public class ApiKeyService {
         Optional<ApiKeyStore.KeyRecord> existing = store.findByKeyId(keyId);
         if (existing.isPresent()) {
             ApiKeyStore.KeyRecord k = existing.get();
-            if (!k.clientId().equals(admin.clientId()) || k.revokedAt() != null || !KeyHasher.equalHex(k.secretHash(), sha256Hex)) {
-                throw new IllegalStateException("LIFE_ADMIN_KEY_ID " + keyId + " is already used by another or an "
-                        + "older key: generate a new admin key (new key id) and update both secrets");
+            if (!k.clientId().equals(admin.clientId()) || !KeyHasher.equalHex(k.secretHash(), sha256Hex)) {
+                throw new IllegalStateException("LIFE_ADMIN_KEY_ID " + keyId + " is already used by another key: "
+                        + "generate a new admin key (new key id) and update both secrets");
+            }
+            if (k.revokedAt() != null) {
+                // Rollback of a rotation: only the admin key revoked most recently may come back.
+                if (!keyId.equals(store.lastRevokedKeyId(admin.id()).orElse(null))) {
+                    throw new IllegalStateException("LIFE_ADMIN_KEY_ID " + keyId + " is an older admin key: only the "
+                            + "immediately previous one can be restored; generate a new admin key (new key id) and "
+                            + "update both secrets");
+                }
+                store.unrevoke(keyId);
+                events.record(SecurityEventLog.Event.of("key_reactivated").client(admin.clientId()).credential(keyId)
+                        .person(admin.personId()).detail(Map.of("reason", "rollback", "via", via)));
+                for (String other : store.activeKeyIds(admin.id(), now())) {
+                    if (!other.equals(keyId)) revoke(other, "rolled_back", via);
+                }
+                return true;
             }
         } else {
             store.insertKey(keyId, admin.id(), sha256Hex, Scopes.format(Scopes.parse(admin.maxScopes())), null);

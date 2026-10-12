@@ -68,7 +68,8 @@ public class OpsController {
         return ResponseEntity.ok(opsService.prices());
     }
 
-    @PreAuthorize("hasAuthority('SCOPE_ops:write')")
+    // tier 3: ops:admin AND the admin client itself (kind admin, see AdminClientCheck)
+    @PreAuthorize("hasAuthority('SCOPE_ops:admin') and @adminClient.check(authentication)")
     @PutMapping("/prices")
     public ResponseEntity<?> upsertPrice(@RequestBody Map<String, Object> body) {
         return ResponseEntity.ok(opsService.upsertPrice(body));

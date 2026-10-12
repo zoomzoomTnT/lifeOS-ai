@@ -81,6 +81,16 @@ public class ApiKeyStore {
                  ORDER BY created_at, id""", String.class, clientRowId, now);
     }
 
+    /** The client's key revoked most recently, if any. */
+    public Optional<String> lastRevokedKeyId(long clientRowId) {
+        return jdbc.queryForList("SELECT key_id FROM api_keys WHERE api_client_id = ? AND revoked_at IS NOT NULL "
+                + "ORDER BY revoked_at DESC, id DESC LIMIT 1", String.class, clientRowId).stream().findFirst();
+    }
+
+    public int unrevoke(String keyId) {
+        return jdbc.update("UPDATE api_keys SET revoked_at = NULL WHERE key_id = ? AND revoked_at IS NOT NULL", keyId);
+    }
+
     public int revoke(String keyId, String now) {
         return jdbc.update("UPDATE api_keys SET revoked_at = ? WHERE key_id = ? AND revoked_at IS NULL", now, keyId);
     }

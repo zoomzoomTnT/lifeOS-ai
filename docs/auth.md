@@ -13,7 +13,7 @@ See [Later phases](#later-phases).
 |---|---|---|---|
 | Grok Bot (chat) | `grokbot-chat` (agent) | `finance:write fridge:write memos:write stocks:write ops:read ops:write` (write implies read) | tier 0–1 directly; tier 2 → `approval_required` |
 | Grok Bot (routines / wake check) | `grokbot-routine` (agent) | `memos:read ops:read` | reads |
-| lifeOS Admin bot | `lifeos-admin` (**admin**, exactly one) | `ops:admin` + `finance:read fridge:read memos:read stocks:read ops:read`, **no data writes** | `/api/admin/**`, approve/deny approvals, tier 3 (purge, `PUT /api/ops/prices`, actuator) |
+| lifeOS Admin bot | `lifeos-admin` (**admin**, exactly one) | `ops:admin` + `finance:read fridge:read memos:read stocks:read ops:read`, **no data writes** (`ops:admin` does not imply `ops:write`: `POST /api/ops/ai` and `/api/ops/proactive/run` are 403) | `/api/admin/**`, approve/deny approvals, tier 3 (purge, `PUT /api/ops/prices`, actuator) |
 | Anyone | nothing | | `GET /actuator/health` (status only), `/swagger-ui`, `/v3/api-docs` |
 
 All calls: `Authorization: Bearer lok_…` on `/api/**` and `/actuator/**`. Everything else is denied (403).
@@ -103,8 +103,10 @@ EOF
 ```
 
 **Rotate / recover / leak:** generate a new key, zoomzoom updates both GitHub secrets, redeploy; the
-old key is dead once the app has started. A key id that was used before is refused (generate a new
-one). Emergency without CI: edit both values in `$DEPLOY_DIR/.env` on the server and
+old key is dead once the app has started. **Rollback:** starting with the immediately previous admin
+key id and secret (the admin key revoked most recently) reactivates it and revokes the current one
+(`key_reactivated` + `key_revoked` reason `rolled_back`, `via=deploy_secret`). Any older key id, or a used
+id with a different secret, is refused (generate a new one). Emergency without CI: edit both values in `$DEPLOY_DIR/.env` on the server and
 `docker compose up -d`. The admin key can never be minted, rotated or revoked over the API.
 
 ### Admin API (admin client only)

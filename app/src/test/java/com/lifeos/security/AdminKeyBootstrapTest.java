@@ -29,11 +29,14 @@ class AdminKeyBootstrapTest {
     static final HttpClient HTTP = HttpClient.newHttpClient();
 
     static ConfigurableApplicationContext boot(Path db, ApiKeyFormat.Generated admin) {
+        return bootRaw(db, admin.keyId(), KeyHasher.sha256Hex(admin.secret()));
+    }
+
+    static ConfigurableApplicationContext bootRaw(Path db, String keyId, String sha256Hex) {
         return new SpringApplicationBuilder(LifeOsApplication.class).run("--spring.profiles.active=local",
                 "--LIFE_DB=" + db, "--life.auth.local-open=false", "--server.port=0", "--life.openclaw.enabled=false",
                 "--lifeos.openclaw.enabled=false", "--life.proactive.cron=-", "--life.logs.ingest-ms=86400000",
-                "--life.auth.admin-key-id=" + admin.keyId(),
-                "--life.auth.admin-key-sha256=" + KeyHasher.sha256Hex(admin.secret()));
+                "--life.auth.admin-key-id=" + keyId, "--life.auth.admin-key-sha256=" + sha256Hex);
     }
 
     static int status(ConfigurableApplicationContext ctx, String key) throws Exception {
@@ -82,14 +85,37 @@ class AdminKeyBootstrapTest {
             assertThat(count(ctx, "SELECT COUNT(*) FROM api_keys k JOIN api_clients c ON c.id = k.api_client_id "
                     + "WHERE c.kind='admin' AND k.revoked_at IS NULL")).isEqualTo(1);
         }
-        // going back to an old, revoked key id is refused (generate a new key instead)
-        assertThatThrownBy(() -> boot(db, first).close())
+        // rollback: the immediately previous key id comes back, the current one is revoked
+        try (ConfigurableApplicationContext ctx = boot(db, first)) {
+            assertThat(status(ctx, first.fullKey())).isEqualTo(200);
+            assertThat(status(ctx, second.fullKey())).isEqualTo(401);
+            assertThat(count(ctx, "SELECT COUNT(*) FROM security_events WHERE type='key_reactivated' AND credential_id=? "
+                    + "AND detail_json LIKE '%deploy_secret%' AND detail_json LIKE '%rollback%'", first.keyId())).isEqualTo(1);
+            assertThat(count(ctx, "SELECT COUNT(*) FROM security_events WHERE type='key_revoked' AND credential_id=? "
+                    + "AND detail_json LIKE '%rolled_back%'", second.keyId())).isEqualTo(1);
+            assertThat(count(ctx, "SELECT COUNT(*) FROM api_keys k JOIN api_clients c ON c.id = k.api_client_id "
+                    + "WHERE c.kind='admin' AND k.revoked_at IS NULL")).isEqualTo(1);
+        }
+        try (ConfigurableApplicationContext ctx = boot(db, first)) { // restart after rollback: no change
+            assertThat(count(ctx, "SELECT COUNT(*) FROM security_events WHERE type='key_reactivated'")).isEqualTo(1);
+            assertThat(status(ctx, first.fullKey())).isEqualTo(200);
+        }
+        // the previous key's id with a different secret is refused
+        assertThatThrownBy(() -> bootRaw(db, second.keyId(), KeyHasher.sha256Hex("other")).close())
                 .satisfies(e -> assertThat(root(e).getMessage()).contains("already used"));
+        ApiKeyFormat.Generated third = ApiKeyFormat.generate();
+        try (ConfigurableApplicationContext ctx = boot(db, third)) {
+            assertThat(status(ctx, third.fullKey())).isEqualTo(200);
+            assertThat(status(ctx, first.fullKey())).isEqualTo(401);
+        }
+        // second is now older than the immediately previous key (first): refused
+        assertThatThrownBy(() -> boot(db, second).close())
+                .satisfies(e -> assertThat(root(e).getMessage()).contains("older admin key"));
 
-        for (ApiKeyFormat.Generated k : new ApiKeyFormat.Generated[]{first, second}) {
+        for (ApiKeyFormat.Generated k : new ApiKeyFormat.Generated[]{first, second, third}) {
             assertThat(out.getAll()).doesNotContain(k.secret()).doesNotContain(k.fullKey());
         }
-        assertThat(out.getAll()).contains(second.keyId());
+        assertThat(out.getAll()).contains(third.keyId());
     }
 
     static final String[] PROD = {"--spring.datasource.url=jdbc:libsql:http://127.0.0.1:9", "--server.port=0",
