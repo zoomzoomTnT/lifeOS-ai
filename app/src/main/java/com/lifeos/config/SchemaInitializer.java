@@ -13,29 +13,17 @@ import org.springframework.util.StreamUtils;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 /**
- * Applies schema.sql (idempotent) on every start. Before that, adds the columns in
- * {@link #REQUIRED_COLUMNS} to tables that exist without them (databases built before 0005, e.g.
- * prod from e2e4938): SQLite has no {@code ADD COLUMN IF NOT EXISTS}, and {@code CREATE TABLE IF NOT
- * EXISTS} leaves an existing table as it is. Refuses databases from an earlier PR #29 build of the
- * auth tables. Runs once all singletons exist and before the web server's connector starts
+ * Applies schema.sql (idempotent) on every start. It never alters existing tables: a column added
+ * to an existing table needs a one-time manual ALTER (docs/auth.md, "Schema upgrades"). Refuses
+ * databases from an earlier PR #29 build of the auth tables. Runs once all singletons exist and before the web server's connector starts
  * accepting requests.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class SchemaInitializer implements SmartInitializingSingleton {
-
-    /** table, column, type: columns added to tables that older databases already have. */
-    static final List<String[]> REQUIRED_COLUMNS = List.of(
-            new String[]{"events", "client_id", "TEXT"},
-            new String[]{"events", "credential_id", "TEXT"},
-            new String[]{"events", "request_id", "TEXT"},
-            new String[]{"events", "approval_id", "INTEGER"},
-            new String[]{"http_requests", "client_id", "TEXT"},
-            new String[]{"http_requests", "credential_id", "TEXT"});
 
     private final JdbcTemplate jdbc;
     private final ResourceLoader resourceLoader;
@@ -66,23 +54,9 @@ public class SchemaInitializer implements SmartInitializingSingleton {
             log.error(msg);
             throw new IllegalStateException(msg);
         }
-        addMissingColumns();
         log.info("Applying {} (idempotent)", schemaPath);
         execScript(schemaPath);
         log.info("Schema up to date");
-    }
-
-    /** ALTER TABLE ... ADD COLUMN for each required column whose table exists without it. */
-    void addMissingColumns() {
-        for (String[] c : REQUIRED_COLUMNS) {
-            // pragma_table_info as a SELECT: works on SQLite and over the libSQL driver (sqld/Turso);
-            // empty for a table that does not exist yet (schema.sql then creates it complete).
-            List<String> cols = jdbc.queryForList("SELECT name FROM pragma_table_info(?)", String.class, c[0]);
-            if (!cols.isEmpty() && !cols.contains(c[1])) {
-                log.info("Adding column {}.{}", c[0], c[1]);
-                jdbc.execute("ALTER TABLE " + c[0] + " ADD COLUMN " + c[1] + " " + c[2]);
-            }
-        }
     }
 
     /**

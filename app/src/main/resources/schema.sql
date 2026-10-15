@@ -3,8 +3,8 @@
 -- Money: integer cents. Times: UTC ISO-8601 with Z (TEXT). Enums enforced by CHECK.
 -- Source of truth. Keep in sync with references/conventions.md enums.
 -- The only schema file. Applied on every start and idempotent (IF NOT EXISTS / INSERT OR IGNORE).
--- Columns added to tables that already exist in older databases are also listed in
--- SchemaInitializer.REQUIRED_COLUMNS (SQLite has no ADD COLUMN IF NOT EXISTS).
+-- It never changes an existing table: a new column on one needs a one-time manual ALTER on
+-- existing databases (docs/auth.md, "Schema upgrades").
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;

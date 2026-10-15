@@ -22,8 +22,9 @@ import java.util.TreeMap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Prod's database was built by e2e4938 (no auth). Starting the current app on such a database, with
- * rows in it, must end at exactly the schema of a fresh database and keep every row.
+ * Prod's database was built by e2e4938 (no auth). The documented cutover (docs/auth.md step 5: the
+ * six ALTERs) followed by starting the current app on such a database, with rows in it, must end at
+ * exactly the schema of a fresh database and keep every row.
  */
 class UpgradeFromE2e4938Test {
 
@@ -74,6 +75,12 @@ class UpgradeFromE2e4938Test {
         Map<String, List<Map<String, Object>>> before = new TreeMap<>();
         for (String t : tables(jdbc)) before.put(t, rows(jdbc, t));
 
+        // docs/auth.md cutover step 5, verbatim: check (no rows), the six ALTERs, check (six rows)
+        Cutover doc = cutoverStep();
+        assertThat(jdbc.queryForList(doc.check())).isEmpty();
+        for (String alter : doc.alters()) jdbc.execute(alter);
+        assertThat(jdbc.queryForList(doc.check())).hasSize(6);
+
         init(jdbc, url);
         init(jdbc, url); // and again: nothing changes
 
@@ -100,6 +107,27 @@ class UpgradeFromE2e4938Test {
         assertThat(jdbc.queryForObject("SELECT input_usd_micros_per_mtok FROM model_prices WHERE model='grok-4'", Integer.class)).isEqualTo(42);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM settings WHERE key LIKE 'approval.%'", Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT payload_json FROM events WHERE entity_table='memos'", String.class)).contains("keep me");
+    }
+
+    record Cutover(String check, List<String> alters) {}
+
+    /** The read-only check and the ALTER statements documented in docs/auth.md. */
+    static Cutover cutoverStep() throws Exception {
+        String md = Files.readString(Path.of("..", "docs", "auth.md"));
+        List<String> blocks = new ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("```sql\\n(.*?)```", java.util.regex.Pattern.DOTALL).matcher(md);
+        while (m.find()) blocks.add(m.group(1).lines().map(String::strip).filter(l -> !l.isEmpty()).collect(java.util.stream.Collectors.joining("\n")));
+        String check = blocks.stream().filter(b -> b.contains("pragma_table_info('events')")).findFirst().orElseThrow();
+        List<String> alters = blocks.stream().filter(b -> b.startsWith("ALTER TABLE")).findFirst().orElseThrow()
+                .lines().map(l -> l.replaceAll(";$", "")).toList();
+        assertThat(alters).containsExactly(
+                "ALTER TABLE events ADD COLUMN client_id TEXT",
+                "ALTER TABLE events ADD COLUMN credential_id TEXT",
+                "ALTER TABLE events ADD COLUMN request_id TEXT",
+                "ALTER TABLE events ADD COLUMN approval_id INTEGER",
+                "ALTER TABLE http_requests ADD COLUMN client_id TEXT",
+                "ALTER TABLE http_requests ADD COLUMN credential_id TEXT");
+        return new Cutover(check.replaceAll(";\\s*$", ""), alters);
     }
 
     static void init(JdbcTemplate jdbc, String url) throws Exception {

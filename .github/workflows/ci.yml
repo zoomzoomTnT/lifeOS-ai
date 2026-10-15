@@ -41,18 +41,21 @@ jobs:
           test "$(sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;")" = 7
           sqlite3 /tmp/life-ci.db "SELECT name FROM sqlite_master WHERE type='view' AND name='v_ai_daily';"
 
-      # An e2e4938 database (fixture: its schema.sql + 0002..0004) with rows: schema.sql adds the auth
-      # tables and keeps the rows. The six new columns on events / http_requests are added by
-      # SchemaInitializer at startup (UpgradeFromE2e4938Test, on SQLite and sqld).
-      - name: schema.sql on an e2e4938 database keeps its data
+      # An e2e4938 (prod) database with rows, after the documented one-time ALTERs (docs/auth.md
+      # cutover step 5, taken from the doc itself): schema.sql adds the auth tables and keeps the rows.
+      - name: schema.sql on an e2e4938 database after the documented ALTERs
         run: |
           # the fixture's ALTERs re-add columns e2e4938's schema.sql already has (e2e4938 tolerated that)
           sed '/^ALTER TABLE .* ADD COLUMN/d' app/src/test/resources/fixtures/e2e4938-schema.sql | sqlite3 /tmp/life-old.db
           sqlite3 /tmp/life-old.db "INSERT INTO people (handle, display_name) VALUES ('alice', 'Alice'); UPDATE settings SET value='123' WHERE key='ai_daily_budget_usd_micros';"
+          grep -E '^ +ALTER TABLE (events|http_requests) ADD COLUMN ' docs/auth.md | sed 's/^ *//' > /tmp/cutover.sql
+          test "$(wc -l < /tmp/cutover.sql)" = 6
+          sqlite3 /tmp/life-old.db < /tmp/cutover.sql
           sqlite3 /tmp/life-old.db < app/src/main/resources/schema.sql
           test "$(sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM people WHERE handle='alice';")" = 1
           test "$(sqlite3 /tmp/life-old.db "SELECT value FROM settings WHERE key='ai_daily_budget_usd_micros';")" = 123
           test "$(sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('api_clients','api_keys','security_events','approval_requests');")" = 4
+          test "$(sqlite3 /tmp/life-old.db "SELECT (SELECT COUNT(*) FROM pragma_table_info('events') WHERE name IN ('client_id','credential_id','request_id','approval_id')) + (SELECT COUNT(*) FROM pragma_table_info('http_requests') WHERE name IN ('client_id','credential_id'));")" = 6
 
   # build: mvn verify against a real sqld service, then keep the jar as an artifact.
   build:

@@ -203,9 +203,31 @@ What zoomzoom does, in order. Nothing here is done by CD on its own.
    optional repo variable `LIFE_ACME_EMAIL`. Base URLs (the agents' `LIFE_API_BASE`) have **no trailing
    slash**: `$LIFE_API_BASE/api/...` with one becomes `//api/...`, which the API refuses (400).
 4. **Security group:** inbound TCP 80, 443 from 0.0.0.0/0. Make sure 8787 is **not** open.
-5. **Merge** the PR into `release/0.1.0` → CD deploys. It checks that anonymous `/api` and
+5. **Before deploying #29 to prod (once, by hand):** the prod database (built by e2e4938) lacks six
+   columns that the app writes on every request, and the app never alters existing tables. In the
+   Turso shell for the prod database (`turso db shell <db>`), first run the read-only check:
+   ```sql
+   SELECT 'events', name FROM pragma_table_info('events')
+    WHERE name IN ('client_id','credential_id','request_id','approval_id')
+   UNION ALL
+   SELECT 'http_requests', name FROM pragma_table_info('http_requests')
+    WHERE name IN ('client_id','credential_id');
+   ```
+   It should return no rows. Then run exactly:
+   ```sql
+   ALTER TABLE events ADD COLUMN client_id TEXT;
+   ALTER TABLE events ADD COLUMN credential_id TEXT;
+   ALTER TABLE events ADD COLUMN request_id TEXT;
+   ALTER TABLE events ADD COLUMN approval_id INTEGER;
+   ALTER TABLE http_requests ADD COLUMN client_id TEXT;
+   ALTER TABLE http_requests ADD COLUMN credential_id TEXT;
+   ```
+   Run the check again: it must now return all six rows. Existing rows get NULL in the new columns,
+   and the old image ignores them, so this is safe to do before the merge. If a column is already
+   there, that ALTER fails with "duplicate column name". Leave that column alone and run the rest.
+6. **Merge** the PR into `release/0.1.0` → CD deploys. It checks that anonymous `/api` and
    `/actuator/info` answer 401, and `https://$LIFE_DOMAIN/actuator/health` if set.
-6. **Grok Bot's keys:** after you say yes in chat, the Admin bot calls `POST /api/admin/clients` for
+7. **Grok Bot's keys:** after you say yes in chat, the Admin bot calls `POST /api/admin/clients` for
    `grokbot-chat` and `grokbot-routine` (scopes as in the table above) and
    `POST /api/admin/clients/{id}/keys`, and writes each key straight into Grok Bot's secret store as
    `LIFEOS_GROKBOT_CHAT_KEY` / `LIFEOS_GROKBOT_ROUTINE_KEY`, **never into a chat message**.
@@ -215,9 +237,9 @@ What zoomzoom does, in order. Nothing here is done by CD on its own.
    `memos:write ops:write finance:write fridge:write`) and mint it a key for OpenClaw's env.
    `POST /api/ops/webhook/ping` is different: it takes the hook token (`Authorization: Bearer
    $OPENCLAW_HOOK_TOKEN` or `x-openclaw-token: $OPENCLAW_HOOK_TOKEN`), not a `lok_` key.
-7. Check: Grok Bot can read memos; a big receipt confirm comes back as `approval_required` with a
+8. Check: Grok Bot can read memos; a big receipt confirm comes back as `approval_required` with a
    summary, which Grok Bot shows you in chat.
-8. Afterwards: Grok Bot's box holds root SSH to the server. That bypasses every control here (it can
+9. Afterwards: Grok Bot's box holds root SSH to the server. That bypasses every control here (it can
    read the pepper, the Turso token and replace the admin hash). Consider removing that key from the
    agent box, or limit it to deploy-only tasks, once the cutover is done.
 
@@ -251,11 +273,13 @@ dropped. The old image ignores them.
 ### Schema upgrades
 
 `app/src/main/resources/schema.sql` is the only schema file (no numbered migrations). On every start
-`SchemaInitializer` adds any of its `REQUIRED_COLUMNS` (the six auth columns above) that an existing
-table lacks (SQLite has no `ADD COLUMN IF NOT EXISTS`), then applies `schema.sql`, which is idempotent
-(`IF NOT EXISTS`, `INSERT OR IGNORE`). That brings prod's e2e4938 database to the current schema with
-its data intact (`UpgradeFromE2e4938Test`, on SQLite and sqld). A future column on an existing table
-goes into both `schema.sql` and `REQUIRED_COLUMNS`.
+`SchemaInitializer` applies it. It is idempotent (`IF NOT EXISTS`, `INSERT OR IGNORE`), so new
+tables, indexes and seed rows reach existing databases by themselves. It never changes an existing
+table, and SQLite has no `ADD COLUMN IF NOT EXISTS`. So **a future column change on an existing table
+needs a manual `ALTER TABLE` on every existing database** (prod: before the deploy that needs it),
+plus the column in `schema.sql` for fresh databases. #29's six columns are cutover step 5;
+`UpgradeFromE2e4938Test` applies exactly those statements to an e2e4938 database with rows and checks
+it ends at the fresh schema with its data intact (SQLite and sqld).
 
 ### Old 0005 databases
 

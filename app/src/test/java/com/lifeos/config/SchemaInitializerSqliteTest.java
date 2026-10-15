@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Runs the real SchemaInitializer (schema.sql + required columns) against a SQLite file. */
+/** Runs the real SchemaInitializer (schema.sql) against a SQLite file. */
 class SchemaInitializerSqliteTest {
 
     private static JdbcTemplate sqlite() throws Exception {
@@ -70,19 +70,13 @@ class SchemaInitializerSqliteTest {
     }
 
     @Test
-    void aPre0005DatabaseGetsTheAuthTablesAndColumnsAndRerunsAreIdempotent() throws Exception {
+    void aPre0005DatabaseGetsTheAuthTablesAndRerunsAreIdempotent() throws Exception {
         JdbcTemplate jdbc = sqlite();
         runInit(jdbc);
-        // Simulate prod before 0005: no auth tables, events/http_requests without the audit columns.
+        // Before 0005: no auth tables (the audit columns are added by hand, see UpgradeFromE2e4938Test).
         for (String t : new String[]{"api_keys", "api_clients", "security_events", "approval_requests"}) {
             jdbc.execute("DROP TABLE " + t);
         }
-        jdbc.execute("ALTER TABLE events DROP COLUMN client_id");
-        jdbc.execute("ALTER TABLE events DROP COLUMN credential_id");
-        jdbc.execute("ALTER TABLE events DROP COLUMN request_id");
-        jdbc.execute("ALTER TABLE events DROP COLUMN approval_id");
-        jdbc.execute("ALTER TABLE http_requests DROP COLUMN client_id");
-        jdbc.execute("ALTER TABLE http_requests DROP COLUMN credential_id");
         jdbc.execute("DELETE FROM schema_migrations WHERE name='0005_auth'");
         jdbc.execute("DELETE FROM settings WHERE key LIKE 'approval.%'");
 
@@ -93,8 +87,6 @@ class SchemaInitializerSqliteTest {
             assertThat(count(jdbc, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='" + t + "'"))
                     .as(t).isEqualTo(1);
         }
-        jdbc.queryForList("SELECT client_id, credential_id, request_id, approval_id FROM events");
-        jdbc.queryForList("SELECT client_id, credential_id FROM http_requests");
         assertThat(count(jdbc, "SELECT COUNT(*) FROM settings WHERE key LIKE 'approval.%'")).isEqualTo(2);
         assertThat(count(jdbc, "SELECT COUNT(*) FROM schema_migrations WHERE name='0005_auth'")).isEqualTo(1);
         for (String t : new String[]{"user_entities", "user_credentials", "one_time_tokens"}) { // no web login
