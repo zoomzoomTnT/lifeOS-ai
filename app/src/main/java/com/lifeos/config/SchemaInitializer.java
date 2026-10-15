@@ -15,10 +15,9 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Applies schema.sql (idempotent) on every start. It never alters existing tables: a column added
- * to an existing table needs a one-time manual ALTER (docs/auth.md, "Schema upgrades"). Refuses
- * databases from an earlier PR #29 build of the auth tables. Runs once all singletons exist and before the web server's connector starts
- * accepting requests.
+ * Applies schema.sql (idempotent) on every start. It never changes an existing table: before 1.0.0 a
+ * schema change on an existing table is a drop and recreate (docs/auth.md, "Schema upgrades"). Runs
+ * once all singletons exist and before the web server's connector starts accepting requests.
  */
 @Component
 @RequiredArgsConstructor
@@ -45,39 +44,9 @@ public class SchemaInitializer implements SmartInitializingSingleton {
 
     /** Bring the database to the current schema now (also the entry point for tests and tools). */
     public void apply() throws IOException {
-        String stale = staleAuthSchema();
-        if (stale != null) {
-            String msg = "This database has the auth tables of an earlier PR #29 build of migration 0005 (" + stale
-                    + "). 0005 was rewritten in place before release and is not upgraded automatically. It only "
-                    + "exists in dev/test databases: recreate this database (delete the SQLite file, or create a "
-                    + "new Turso/sqld database) and start again. See docs/auth.md (\"Old 0005 databases\").";
-            log.error(msg);
-            throw new IllegalStateException(msg);
-        }
         log.info("Applying {} (idempotent)", schemaPath);
         execScript(schemaPath);
         log.info("Schema up to date");
-    }
-
-    /**
-     * Null if 0005 has not run yet or ran in its final form, else what gives away the earlier build
-     * (passkey / one-time-token tables, approval_requests without decided_by_client, or api_clients
-     * without the admin kind).
-     */
-    String staleAuthSchema() {
-        var legacy = jdbc.queryForList("SELECT name FROM sqlite_master WHERE type='table' AND name IN "
-                + "('user_entities','user_credentials','one_time_tokens') ORDER BY name", String.class);
-        if (!legacy.isEmpty()) return "tables " + String.join(", ", legacy);
-        String approvals = tableSql("approval_requests");
-        if (approvals != null && !approvals.contains("decided_by_client")) return "approval_requests has no decided_by_client";
-        String clients = tableSql("api_clients");
-        if (clients != null && !clients.contains("'admin'")) return "api_clients does not allow kind 'admin'";
-        return null;
-    }
-
-    private String tableSql(String table) {
-        var sql = jdbc.queryForList("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?", String.class, table);
-        return sql.isEmpty() ? null : sql.get(0);
     }
 
     private void execScript(String location) throws IOException {

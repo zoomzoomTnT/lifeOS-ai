@@ -203,28 +203,8 @@ What zoomzoom does, in order. Nothing here is done by CD on its own.
    optional repo variable `LIFE_ACME_EMAIL`. Base URLs (the agents' `LIFE_API_BASE`) have **no trailing
    slash**: `$LIFE_API_BASE/api/...` with one becomes `//api/...`, which the API refuses (400).
 4. **Security group:** inbound TCP 80, 443 from 0.0.0.0/0. Make sure 8787 is **not** open.
-5. **Before deploying #29 to prod (once, by hand):** the prod database (built by e2e4938) lacks six
-   columns that the app writes on every request, and the app never alters existing tables. In the
-   Turso shell for the prod database (`turso db shell <db>`), first run the read-only check:
-   ```sql
-   SELECT 'events', name FROM pragma_table_info('events')
-    WHERE name IN ('client_id','credential_id','request_id','approval_id')
-   UNION ALL
-   SELECT 'http_requests', name FROM pragma_table_info('http_requests')
-    WHERE name IN ('client_id','credential_id');
-   ```
-   It should return no rows. Then run exactly:
-   ```sql
-   ALTER TABLE events ADD COLUMN client_id TEXT;
-   ALTER TABLE events ADD COLUMN credential_id TEXT;
-   ALTER TABLE events ADD COLUMN request_id TEXT;
-   ALTER TABLE events ADD COLUMN approval_id INTEGER;
-   ALTER TABLE http_requests ADD COLUMN client_id TEXT;
-   ALTER TABLE http_requests ADD COLUMN credential_id TEXT;
-   ```
-   Run the check again: it must now return all six rows. Existing rows get NULL in the new columns,
-   and the old image ignores them, so this is safe to do before the merge. If a column is already
-   there, that ALTER fails with "duplicate column name". Leave that column alone and run the rest.
+5. **Database:** the lifeOS DevOps bot follows [Release instructions (PR #29)](#release-instructions-pr-29):
+   inspect, report, and with zoomzoom's permission drop the changed tables. The deploy recreates them.
 6. **Merge** the PR into `release/0.1.0` → CD deploys. It checks that anonymous `/api` and
    `/actuator/info` answer 401, and `https://$LIFE_DOMAIN/actuator/health` if set.
 7. **Grok Bot's keys:** after you say yes in chat, the Admin bot calls `POST /api/admin/clients` for
@@ -272,23 +252,212 @@ dropped. The old image ignores them.
 
 ### Schema upgrades
 
-`app/src/main/resources/schema.sql` is the only schema file (no numbered migrations). On every start
-`SchemaInitializer` applies it. It is idempotent (`IF NOT EXISTS`, `INSERT OR IGNORE`), so new
-tables, indexes and seed rows reach existing databases by themselves. It never changes an existing
-table, and SQLite has no `ADD COLUMN IF NOT EXISTS`. So **a future column change on an existing table
-needs a manual `ALTER TABLE` on every existing database** (prod: before the deploy that needs it),
-plus the column in `schema.sql` for fresh databases. #29's six columns are cutover step 5;
-`UpgradeFromE2e4938Test` applies exactly those statements to an e2e4938 database with rows and checks
-it ends at the fresh schema with its data intact (SQLite and sqld).
+`app/src/main/resources/schema.sql` is the only schema file. On every start `SchemaInitializer`
+applies it. It is idempotent (`IF NOT EXISTS`, `INSERT OR IGNORE`), so new tables, indexes and seed
+rows reach existing databases by themselves. It never changes an existing table. **Before 1.0.0, a
+change to an existing table is a drop and recreate** through the release instructions of the PR that
+makes it (like [Release instructions (PR #29)](#release-instructions-pr-29)). There are no ALTERs, no
+migrations and no upgrade guards in the app.
 
-### Old 0005 databases
+## Release instructions (PR #29)
 
-The auth schema (once migration `0005_auth`) was rewritten in place before release (PR #29 was never merged), so a **dev/test**
-database migrated by an earlier PR #29 build (e.g. `a4e5e7d`: passkey / one-time-token tables,
-`approval_requests` without `decided_by_client`, `api_clients` without kind `admin`) can't run this
-version. The app detects that at startup and stops with a message instead of crash-looping on a
-CHECK constraint failure. There is no automatic upgrade: recreate that database (delete the SQLite
-file, or create a new Turso/sqld database). Production never ran the old 0005.
+These are for the lifeOS DevOps bot, on the prod database (Turso, built by e2e4938), **before** the
+#29 deploy (cutover step 5). Before 1.0.0 there are no migrations: a table whose shape changed is
+dropped and recreated from `app/src/main/resources/schema.sql`. **`schema.sql` is the source of
+truth**: if anything below differs from it, `schema.sql` wins.
+
+### Tables this PR adds or changes
+
+| Table | Change |
+|---|---|
+| `api_clients` | new |
+| `api_keys` | new (references `api_clients`) |
+| `security_events` | new |
+| `approval_requests` | new |
+| `events` | changed: new columns `client_id`, `credential_id`, `request_id`, `approval_id` |
+| `http_requests` | changed: new columns `client_id`, `credential_id` (`ai_calls.http_request_id` references it) |
+
+No other table changes. At app start, `schema.sql` also adds the settings rows
+`approval.receipt_total_cents` and `approval.bulk_rows` (`INSERT OR IGNORE`).
+
+#### `api_clients` (new)
+
+```sql
+CREATE TABLE IF NOT EXISTS api_clients (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id     TEXT    NOT NULL UNIQUE,            -- 'grokbot-chat', 'grokbot-routine', 'lifeos-admin'
+  display_name  TEXT    NOT NULL,
+  kind          TEXT    NOT NULL CHECK (kind IN ('agent','human_app','service','admin')),
+  person_id     INTEGER NOT NULL REFERENCES people(id),
+  max_scopes    TEXT    NOT NULL,                   -- ceiling, space-separated
+  created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  disabled_at   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_clients_one_admin ON api_clients(kind) WHERE kind = 'admin';
+```
+
+#### `api_keys` (new)
+
+```sql
+CREATE TABLE IF NOT EXISTS api_keys (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  key_id        TEXT    NOT NULL UNIQUE,            -- public lookup part (12 base32 chars)
+  api_client_id INTEGER NOT NULL REFERENCES api_clients(id),   -- api_clients.id (not the client_id slug)
+  secret_hash   TEXT    NOT NULL,                   -- hex HMAC-SHA256 (admin: SHA-256); never the secret
+  scopes        TEXT    NOT NULL,                   -- subset of the client's max_scopes
+  expires_at    TEXT,                               -- NULL = no expiry
+  last_used_at  TEXT,
+  last_used_ip  TEXT,
+  created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  revoked_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(api_client_id);
+```
+
+#### `security_events` (new)
+
+```sql
+CREATE TABLE IF NOT EXISTS security_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  at            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  type          TEXT    NOT NULL,
+  client_id     TEXT,
+  credential_id TEXT,                               -- api key_id
+  person_id     INTEGER,
+  ip            TEXT,
+  method        TEXT,
+  path          TEXT,
+  outcome       TEXT,
+  request_id    TEXT,                               -- = http_requests.correlation_id = events.request_id
+  detail_json   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_security_events_at   ON security_events(at);
+CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(type, at);
+```
+
+#### `approval_requests` (new)
+
+```sql
+CREATE TABLE IF NOT EXISTS approval_requests (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id     TEXT    NOT NULL UNIQUE,            -- unguessable, used in links + Life-Approval
+  client_id     TEXT    NOT NULL,
+  credential_id TEXT,
+  person_id     INTEGER NOT NULL,
+  action        TEXT    NOT NULL,                   -- 'receipt.confirm', 'ops.prices.update'
+  method        TEXT    NOT NULL,
+  path          TEXT    NOT NULL,
+  request_hash  TEXT    NOT NULL,                   -- SHA-256 of method, path, client, canonical body
+  summary_json  TEXT    NOT NULL,                   -- rendered by the server from its own data
+  risk_tier     INTEGER NOT NULL,
+  status        TEXT    NOT NULL CHECK (status IN ('pending','approved','denied','expired','consumed')),
+  created_at    TEXT    NOT NULL,
+  expires_at    TEXT    NOT NULL,
+  decided_at    TEXT,
+  decided_by    INTEGER,                            -- people.id of the admin client
+  decided_via   TEXT,                               -- 'admin_key'
+  decided_by_client     TEXT,                     -- api_clients.client_id of the approver
+  decided_by_credential TEXT,                     -- api_keys.key_id of the approver
+  consumed_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_requests(status, expires_at);
+```
+
+#### `events` (changed)
+
+```sql
+CREATE TABLE IF NOT EXISTS events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain      TEXT    NOT NULL,                           -- finance / fridge / memos / stocks / system
+  action      TEXT    NOT NULL,                           -- create / confirm / update / delete / fire ...
+  actor_id    INTEGER REFERENCES people(id),
+  entity_table TEXT,
+  entity_id   INTEGER,
+  payload_json TEXT,
+  created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  client_id   TEXT,                                       -- api client ('grokbot-chat', 'lifeos-admin')
+  credential_id TEXT,                                     -- api key_id
+  request_id  TEXT,                                       -- X-Request-Id
+  approval_id INTEGER                                     -- approval_requests.id, if approved
+);
+CREATE INDEX IF NOT EXISTS idx_events_domain ON events(domain, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_table, entity_id);
+```
+
+#### `http_requests` (changed)
+
+```sql
+CREATE TABLE IF NOT EXISTS http_requests (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  correlation_id  TEXT,
+  actor_id        INTEGER REFERENCES people(id),
+  method          TEXT    NOT NULL,
+  path            TEXT    NOT NULL,
+  query           TEXT,
+  status          INTEGER,
+  latency_ms      INTEGER,
+  request_bytes   INTEGER,
+  response_bytes  INTEGER,
+  body_excerpt    TEXT,                          -- truncated JSON, never images
+  error           TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  client_id       TEXT,
+  credential_id   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_http_created ON http_requests(created_at);
+CREATE INDEX IF NOT EXISTS idx_http_path    ON http_requests(path, created_at);
+CREATE INDEX IF NOT EXISTS idx_http_corr    ON http_requests(correlation_id);
+```
+
+### Steps
+
+1. **Inspect** the live database, read only, in `turso db shell <db>`:
+   ```sql
+   SELECT type, name, tbl_name, sql FROM sqlite_master
+    WHERE tbl_name IN ('api_clients','api_keys','security_events','approval_requests','events','http_requests')
+    ORDER BY tbl_name, type DESC, name;
+   SELECT 'events' AS t, * FROM pragma_table_info('events')
+   UNION ALL SELECT 'http_requests', * FROM pragma_table_info('http_requests');
+   SELECT COUNT(*) FROM events;
+   SELECT COUNT(*) FROM http_requests;
+   ```
+   Compare each table's columns (name, type, NOT NULL, default, primary key) and indexes with the
+   statements above. Expected on prod: the four new tables are missing, and `events` /
+   `http_requests` lack the new columns.
+2. **Report** to zoomzoom what differs, table by table, with the row counts of the tables that would
+   be dropped. Tables that already match `schema.sql` are left alone, and tables that are missing
+   need no drop.
+3. **Ask zoomzoom for permission** before dropping anything. Name the tables and say that **their
+   data is lost**. `events` is the domain audit trail. `http_requests` is the request log, and
+   dropping it also clears `ai_calls.http_request_id`. Without an explicit yes, stop.
+4. **Offer an export first (optional):** `turso db shell <db> ".dump events" > events.sql` (same for
+   `http_requests`). Keep the files off the server and out of chat.
+5. **Stop the API** so nothing writes during the change: on the server, run
+   `cd $DEPLOY_DIR && docker compose stop api`.
+6. **Drop** only the tables zoomzoom approved, children first:
+   ```sql
+   UPDATE ai_calls SET http_request_id = NULL WHERE http_request_id IS NOT NULL;
+   DROP TABLE IF EXISTS api_keys;
+   DROP TABLE IF EXISTS api_clients;
+   DROP TABLE IF EXISTS security_events;
+   DROP TABLE IF EXISTS approval_requests;
+   DROP TABLE IF EXISTS events;
+   DROP TABLE IF EXISTS http_requests;
+   ```
+   The `UPDATE` is only needed when `http_requests` is dropped, because foreign keys are on.
+7. **Recreate:** deploy #29 (cutover step 6). On start the app applies `schema.sql`, which creates
+   every missing table and index (`IF NOT EXISTS`). Alternatively, run the statements above (copied
+   from `schema.sql`) in the shell first.
+
+### Verify
+
+* Re-run the step 1 queries: every table and index matches `schema.sql`, and `events` /
+  `http_requests` have the new columns.
+* `SELECT key, value FROM settings WHERE key LIKE 'approval.%';` returns two rows.
+* The CD checks pass (anonymous `/api` and `/actuator/info` → 401).
+* The admin key works: `GET /api/admin/credentials` returns `lifeos-admin`.
+* After any API call, `SELECT client_id, credential_id FROM http_requests ORDER BY id DESC LIMIT 1;`
+  shows the caller.
 
 ## Later phases
 

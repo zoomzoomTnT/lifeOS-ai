@@ -3,8 +3,8 @@
 -- Money: integer cents. Times: UTC ISO-8601 with Z (TEXT). Enums enforced by CHECK.
 -- Source of truth. Keep in sync with references/conventions.md enums.
 -- The only schema file. Applied on every start and idempotent (IF NOT EXISTS / INSERT OR IGNORE).
--- It never changes an existing table: a new column on one needs a one-time manual ALTER on
--- existing databases (docs/auth.md, "Schema upgrades").
+-- It never changes an existing table: before 1.0.0 such a change is a drop and recreate of that
+-- table (docs/auth.md, "Schema upgrades").
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;

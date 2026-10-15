@@ -132,6 +132,6 @@ JSON:
 
 ## Existing DBs
 
-On boot the app always applies `schema.sql` (idempotent: `CREATE ... IF NOT EXISTS`, `INSERT OR IGNORE`). Old `life.db` files pick up new tables without a rebuild; see docs/auth.md ("Schema upgrades").
+On boot the app always applies `schema.sql` (idempotent: `CREATE ... IF NOT EXISTS`, `INSERT OR IGNORE`). Old `life.db` files pick up new tables without a rebuild. A changed existing table is dropped and recreated before 1.0.0; see docs/auth.md ("Schema upgrades").
 
 Logs live **in the same** `life.db` — backup the file, you backup spend history.
