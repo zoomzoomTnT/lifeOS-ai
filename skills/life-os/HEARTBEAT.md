@@ -7,7 +7,7 @@ The Spring Boot app is the clock (`ProactiveCronService`). It POSTs `/hooks/agen
 If a harness still injects a heartbeat turn:
 
 ```
-GET $LIFE_API_BASE/api/ops/should-wake
+GET $LIFE_API_BASE/api/ops/should-wake   (header Authorization: Bearer $LIFE_API_KEY)
 If wake=false, reply HEARTBEAT_OK and stop. Do not call other tools. Do not use vision.
 ```
 

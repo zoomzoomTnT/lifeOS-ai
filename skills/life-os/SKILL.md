@@ -16,24 +16,23 @@ metadata:
 
 | Item | Value |
 |---|---|
-| API base | `$LIFE_API_BASE` or `http://localhost:8787` |
+| API base | `$LIFE_API_BASE` or `http://localhost:8787`, **no trailing slash** (`//api/...` is refused with 400) |
 | DB (owned by app) | `$LIFE_DB` or `~/.openclaw/workspace/data/life.db` |
-| Schema | `schema/schema.sql` (applied by app on first start) |
+| Schema | `app/src/main/resources/schema.sql` (idempotent, applied by the app on every start) |
 | Owner timezone | `Asia/Tokyo` |
 | Options timezone | `America/New_York` |
 | WeChat channel | `openclaw-weixin` |
-| Auth header | `X-Life-Handle: <people.handle>` |
+| Auth header | `Authorization: Bearer $LIFE_API_KEY` (a lifeOS API key, `lok_...`; see docs/auth.md). Grok Bot: `LIFE_API_KEY=$LIFEOS_GROKBOT_CHAT_KEY` in chat turns, `$LIFEOS_GROKBOT_ROUTINE_KEY` (read-only) in routines; OpenClaw: the key minted for client `openclaw`. Risky calls answer `403 approval_required`: show zoomzoom the `summary` in chat and ask; nothing happens without an explicit yes. On yes the lifeOS Admin bot approves `approval_id` (within 5 minutes); then repeat the identical request with `Life-Approval: <approval_id>`. Never approve it yourself |
 
 All mutations go through the REST API. Do not write SQLite from this skill.
 
 ## Session start
 
 ```bash
-curl -s "$LIFE_API_BASE/actuator/health"
-curl -s "$LIFE_API_BASE/actuator/db"
+curl -s "$LIFE_API_BASE/actuator/health"   # public: {"status":"UP"} only
 ```
 
-If `people.handle` is still `owner`, the first real WeChat peer id will auto-create a member row (or upsert via API later).
+`/actuator/db` and health details need an `ops:admin` credential (the owner or a service key); agent keys get 403, so don't call them here. Members are no longer auto-created from WeChat handles: every write is attributed to the API key's person.
 
 ## Core contract
 
@@ -74,11 +73,7 @@ That writes `$OPENCLAW_HOME/workspace/skills/life-os` and `HEARTBEAT.md`.
 
 ## Backup
 
-```bash
-curl -s -X POST "$LIFE_API_BASE/api/backup" -H "Content-Type: application/json" -d '{}'
-```
-
-Tell the user to copy the returned `.db` snapshot. Never commit `life.db`.
+There is no backup endpoint. Production data lives in Turso (hosted backups / point-in-time restore in the Turso dashboard); a local `life.db` is backed up by copying the file while the app is stopped. Never commit `life.db`.
 
 ## Voice
 

@@ -6,7 +6,10 @@ services:
       dockerfile: Dockerfile
     container_name: lifeos-api
     ports:
-      - "${LIFE_API_PORT:-8787}:8787"
+      # Loopback only by default: expose via the `proxy` profile (Caddy, HTTPS) below.
+      # LIFE_API_BIND=0.0.0.0 publishes plain HTTP on all interfaces (not recommended: API keys
+      # would travel unencrypted).
+      - "${LIFE_API_BIND:-127.0.0.1}:${LIFE_API_PORT:-8787}:8787"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -16,6 +19,19 @@ services:
       TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:-}
       TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
       LIFE_API_PORT: "8787"
+      # Auth (docs/auth.md). LIFE_KEY_PEPPER: HMAC key for API key hashes, >= 32 chars, required in
+      # production (the app refuses to start without it). Changing it invalidates every API key
+      # except the admin key.
+      LIFE_KEY_PEPPER: ${LIFE_KEY_PEPPER:-}
+      # The lifeOS Admin bot's key (client lifeos-admin): key id + SHA-256 of the secret part, never
+      # the key itself. Required in production; changing them replaces the admin key at startup.
+      LIFE_ADMIN_KEY_ID: ${LIFE_ADMIN_KEY_ID:-}
+      LIFE_ADMIN_KEY_SHA256: ${LIFE_ADMIN_KEY_SHA256:-}
+      LIFE_AUTH_WRITES_PER_MINUTE: ${LIFE_AUTH_WRITES_PER_MINUTE:-60}
+      LIFE_ACTUATOR_ENDPOINTS: ${LIFE_ACTUATOR_ENDPOINTS:-health,info,metrics}
+      # Always false here: the app refuses to start with local-open=true outside the `local` profile.
+      # docker-compose.local.yml turns it on (no credentials needed) for local development only.
+      LIFE_AUTH_LOCAL_OPEN: "false"
       # OpenClaw master switch (false = REST API + DB only, no OpenClaw calls/ingest/cron wake)
       OPENCLAW_ENABLED: ${OPENCLAW_ENABLED:-true}
       LIFE_OPENCLAW_WAKE: ${LIFE_OPENCLAW_WAKE:-true}
@@ -55,3 +71,29 @@ services:
     volumes:
       - ${OPENCLAW_HOME:-./openclaw-disabled}:/openclaw
     restart: "no"
+
+  # Optional HTTPS reverse proxy with automatic Let's Encrypt certificates.
+  # Off unless started with the profile; CD enables it when the repo variable LIFE_DOMAIN is set.
+  #   LIFE_DOMAIN=api.example.com docker compose --profile proxy up -d
+  caddy:
+    profiles: ["proxy"]
+    image: caddy:2-alpine
+    container_name: lifeos-caddy
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      LIFE_DOMAIN: ${LIFE_DOMAIN:-}
+      CADDY_EMAIL_LINE: ${LIFE_ACME_EMAIL:+email ${LIFE_ACME_EMAIL}}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

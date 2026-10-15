@@ -9,11 +9,11 @@ import com.lifeos.web.dto.StockEventResponse;
 import java.util.List;
 
 public interface HoldingService {
-    List<HoldingResponse> list(String handle);
+    List<HoldingResponse> list(long personId);
 
-    HoldingResponse get(long id, String handle);
+    HoldingResponse get(long id, long personId);
 
-    HoldingWriteResponse upsert(HoldingUpsertRequest request, String handle);
+    HoldingWriteResponse upsert(HoldingUpsertRequest request, long personId);
 
-    StockEventResponse addEvent(long holdingId, StockEventRequest request, String handle);
+    StockEventResponse addEvent(long holdingId, StockEventRequest request, long personId);
 }

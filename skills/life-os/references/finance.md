@@ -17,7 +17,7 @@ Classify first — receipt / food photo / other. Only receipts use this flow.
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/receipts/preview" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -d '{
     "merchant_name": "盒马鲜生",
     "barcode": "262508241912",
@@ -42,7 +42,7 @@ curl -s -X POST "$LIFE_API_BASE/api/receipts/preview" \
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/receipts/$ID/confirm" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -d '{"also_fridge": true}'
 ```
 

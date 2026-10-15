@@ -1,6 +1,16 @@
 server:
   address: 0.0.0.0
   port: ${LIFE_API_PORT:8787}
+  # Behind Caddy: trust X-Forwarded-For/Proto from internal proxies only (Tomcat RemoteIpValve), so
+  # audit rows get the real client IP and know the request was HTTPS.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      # Who may set X-Forwarded-For/Proto: private (Docker network) addresses, i.e. Caddy, but NOT a
+      # network's gateway x.x.x.1 (where host-local callers through the published 127.0.0.1:8787 port
+      # appear) and not loopback. Tomcat's default trusts both, so anything on the host could fake the
+      # client IP in audit rows. Override: SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES (regex).
+      internal-proxies: '10\.\d+\.\d+\.(?!1$)\d+|192\.168\.\d+\.(?!1$)\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.(?!1$)\d+'
 
 spring:
   application:
@@ -37,6 +47,17 @@ lifeos:
 
 life:
   owner-timezone: Asia/Tokyo
+  auth:
+    # HMAC key for API key hashes. Required (>= 32 chars) outside `local`; the app refuses to start
+    # without it. Env only, never in the DB or the repo. Changing it invalidates every API key
+    # except the admin key.
+    pepper: ${LIFE_KEY_PEPPER:}
+    local-open: false                       # only the `local` profile may turn this on
+    writes-per-minute: ${LIFE_AUTH_WRITES_PER_MINUTE:60}
+    # The lifeOS Admin bot's key (client lifeos-admin): key id + lowercase hex SHA-256 of the secret
+    # part. Required outside `local`; upserted at startup, any other admin key is revoked.
+    admin-key-id: ${LIFE_ADMIN_KEY_ID:}
+    admin-key-sha256: ${LIFE_ADMIN_KEY_SHA256:}
   schema-path: classpath:schema.sql   # or external path
   openclaw:
     enabled: ${LIFE_OPENCLAW_WAKE:true}   # cron wake only; ignored when OPENCLAW_ENABLED=false
@@ -64,10 +85,18 @@ management:
     web:
       base-path: /actuator
       exposure:
-        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics,db,scheduledtasks,loggers,mappings,threaddump}
+        # Everything except health needs the owner or an ops:admin credential (agents never have it).
+        # Diagnostic endpoints (db, loggers, mappings, threaddump, ...) are opt-in via LIFE_ACTUATOR_ENDPOINTS.
+        include: ${LIFE_ACTUATOR_ENDPOINTS:health,info,metrics}
+    # Writable operations (loggers POST, ...) are off: read-only, even if exposed.
+    access:
+      max-permitted: read-only
   endpoint:
     health:
-      show-details: always
+      # status is public; components/details only for ops:admin
+      show-details: when-authorized
+      show-components: when-authorized
+      roles: SCOPE_ops:admin
       probes:
         enabled: true
   info:

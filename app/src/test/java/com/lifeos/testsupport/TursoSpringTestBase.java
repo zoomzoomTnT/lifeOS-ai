@@ -34,7 +34,7 @@ public abstract class TursoSpringTestBase {
     }
 
     @DynamicPropertySource
-    static void tursoProps(DynamicPropertyRegistry r) {
+    public static void tursoProps(DynamicPropertyRegistry r) {
         r.add("spring.datasource.url", TURSO::url);
         r.add("spring.datasource.password", () -> "test-token");
         r.add("spring.jpa.properties.hibernate.session_factory.statement_inspector", SqlCapture.class::getName);

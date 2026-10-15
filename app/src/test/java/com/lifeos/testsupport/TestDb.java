@@ -13,10 +13,9 @@ import java.sql.Statement;
 public final class TestDb {
     private TestDb() {}
 
-    public static final String[] SCRIPTS = {"/schema.sql", "/migrations/0002_ops.sql",
-            "/migrations/0003_logs.sql", "/migrations/0004_session_v3.sql"};
+    public static final String[] SCRIPTS = {"/schema.sql"};
 
-    /** Schema + migrations only. */
+    /** The app schema only. */
     public static Path createPlain() throws Exception {
         Path file = Files.createTempFile("lifeos-test-", ".db");
         Files.delete(file);
@@ -24,12 +23,7 @@ public final class TestDb {
             for (String res : SCRIPTS) {
                 try (var in = TestDb.class.getResourceAsStream(res)) {
                     for (String sql : SqlScriptSplitter.split(new String(in.readAllBytes(), StandardCharsets.UTF_8))) {
-                        try {
-                            st.execute(sql);
-                        } catch (java.sql.SQLException e) {
-                            // additive migrations may repeat columns already in schema.sql
-                            if (!String.valueOf(e.getMessage()).contains("duplicate column")) throw e;
-                        }
+                        st.execute(sql);
                     }
                 }
             }

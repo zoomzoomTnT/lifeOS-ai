@@ -2,6 +2,9 @@
 -- Single SQLite database for WeChat Life OS
 -- Money: integer cents. Times: UTC ISO-8601 with Z (TEXT). Enums enforced by CHECK.
 -- Source of truth. Keep in sync with references/conventions.md enums.
+-- The only schema file. Applied on every start and idempotent (IF NOT EXISTS / INSERT OR IGNORE).
+-- It never changes an existing table: before 1.0.0 such a change is a drop and recreate of that
+-- table (docs/auth.md, "Schema upgrades").
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -10,7 +13,7 @@ PRAGMA journal_mode = WAL;
 -- Core identity
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE people (
+CREATE TABLE IF NOT EXISTS people (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   handle        TEXT    NOT NULL UNIQUE,          -- OpenClaw WeChat peer id (stable)
   display_name  TEXT,                             -- may change
@@ -21,13 +24,13 @@ CREATE TABLE people (
   updated_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE INDEX idx_people_handle ON people(handle);
+CREATE INDEX IF NOT EXISTS idx_people_handle ON people(handle);
 
 -- ---------------------------------------------------------------------------
 -- Merchants (shops near home / office, favorites)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE merchants (
+CREATE TABLE IF NOT EXISTS merchants (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   name           TEXT    NOT NULL,
   name_norm      TEXT    NOT NULL UNIQUE,         -- lowercase, strip spaces/punct; Chinese stays
@@ -41,14 +44,14 @@ CREATE TABLE merchants (
   updated_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE INDEX idx_merchants_name_norm ON merchants(name_norm);
-CREATE INDEX idx_merchants_location  ON merchants(location_tag);
+CREATE INDEX IF NOT EXISTS idx_merchants_name_norm ON merchants(name_norm);
+CREATE INDEX IF NOT EXISTS idx_merchants_location  ON merchants(location_tag);
 
 -- ---------------------------------------------------------------------------
 -- Finance: receipts + line items + multi-user claims
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE receipts (
+CREATE TABLE IF NOT EXISTS receipts (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   merchant_id       INTEGER REFERENCES merchants(id),
   payer_id          INTEGER NOT NULL REFERENCES people(id),  -- expense owner
@@ -70,12 +73,12 @@ CREATE TABLE receipts (
   confirmed_at      TEXT
 );
 
-CREATE INDEX idx_receipts_fingerprint ON receipts(fingerprint);
-CREATE INDEX idx_receipts_payer       ON receipts(payer_id);
-CREATE INDEX idx_receipts_status      ON receipts(status);
-CREATE INDEX idx_receipts_printed     ON receipts(printed_at);
+CREATE INDEX IF NOT EXISTS idx_receipts_fingerprint ON receipts(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_receipts_payer       ON receipts(payer_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_status      ON receipts(status);
+CREATE INDEX IF NOT EXISTS idx_receipts_printed     ON receipts(printed_at);
 
-CREATE TABLE receipt_items (
+CREATE TABLE IF NOT EXISTS receipt_items (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   receipt_id      INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
   name            TEXT    NOT NULL,
@@ -90,11 +93,11 @@ CREATE TABLE receipt_items (
   created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE INDEX idx_receipt_items_receipt ON receipt_items(receipt_id);
-CREATE INDEX idx_receipt_items_norm    ON receipt_items(name_norm);
+CREATE INDEX IF NOT EXISTS idx_receipt_items_receipt ON receipt_items(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_receipt_items_norm    ON receipt_items(name_norm);
 
 -- Multi-user / household claims (who can see / split)
-CREATE TABLE receipt_claims (
+CREATE TABLE IF NOT EXISTS receipt_claims (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   receipt_id  INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
   person_id   INTEGER NOT NULL REFERENCES people(id),
@@ -108,7 +111,7 @@ CREATE TABLE receipt_claims (
 -- Food knowledge & long-term prefs
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE food_knowledge (
+CREATE TABLE IF NOT EXISTS food_knowledge (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   name_norm       TEXT    NOT NULL UNIQUE,
   display_name    TEXT,
@@ -120,7 +123,7 @@ CREATE TABLE food_knowledge (
   created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE TABLE food_prefs (
+CREATE TABLE IF NOT EXISTS food_prefs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   person_id       INTEGER NOT NULL REFERENCES people(id),
   name_norm       TEXT    NOT NULL,
@@ -138,7 +141,7 @@ CREATE TABLE food_prefs (
 -- Fridge
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE fridge_items (
+CREATE TABLE IF NOT EXISTS fridge_items (
   id                    INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id              INTEGER NOT NULL REFERENCES people(id),   -- food owner
   added_by_id           INTEGER NOT NULL REFERENCES people(id),   -- who put it in
@@ -162,15 +165,15 @@ CREATE TABLE fridge_items (
   updated_at            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE INDEX idx_fridge_owner_status ON fridge_items(owner_id, status);
-CREATE INDEX idx_fridge_expires      ON fridge_items(expires_at) WHERE status = 'in_stock';
-CREATE INDEX idx_fridge_name_norm    ON fridge_items(name_norm);
+CREATE INDEX IF NOT EXISTS idx_fridge_owner_status ON fridge_items(owner_id, status);
+CREATE INDEX IF NOT EXISTS idx_fridge_expires      ON fridge_items(expires_at) WHERE status = 'in_stock';
+CREATE INDEX IF NOT EXISTS idx_fridge_name_norm    ON fridge_items(name_norm);
 
 -- ---------------------------------------------------------------------------
 -- Memos (the only outbound / proactive channel)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE memos (
+CREATE TABLE IF NOT EXISTS memos (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id        INTEGER NOT NULL REFERENCES people(id),
   title           TEXT    NOT NULL,
@@ -194,15 +197,15 @@ CREATE TABLE memos (
   updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE INDEX idx_memos_owner_status ON memos(owner_id, status);
-CREATE INDEX idx_memos_due          ON memos(due_at) WHERE status IN ('open','snoozed');
-CREATE INDEX idx_memos_source       ON memos(source_domain, source_table, source_id);
+CREATE INDEX IF NOT EXISTS idx_memos_owner_status ON memos(owner_id, status);
+CREATE INDEX IF NOT EXISTS idx_memos_due          ON memos(due_at) WHERE status IN ('open','snoozed');
+CREATE INDEX IF NOT EXISTS idx_memos_source       ON memos(source_domain, source_table, source_id);
 
 -- ---------------------------------------------------------------------------
 -- Stocks (trial)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE holdings (
+CREATE TABLE IF NOT EXISTS holdings (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id    INTEGER NOT NULL REFERENCES people(id),
   symbol      TEXT    NOT NULL,
@@ -217,7 +220,7 @@ CREATE TABLE holdings (
   UNIQUE (owner_id, symbol, market)
 );
 
-CREATE TABLE stock_events (
+CREATE TABLE IF NOT EXISTS stock_events (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   holding_id  INTEGER NOT NULL REFERENCES holdings(id) ON DELETE CASCADE,
   kind        TEXT    NOT NULL CHECK (kind IN ('options_expiry','earnings','dividend','custom')),
@@ -231,7 +234,7 @@ CREATE TABLE stock_events (
 -- Audit / event log (cross-domain)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   domain      TEXT    NOT NULL,                           -- finance / fridge / memos / stocks / system
   action      TEXT    NOT NULL,                           -- create / confirm / update / delete / fire ...
@@ -239,17 +242,21 @@ CREATE TABLE events (
   entity_table TEXT,
   entity_id   INTEGER,
   payload_json TEXT,
-  created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  client_id   TEXT,                                       -- api client ('grokbot-chat', 'lifeos-admin')
+  credential_id TEXT,                                     -- api key_id
+  request_id  TEXT,                                       -- X-Request-Id
+  approval_id INTEGER                                     -- approval_requests.id, if approved
 );
 
-CREATE INDEX idx_events_domain ON events(domain, created_at);
-CREATE INDEX idx_events_entity ON events(entity_table, entity_id);
+CREATE INDEX IF NOT EXISTS idx_events_domain ON events(domain, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_table, entity_id);
 
 -- ---------------------------------------------------------------------------
 -- Bootstrap: single owner row (handle updated later by skill / API)
 -- ---------------------------------------------------------------------------
 
-INSERT INTO people (id, handle, display_name, role, timezone)
+INSERT OR IGNORE INTO people (id, handle, display_name, role, timezone)
 VALUES (1, 'owner', '主人', 'owner', 'Asia/Tokyo');
 
 -- ---------------------------------------------------------------------------
@@ -257,18 +264,18 @@ VALUES (1, 'owner', '主人', 'owner', 'Asia/Tokyo');
 -- 1 USD = 1_000_000 micros. Display: cost_micros / 1e6 as $x.xxxxxx
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE schema_migrations (
+CREATE TABLE IF NOT EXISTS schema_migrations (
   name        TEXT PRIMARY KEY,
   applied_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE TABLE settings (
+CREATE TABLE IF NOT EXISTS settings (
   key         TEXT PRIMARY KEY,
   value       TEXT NOT NULL,
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE TABLE model_prices (
+CREATE TABLE IF NOT EXISTS model_prices (
   id                         INTEGER PRIMARY KEY AUTOINCREMENT,
   provider                   TEXT    NOT NULL,
   model                      TEXT    NOT NULL,
@@ -279,7 +286,7 @@ CREATE TABLE model_prices (
   UNIQUE (provider, model)
 );
 
-CREATE TABLE http_requests (
+CREATE TABLE IF NOT EXISTS http_requests (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   correlation_id  TEXT,
   actor_id        INTEGER REFERENCES people(id),
@@ -292,14 +299,16 @@ CREATE TABLE http_requests (
   response_bytes  INTEGER,
   body_excerpt    TEXT,                          -- truncated JSON, never images
   error           TEXT,
-  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  client_id       TEXT,
+  credential_id   TEXT
 );
 
-CREATE INDEX idx_http_created ON http_requests(created_at);
-CREATE INDEX idx_http_path    ON http_requests(path, created_at);
-CREATE INDEX idx_http_corr    ON http_requests(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_http_created ON http_requests(created_at);
+CREATE INDEX IF NOT EXISTS idx_http_path    ON http_requests(path, created_at);
+CREATE INDEX IF NOT EXISTS idx_http_corr    ON http_requests(correlation_id);
 
-CREATE TABLE ai_calls (
+CREATE TABLE IF NOT EXISTS ai_calls (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   correlation_id   TEXT,
   actor_id         INTEGER REFERENCES people(id),
@@ -323,11 +332,11 @@ CREATE TABLE ai_calls (
   created_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE INDEX idx_ai_created ON ai_calls(created_at);
-CREATE INDEX idx_ai_model   ON ai_calls(provider, model, created_at);
-CREATE INDEX idx_ai_purpose ON ai_calls(purpose, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_created ON ai_calls(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_model   ON ai_calls(provider, model, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_purpose ON ai_calls(purpose, created_at);
 
-CREATE VIEW v_ai_daily AS
+CREATE VIEW IF NOT EXISTS v_ai_daily AS
 SELECT
   substr(created_at, 1, 10) AS day,
   COUNT(*)                  AS calls,
@@ -338,13 +347,13 @@ SELECT
 FROM ai_calls
 GROUP BY substr(created_at, 1, 10);
 
-INSERT INTO settings (key, value) VALUES
+INSERT OR IGNORE INTO settings (key, value) VALUES
   ('ai_daily_budget_usd_micros', '5000000'),  -- $5 / day default
   ('http_body_log_max_bytes', '4096');
 
 -- Prices are estimates; PATCH /api/ops/prices when you have the real rate card.
 -- input/output = USD micros per 1 million tokens ($3.00 / 1M = 3000000).
-INSERT INTO model_prices (provider, model, input_usd_micros_per_mtok, output_usd_micros_per_mtok, notes) VALUES
+INSERT OR IGNORE INTO model_prices (provider, model, input_usd_micros_per_mtok, output_usd_micros_per_mtok, notes) VALUES
   ('xai', 'grok-4',            3000000, 15000000, 'estimate'),
   ('xai', 'grok-4-fast',        200000,   500000, 'estimate'),
   ('xai', 'grok-2-vision-1212', 2000000, 10000000, 'estimate, vision'),
@@ -352,13 +361,13 @@ INSERT INTO model_prices (provider, model, input_usd_micros_per_mtok, output_usd
   ('openai', 'gpt-4o-mini',      150000,   600000, 'list price-ish'),
   ('anthropic', 'claude-sonnet-4', 3000000, 15000000, 'list price-ish');
 
-INSERT INTO schema_migrations (name) VALUES ('0001_base'), ('0002_ops'), ('0003_logs'), ('0004_session_v3');
+INSERT OR IGNORE INTO schema_migrations (name) VALUES ('0001_base'), ('0002_ops'), ('0003_logs'), ('0004_session_v3'), ('0005_auth');
 
 -- ---------------------------------------------------------------------------
 -- Logs: app vs AI session (privacy). AI conversation NEVER lives in app_logs.
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE app_logs (
+CREATE TABLE IF NOT EXISTS app_logs (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   occurred_at  TEXT    NOT NULL,
   ingested_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
@@ -370,10 +379,10 @@ CREATE TABLE app_logs (
   meta_json    TEXT
 );
 
-CREATE INDEX idx_app_logs_ts     ON app_logs(occurred_at);
-CREATE INDEX idx_app_logs_source ON app_logs(source, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_app_logs_ts     ON app_logs(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_app_logs_source ON app_logs(source, occurred_at);
 
-CREATE TABLE ai_session_logs (
+CREATE TABLE IF NOT EXISTS ai_session_logs (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   occurred_at  TEXT    NOT NULL,
   ingested_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
@@ -408,13 +417,13 @@ CREATE TABLE ai_session_logs (
   UNIQUE (file_path, line_no)
 );
 
-CREATE INDEX idx_sess_ts      ON ai_session_logs(occurred_at);
-CREATE INDEX idx_sess_session ON ai_session_logs(session_id, occurred_at);
-CREATE INDEX idx_sess_source  ON ai_session_logs(source, occurred_at);
-CREATE INDEX idx_sess_event   ON ai_session_logs(event_id);
-CREATE INDEX idx_sess_hb      ON ai_session_logs(heartbeat, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_sess_ts      ON ai_session_logs(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_sess_session ON ai_session_logs(session_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_sess_source  ON ai_session_logs(source, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_sess_event   ON ai_session_logs(event_id);
+CREATE INDEX IF NOT EXISTS idx_sess_hb      ON ai_session_logs(heartbeat, occurred_at);
 
-CREATE TABLE log_ingest_cursors (
+CREATE TABLE IF NOT EXISTS log_ingest_cursors (
   file_path        TEXT PRIMARY KEY,
   offset_bytes     INTEGER NOT NULL DEFAULT 0,
   line_no          INTEGER NOT NULL DEFAULT 0,
@@ -422,4 +431,93 @@ CREATE TABLE log_ingest_cursors (
   updated_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-INSERT INTO settings (key, value) VALUES ('session_log_retain_days', '90');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('session_log_retain_days', '90');
+
+INSERT OR IGNORE INTO model_prices (provider, model, input_usd_micros_per_mtok, output_usd_micros_per_mtok, notes) VALUES
+  ('google', 'gemini-3.1-pro-preview', 2000000, 12000000, 'estimate; prefer invoice / TokenHub');
+
+-- ---------------------------------------------------------------------------
+-- Auth (0005): per-client scoped API keys, security audit, approvals
+-- ---------------------------------------------------------------------------
+
+-- A caller of the API (an agent like Grok Bot, a script, the admin bot). Acts on behalf of person_id.
+-- Exactly one client may be kind 'admin' (the only holder of ops:admin, see AdminKeyBootstrap).
+CREATE TABLE IF NOT EXISTS api_clients (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id     TEXT    NOT NULL UNIQUE,            -- 'grokbot-chat', 'grokbot-routine', 'lifeos-admin'
+  display_name  TEXT    NOT NULL,
+  kind          TEXT    NOT NULL CHECK (kind IN ('agent','human_app','service','admin')),
+  person_id     INTEGER NOT NULL REFERENCES people(id),
+  max_scopes    TEXT    NOT NULL,                   -- ceiling, space-separated
+  created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  disabled_at   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_clients_one_admin ON api_clients(kind) WHERE kind = 'admin';
+
+-- Key = 'lok_<key_id>_<secret>'. Only HMAC-SHA256(LIFE_KEY_PEPPER, secret) is stored; for the
+-- admin client's key, the SHA-256 of the secret (from the LIFE_ADMIN_KEY_SHA256 deploy secret).
+-- At most two active (unrevoked, unexpired) keys per client: old + new during rotation.
+CREATE TABLE IF NOT EXISTS api_keys (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  key_id        TEXT    NOT NULL UNIQUE,            -- public lookup part (12 base32 chars)
+  api_client_id INTEGER NOT NULL REFERENCES api_clients(id),   -- api_clients.id (not the client_id slug)
+  secret_hash   TEXT    NOT NULL,                   -- hex HMAC-SHA256 (admin: SHA-256); never the secret
+  scopes        TEXT    NOT NULL,                   -- subset of the client's max_scopes
+  expires_at    TEXT,                               -- NULL = no expiry
+  last_used_at  TEXT,
+  last_used_ip  TEXT,
+  created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  revoked_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(api_client_id);
+
+-- Append-only security audit: auth failures, key create/revoke/new IP, scope denials,
+-- approvals. Not touched by /api/ops/purge.
+CREATE TABLE IF NOT EXISTS security_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  at            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  type          TEXT    NOT NULL,
+  client_id     TEXT,
+  credential_id TEXT,                               -- api key_id
+  person_id     INTEGER,
+  ip            TEXT,
+  method        TEXT,
+  path          TEXT,
+  outcome       TEXT,
+  request_id    TEXT,                               -- = http_requests.correlation_id = events.request_id
+  detail_json   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_security_events_at   ON security_events(at);
+CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(type, at);
+
+-- Human-in-the-loop: one row per risky agent request. Single use, bound to the exact request
+-- (method + path + canonical body + client), expires 5 minutes after creation. Decided only
+-- by the admin client (never the requester).
+CREATE TABLE IF NOT EXISTS approval_requests (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id     TEXT    NOT NULL UNIQUE,            -- unguessable, used in links + Life-Approval
+  client_id     TEXT    NOT NULL,
+  credential_id TEXT,
+  person_id     INTEGER NOT NULL,
+  action        TEXT    NOT NULL,                   -- 'receipt.confirm', 'ops.prices.update'
+  method        TEXT    NOT NULL,
+  path          TEXT    NOT NULL,
+  request_hash  TEXT    NOT NULL,                   -- SHA-256 of method, path, client, canonical body
+  summary_json  TEXT    NOT NULL,                   -- rendered by the server from its own data
+  risk_tier     INTEGER NOT NULL,
+  status        TEXT    NOT NULL CHECK (status IN ('pending','approved','denied','expired','consumed')),
+  created_at    TEXT    NOT NULL,
+  expires_at    TEXT    NOT NULL,
+  decided_at    TEXT,
+  decided_by    INTEGER,                            -- people.id of the admin client
+  decided_via   TEXT,                               -- 'admin_key'
+  decided_by_client     TEXT,                     -- api_clients.client_id of the approver
+  decided_by_credential TEXT,                     -- api_keys.key_id of the approver
+  consumed_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_requests(status, expires_at);
+
+-- Risk-tier thresholds (owner-editable). Money in integer cents, like everything else.
+INSERT OR IGNORE INTO settings (key, value) VALUES
+  ('approval.receipt_total_cents', '5000000'),     -- confirm >= 50,000.00 needs approval
+  ('approval.bulk_rows', '20');                    -- a confirm writing more rows than this, too

@@ -28,7 +28,8 @@ Default daily budget: **$5** (`settings.ai_daily_budget_usd_micros = 5000000`). 
 Seeded prices are **estimates**. Set the real card:
 
 ```bash
-curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H 'Content-Type: application/json' -d '{
+# owner (signed in on /ops) or an agent key; an agent gets 403 approval_required first (tier 2)
+curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H "Authorization: Bearer $LIFE_API_KEY" -H 'Content-Type: application/json' -d '{
   "provider":"xai","model":"grok-4",
   "input_usd_micros_per_mtok":3000000,
   "output_usd_micros_per_mtok":15000000,
@@ -41,7 +42,7 @@ curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H 'Content-Type: application/json' 
 **HTTP** (`http_requests`) — `OncePerRequestFilter`
 
 - method, path, query, status, latency_ms, byte sizes, truncated JSON excerpt
-- `X-Life-Handle` → `actor_id`
+- the API key's person → `actor_id`, plus `client_id` / `credential_id` (also for refused requests: 400/401/403/429 are logged too)
 - `X-Request-Id` (generated if missing), echoed on the response
 - **Not logged:** `GET /actuator*`, `GET /swagger-ui*`, `GET /v3/api-docs*`, `GET /api/ops/*`, `GET /ops*`
 - Never stores image bytes. Redacts `password` / `token` / `authorization` / `secret` keys
@@ -51,7 +52,7 @@ curl -X PUT "$LIFE_API_BASE/api/ops/prices" -H 'Content-Type: application/json' 
 ```bash
 curl -s -X POST "$LIFE_API_BASE/api/ops/ai" \
   -H "Content-Type: application/json" \
-  -H "X-Life-Handle: $HANDLE" \
+  -H "Authorization: Bearer $LIFE_API_KEY" \
   -H "X-Request-Id: $CORR" \
   -d '{
     "source":"skill",
@@ -107,10 +108,10 @@ A `message` object has `role` (`user` | `assistant` | `toolResult`) and `content
 `GET /api/ops/logs/sessions` returns metadata + token columns by default. `include_content=true` adds `content` and sanitized `raw_json` (still no image bytes).
 
 ```bash
-curl -s -X POST "$LIFE_API_BASE/api/ops/logs/ingest"
-curl -s "$LIFE_API_BASE/api/ops/logs/app"
-curl -s "$LIFE_API_BASE/api/ops/logs/sessions"                  # no content
-curl -s "$LIFE_API_BASE/api/ops/logs/sessions?include_content=true"  # private
+curl -s -X POST "$LIFE_API_BASE/api/ops/logs/ingest" -H "Authorization: Bearer $LIFE_API_KEY"
+curl -s "$LIFE_API_BASE/api/ops/logs/app" -H "Authorization: Bearer $LIFE_API_KEY"
+curl -s "$LIFE_API_BASE/api/ops/logs/sessions" -H "Authorization: Bearer $LIFE_API_KEY"                  # no content
+curl -s "$LIFE_API_BASE/api/ops/logs/sessions?include_content=true" -H "Authorization: Bearer $LIFE_API_KEY"  # private
 ```
 
 `/ops` dashboard shows **counts only**, never transcript text.
@@ -131,6 +132,6 @@ JSON:
 
 ## Existing DBs
 
-On boot the app always applies `migrations/0002_ops.sql` (`CREATE IF NOT EXISTS`). Old `life.db` files pick up the new tables without rebuild.
+On boot the app always applies `schema.sql` (idempotent: `CREATE ... IF NOT EXISTS`, `INSERT OR IGNORE`). Old `life.db` files pick up new tables without a rebuild. A changed existing table is dropped and recreated before 1.0.0; see docs/auth.md ("Schema upgrades").
 
 Logs live **in the same** `life.db` — backup the file, you backup spend history.

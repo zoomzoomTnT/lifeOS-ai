@@ -13,6 +13,12 @@ spring:
       connection-init-sql: "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;"
 
 life:
+  auth:
+    # Dev-only pepper so `local` starts without secrets; LIFE_KEY_PEPPER still wins if set.
+    pepper: ${LIFE_KEY_PEPPER:local-dev-pepper-not-a-secret-000000}
+    # No credentials needed locally (requests without a key act as the owner). Set
+    # LIFE_AUTH_LOCAL_OPEN=false to test real auth locally (CI does).
+    local-open: ${LIFE_AUTH_LOCAL_OPEN:true}
   openclaw:
     enabled: false
     home: ${LIFE_OPENCLAW_HOME:${user.dir}/../local/openclaw-stub}
@@ -26,4 +32,7 @@ management:
     web:
       exposure:
         include: "*"
+  endpoint:
+    health:
+      show-details: always
 

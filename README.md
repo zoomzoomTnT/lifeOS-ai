@@ -182,7 +182,7 @@ openclaw skills list    # 应有 life-os
 
 `skills.load.watch` 默认 `true`，改 `SKILL.md` 下一轮对话会刷新。
 
-skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `X-Life-Handle: <微信 peer id>`。  
+skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `Authorization: Bearer $LIFE_API_KEY`（由 lifeOS Admin bot 通过 `/api/admin` 签发，按客户端限定 scope；身份来自 key，`X-Life-Handle` 已忽略）。认证/审批见 [docs/auth.md](docs/auth.md)。  
 把 `people.handle` 从占位 `owner` 改成真实微信 id。时区默认 **Asia/Tokyo**；期权 cron 用 **America/New_York**。
 
 自动加载失败时：
@@ -214,7 +214,7 @@ skill 调 API：`LIFE_API_BASE=http://localhost:8787`，请求头 `X-Life-Handle
 docker compose up -d --build
 docker compose --profile sync run --rm skill-sync
 curl -fsS http://localhost:8787/actuator/health
-curl -fsS http://localhost:8787/api/ops/should-wake
+curl -fsS http://localhost:8787/api/ops/should-wake -H "Authorization: Bearer $LIFE_API_KEY"   # key: minted by the Admin bot (POST /api/admin/clients/{id}/keys)
 ```
 
 - API: http://localhost:8787/actuator/health
@@ -248,9 +248,9 @@ Java 每 2 分钟扫描 `OPENCLAW_HOME`：
 `source` + `occurred_at` 区分来源。`/ops` 只显示条数，不显示对话。
 
 ```bash
-curl -s -X POST http://localhost:8787/api/ops/logs/ingest
-curl -s http://localhost:8787/api/ops/logs/sessions                  # 无正文
-curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true'  # 隐私
+curl -s -X POST http://localhost:8787/api/ops/logs/ingest -H "Authorization: Bearer $LIFE_API_KEY"
+curl -s http://localhost:8787/api/ops/logs/sessions -H "Authorization: Bearer $LIFE_API_KEY"                  # 无正文
+curl -s 'http://localhost:8787/api/ops/logs/sessions?include_content=true' -H "Authorization: Bearer $LIFE_API_KEY"  # 隐私
 ```
 
 ### 6. 自检清单
@@ -307,8 +307,6 @@ docker compose -f compose.yaml --profile sync run --rm skill-sync
 ├── docker/sync-skill.sh
 ├── docker/deploy.sh            # 服务器手动部署（与 CD 同步骤）
 ├── openclaw/openclaw.json      # heartbeat 0m + hooks（无密钥）
-├── schema/schema.sql
-├── schema/migrations/          # 0002_ops, 0003_logs
 ├── docs/api.md
 ├── docs/logging.md
 ├── docs/cd.md                  # CD secrets / 触发 / 可扩展
@@ -387,7 +385,7 @@ curl -fsS http://localhost:8787/actuator/health
 
 ## Design
 
-- `schema.sql` 是可执行 schema。领域规则在 markdown。
+- `app/src/main/resources/schema.sql` 是唯一的可执行 schema（幂等，每次启动执行；1.0.0 之前改已有表 = 按发布说明删表重建，无 ALTER / 迁移，见 docs/auth.md「Schema upgrades」与「Release instructions (PR #29)」）。领域规则在 markdown。
 - 分层：`web` DTO + `ResponseEntity` → MapStruct → `service` → `repo` → `repo.jdbc`。
 - Domain 是 class（`BaseEntity.id`），字段用 Spring Data JDBC 的 `@Table` / `@Column` / `@MappedCollection`。外键留 `Long` + `AggregateReference` helper。SQL 仍手写（SQLite `strftime`），没有上 Hibernate。
 - Bean 注入用 Lombok `@RequiredArgsConstructor`（一行，不手写构造器）。
