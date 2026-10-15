@@ -434,17 +434,38 @@ CREATE INDEX IF NOT EXISTS idx_http_corr    ON http_requests(correlation_id);
    `http_requests`). Keep the files off the server and out of chat.
 5. **Stop the API** so nothing writes during the change: on the server, run
    `cd $DEPLOY_DIR && docker compose stop api`.
-6. **Drop** only the tables zoomzoom approved, children first:
+6. **Drop** only the tables zoomzoom approved, children first. There are two separate parts; run each
+   only if its condition holds.
+
+   **6a. Old-shape `events` / `http_requests`.** Run this only if the step 1 inspect shows the old
+   shape: `events` has none of `client_id`, `credential_id`, `request_id`, `approval_id`, and
+   `http_requests` has neither `client_id` nor `credential_id`. If they already have the new columns,
+   #29's shape is in place: skip 6a.
    ```sql
    UPDATE ai_calls SET http_request_id = NULL WHERE http_request_id IS NOT NULL;
+   DROP TABLE IF EXISTS events;
+   DROP TABLE IF EXISTS http_requests;
+   ```
+   The `UPDATE` comes first because foreign keys are on and `ai_calls.http_request_id` references
+   `http_requests`. Drop only the tables that have the old shape. If only one of them does, run just
+   its `DROP` (plus the `UPDATE` for `http_requests`).
+
+   **6b. Leftover new tables.** Run this only if `api_clients`, `api_keys`, `security_events` or
+   `approval_requests` exist **and #29 has never gone live** on this database (e.g. tables left by a
+   test build). Check both of these:
+   * The container serving this database has no `lifeos.auth=1` label:
+     `docker inspect lifeos-api --format '{{ index .Config.Labels "lifeos.auth" }}'` prints nothing.
+   * zoomzoom confirms that #29 was never deployed against this database.
+   > **Never run 6b once #29 is deployed.** It destroys the admin and agent keys (`api_clients`,
+   > `api_keys`), the security audit and every approval. Agent callers then get 401 until their keys
+   > are minted again. The admin key only comes back at the next app start (from the deploy secrets).
+   ```sql
    DROP TABLE IF EXISTS api_keys;
    DROP TABLE IF EXISTS api_clients;
    DROP TABLE IF EXISTS security_events;
    DROP TABLE IF EXISTS approval_requests;
-   DROP TABLE IF EXISTS events;
-   DROP TABLE IF EXISTS http_requests;
    ```
-   The `UPDATE` is only needed when `http_requests` is dropped, because foreign keys are on.
+   On prod before #29 these tables don't exist, so 6b is not needed there.
 7. **Recreate:** deploy #29 (cutover step 6). On start the app applies `schema.sql`, which creates
    every missing table and index (`IF NOT EXISTS`). Alternatively, run the statements above (copied
    from `schema.sql`) in the shell first.
