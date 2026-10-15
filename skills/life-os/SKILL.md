@@ -18,7 +18,7 @@ metadata:
 |---|---|
 | API base | `$LIFE_API_BASE` or `http://localhost:8787`, **no trailing slash** (`//api/...` is refused with 400) |
 | DB (owned by app) | `$LIFE_DB` or `~/.openclaw/workspace/data/life.db` |
-| Schema | `schema/schema.sql` (applied by app on first start) |
+| Schema | `app/src/main/resources/schema.sql` (idempotent, applied by the app on every start) |
 | Owner timezone | `Asia/Tokyo` |
 | Options timezone | `America/New_York` |
 | WeChat channel | `openclaw-weixin` |

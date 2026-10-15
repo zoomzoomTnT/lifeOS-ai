@@ -13,17 +13,29 @@ import org.springframework.util.StreamUtils;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
- * Fresh DB: apply schema.sql. Existing DB: apply additive migrations (IF NOT EXISTS).
- * Runs once all singletons exist and before the web server's connector starts accepting requests
- * (it used to be an ApplicationRunner, i.e. after the port was open, so the first requests after a
- * deploy could hit a table that did not exist yet).
+ * Applies schema.sql (idempotent) on every start. Before that, adds the columns in
+ * {@link #REQUIRED_COLUMNS} to tables that exist without them (databases built before 0005, e.g.
+ * prod from e2e4938): SQLite has no {@code ADD COLUMN IF NOT EXISTS}, and {@code CREATE TABLE IF NOT
+ * EXISTS} leaves an existing table as it is. Refuses databases from an earlier PR #29 build of the
+ * auth tables. Runs once all singletons exist and before the web server's connector starts
+ * accepting requests.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class SchemaInitializer implements SmartInitializingSingleton {
+
+    /** table, column, type: columns added to tables that older databases already have. */
+    static final List<String[]> REQUIRED_COLUMNS = List.of(
+            new String[]{"events", "client_id", "TEXT"},
+            new String[]{"events", "credential_id", "TEXT"},
+            new String[]{"events", "request_id", "TEXT"},
+            new String[]{"events", "approval_id", "INTEGER"},
+            new String[]{"http_requests", "client_id", "TEXT"},
+            new String[]{"http_requests", "credential_id", "TEXT"});
 
     private final JdbcTemplate jdbc;
     private final ResourceLoader resourceLoader;
@@ -43,25 +55,8 @@ public class SchemaInitializer implements SmartInitializingSingleton {
         }
     }
 
-    /** Apply schema.sql / migrations now (also the entry point for tests and tools). */
+    /** Bring the database to the current schema now (also the entry point for tests and tools). */
     public void apply() throws IOException {
-        Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='people'",
-                Integer.class);
-        if (count == null || count == 0) {
-            log.info("Initializing schema from {}", schemaPath);
-            execScript(schemaPath);
-            log.info("Schema init done");
-        } else {
-            log.info("Base schema present");
-        }
-
-        log.info("Applying ops migration 0002 (idempotent)");
-        execScript("classpath:migrations/0002_ops.sql");
-        log.info("Applying logs migration 0003 (idempotent)");
-        execScript("classpath:migrations/0003_logs.sql");
-        log.info("Applying session-v3 migration 0004 (idempotent)");
-        execScript("classpath:migrations/0004_session_v3.sql");
         String stale = staleAuthSchema();
         if (stale != null) {
             String msg = "This database has the auth tables of an earlier PR #29 build of migration 0005 (" + stale
@@ -71,8 +66,23 @@ public class SchemaInitializer implements SmartInitializingSingleton {
             log.error(msg);
             throw new IllegalStateException(msg);
         }
-        log.info("Applying auth migration 0005 (idempotent)");
-        execScript("classpath:migrations/0005_auth.sql");
+        addMissingColumns();
+        log.info("Applying {} (idempotent)", schemaPath);
+        execScript(schemaPath);
+        log.info("Schema up to date");
+    }
+
+    /** ALTER TABLE ... ADD COLUMN for each required column whose table exists without it. */
+    void addMissingColumns() {
+        for (String[] c : REQUIRED_COLUMNS) {
+            // pragma_table_info as a SELECT: works on SQLite and over the libSQL driver (sqld/Turso);
+            // empty for a table that does not exist yet (schema.sql then creates it complete).
+            List<String> cols = jdbc.queryForList("SELECT name FROM pragma_table_info(?)", String.class, c[0]);
+            if (!cols.isEmpty() && !cols.contains(c[1])) {
+                log.info("Adding column {}.{}", c[0], c[1]);
+                jdbc.execute("ALTER TABLE " + c[0] + " ADD COLUMN " + c[1] + " " + c[2]);
+            }
+        }
     }
 
     /**
@@ -116,18 +126,13 @@ public class SchemaInitializer implements SmartInitializingSingleton {
                     throw new IllegalStateException("Schema script " + location + " failed at: "
                             + abbreviate(s) + " → " + e.getMessage(), e);
                 }
-                if (s.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA")) {
-                    log.info("Skipped (expected, {}): {}", expected, abbreviate(s));
-                } else {
-                    log.debug("Skipped (expected, {}): {}", expected, abbreviate(s)); // every start
-                }
+                log.info("Skipped (expected, {}): {}", expected, abbreviate(s));
             }
         }
     }
 
     /**
-     * The only tolerated failures: additive {@code ALTER TABLE ... ADD COLUMN} re-runs
-     * ("duplicate column name") and PRAGMA statements the server refuses (Turso's legacy HTTP
+     * The only tolerated failures: PRAGMA statements the server refuses (Turso's legacy HTTP
      * endpoint rejects {@code PRAGMA foreign_keys = ON} / {@code journal_mode = WAL} from
      * schema.sql). Returns why it is expected, or null.
      */
@@ -142,7 +147,6 @@ public class SchemaInitializer implements SmartInitializingSingleton {
             msg += " " + String.valueOf(c.getMessage()).toLowerCase(java.util.Locale.ROOT);
             c = c.getCause();
         }
-        if (msg.contains("duplicate column name")) return "column already exists";
         if (stmt.strip().toUpperCase(java.util.Locale.ROOT).startsWith("PRAGMA")) return "PRAGMA not supported here";
         return null;
     }

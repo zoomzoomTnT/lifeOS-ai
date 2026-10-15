@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Runs the real SchemaInitializer (schema.sql + migrations 0002..0004) against a SQLite file. */
+/** Runs the real SchemaInitializer (schema.sql + required columns) against a SQLite file. */
 class SchemaInitializerSqliteTest {
 
     private static JdbcTemplate sqlite() throws Exception {
@@ -39,7 +39,7 @@ class SchemaInitializerSqliteTest {
 
         // merchants has a ';' in a column comment; it used to be split in half and never created.
         assertThat(count(jdbc, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='merchants'")).isEqualTo(1);
-        // Base seed (preceded by a comment with ';') + 0004 seed (';' inside the notes string).
+        // Seed preceded by a comment with ';' + the gemini row (';' inside the notes string).
         assertThat(count(jdbc, "SELECT COUNT(*) FROM model_prices")).isEqualTo(7);
         Map<String, Object> gemini = jdbc.queryForMap(
                 "SELECT input_usd_micros_per_mtok AS i, output_usd_micros_per_mtok AS o, notes FROM model_prices "
@@ -57,7 +57,7 @@ class SchemaInitializerSqliteTest {
     void rerunIsIdempotentAndBackfillsMissingSeedRow() throws Exception {
         JdbcTemplate jdbc = sqlite();
         runInit(jdbc);
-        // Like prod: 0004 recorded as applied but the gemini row missing (old splitter broke it).
+        // Like prod once: the gemini row missing (an old splitter broke it); schema.sql backfills it.
         jdbc.update("DELETE FROM model_prices WHERE provider='google'");
         assertThat(count(jdbc, "SELECT COUNT(*) FROM model_prices")).isEqualTo(6);
 
@@ -70,7 +70,7 @@ class SchemaInitializerSqliteTest {
     }
 
     @Test
-    void authMigrationUpgradesAPre0005DatabaseAndIsIdempotent() throws Exception {
+    void aPre0005DatabaseGetsTheAuthTablesAndColumnsAndRerunsAreIdempotent() throws Exception {
         JdbcTemplate jdbc = sqlite();
         runInit(jdbc);
         // Simulate prod before 0005: no auth tables, events/http_requests without the audit columns.
@@ -135,7 +135,7 @@ class SchemaInitializerSqliteTest {
     void freshStartLogsNoWarnings() throws Exception {
         JdbcTemplate jdbc = sqlite();
         assertThat(warnings(logsOf(() -> runInit(jdbc)))).isEmpty();
-        assertThat(warnings(logsOf(() -> runInit(jdbc)))).as("re-run (duplicate columns are expected)").isEmpty();
+        assertThat(warnings(logsOf(() -> runInit(jdbc)))).as("re-run").isEmpty();
     }
 
     /** Like Turso's legacy HTTP endpoint: PRAGMA writes are refused. */

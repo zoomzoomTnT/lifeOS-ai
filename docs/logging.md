@@ -132,6 +132,6 @@ JSON:
 
 ## Existing DBs
 
-On boot the app always applies `migrations/0002_ops.sql` (`CREATE IF NOT EXISTS`). Old `life.db` files pick up the new tables without rebuild.
+On boot the app always applies `schema.sql` (idempotent: `CREATE ... IF NOT EXISTS`, `INSERT OR IGNORE`). Old `life.db` files pick up new tables without a rebuild; see docs/auth.md ("Schema upgrades").
 
 Logs live **in the same** `life.db` — backup the file, you backup spend history.

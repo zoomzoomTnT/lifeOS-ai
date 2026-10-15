@@ -83,22 +83,20 @@ class SqlScriptSplitterTest {
     }
 
     @Test
-    void migration0004KeepsSeedRowWithSemicolonInString() throws Exception {
-        List<String> out = SqlScriptSplitter.split(resource("/migrations/0004_session_v3.sql"));
-        assertThat(out).noneMatch(s -> s.contains("SchemaInitializer ignores"));
-        assertThat(out).filteredOn(s -> s.startsWith("INSERT OR IGNORE INTO model_prices"))
+    void schemaKeepsSeedRowWithSemicolonInString() throws Exception {
+        List<String> out = SqlScriptSplitter.split(resource("/schema.sql"));
+        assertThat(out).filteredOn(s -> s.startsWith("INSERT OR IGNORE INTO model_prices") && s.contains("gemini"))
                 .singleElement().asString()
                 .contains("'estimate; prefer invoice / TokenHub')");
         assertThat(out).allMatch(s -> !s.startsWith("prefer invoice"));
-        assertThat(out.get(0)).isEqualTo("ALTER TABLE ai_session_logs ADD COLUMN event_id TEXT");
     }
 
     @Test
     void schemaSqlKeepsStatementsWithSemicolonsInComments() throws Exception {
         List<String> out = SqlScriptSplitter.split(resource("/schema.sql"));
-        assertThat(out).filteredOn(s -> s.startsWith("CREATE TABLE merchants"))
+        assertThat(out).filteredOn(s -> s.startsWith("CREATE TABLE IF NOT EXISTS merchants"))
                 .singleElement().asString().contains("name_norm").contains("favorite_score").endsWith(")");
-        assertThat(out).filteredOn(s -> s.startsWith("INSERT INTO model_prices")).hasSize(1);
+        assertThat(out).filteredOn(s -> s.startsWith("INSERT OR IGNORE INTO model_prices")).hasSize(2);
         assertThat(out).noneMatch(s -> s.startsWith("Chinese stays") || s.startsWith("PATCH /api/ops/prices"));
     }
 
@@ -185,6 +183,6 @@ class SqlScriptSplitterTest {
         long creates = stmts.stream().filter(x -> x.toUpperCase().startsWith("CREATE TABLE")).count();
         long expected = schema.lines().filter(l -> l.toUpperCase().startsWith("CREATE TABLE")).count();
         assertThat(creates).isEqualTo(expected);
-        assertThat(stmts).anyMatch(x -> x.startsWith("CREATE TABLE merchants"));
+        assertThat(stmts).anyMatch(x -> x.startsWith("CREATE TABLE IF NOT EXISTS merchants"));
     }
 }

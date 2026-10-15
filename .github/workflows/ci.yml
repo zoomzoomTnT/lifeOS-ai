@@ -14,20 +14,18 @@ permissions:
   contents: read
 
 jobs:
-  # schema: the canonical schema copies agree, schema.sql builds a fresh DB, and the additive
-  # migrations apply to an old one. Plain sqlite3, no Java.
+  # schema: schema.sql (the only schema file) builds a fresh DB, re-applies cleanly, and leaves an
+  # e2e4938 (prod) database's rows alone. Plain sqlite3, no Java.
   schema:
     name: Validate schema
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # schema/ and app/src/main/resources/ hold the same files; the app ships the latter.
-      - name: Canonical schema copies must match
-        run: diff -u schema/schema.sql app/src/main/resources/schema.sql
-
-      - name: Apply schema.sql to a fresh SQLite database
-        run: sqlite3 /tmp/life-ci.db < schema/schema.sql
+      - name: Apply schema.sql to a fresh SQLite database (twice, it is idempotent)
+        run: |
+          sqlite3 /tmp/life-ci.db < app/src/main/resources/schema.sql
+          sqlite3 /tmp/life-ci.db < app/src/main/resources/schema.sql
 
       # Spot-check the tables the app relies on (and that removed ones stay gone).
       - name: Required tables exist
@@ -40,16 +38,21 @@ jobs:
           test "$(sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('user_entities','user_credentials','one_time_tokens');")" = 0
           sqlite3 /tmp/life-ci.db "SELECT client_id, credential_id, approval_id FROM events LIMIT 0;"
           sqlite3 /tmp/life-ci.db "SELECT handle, role FROM people WHERE id = 1;"
-          sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;" | grep -v '^0$'
+          test "$(sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;")" = 7
           sqlite3 /tmp/life-ci.db "SELECT name FROM sqlite_master WHERE type='view' AND name='v_ai_daily';"
 
-      # A pre-0002 database must still upgrade with the numbered migrations.
-      - name: Additive migration applies to an old database
+      # An e2e4938 database (fixture: its schema.sql + 0002..0004) with rows: schema.sql adds the auth
+      # tables and keeps the rows. The six new columns on events / http_requests are added by
+      # SchemaInitializer at startup (UpgradeFromE2e4938Test, on SQLite and sqld).
+      - name: schema.sql on an e2e4938 database keeps its data
         run: |
-          sqlite3 /tmp/life-old.db "CREATE TABLE people (id INTEGER PRIMARY KEY, handle TEXT); INSERT INTO people VALUES (1,'owner');"
-          sqlite3 /tmp/life-old.db < schema/migrations/0002_ops.sql
-          sqlite3 /tmp/life-old.db < schema/migrations/0003_logs.sql
-          sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM ai_session_logs; SELECT COUNT(*) FROM app_logs;"
+          # the fixture's ALTERs re-add columns e2e4938's schema.sql already has (e2e4938 tolerated that)
+          sed '/^ALTER TABLE .* ADD COLUMN/d' app/src/test/resources/fixtures/e2e4938-schema.sql | sqlite3 /tmp/life-old.db
+          sqlite3 /tmp/life-old.db "INSERT INTO people (handle, display_name) VALUES ('alice', 'Alice'); UPDATE settings SET value='123' WHERE key='ai_daily_budget_usd_micros';"
+          sqlite3 /tmp/life-old.db < app/src/main/resources/schema.sql
+          test "$(sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM people WHERE handle='alice';")" = 1
+          test "$(sqlite3 /tmp/life-old.db "SELECT value FROM settings WHERE key='ai_daily_budget_usd_micros';")" = 123
+          test "$(sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('api_clients','api_keys','security_events','approval_requests');")" = 4
 
   # build: mvn verify against a real sqld service, then keep the jar as an artifact.
   build:

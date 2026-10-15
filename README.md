@@ -307,8 +307,6 @@ docker compose -f compose.yaml --profile sync run --rm skill-sync
 ├── docker/sync-skill.sh
 ├── docker/deploy.sh            # 服务器手动部署（与 CD 同步骤）
 ├── openclaw/openclaw.json      # heartbeat 0m + hooks（无密钥）
-├── schema/schema.sql
-├── schema/migrations/          # 0002_ops, 0003_logs
 ├── docs/api.md
 ├── docs/logging.md
 ├── docs/cd.md                  # CD secrets / 触发 / 可扩展
@@ -387,7 +385,7 @@ curl -fsS http://localhost:8787/actuator/health
 
 ## Design
 
-- `schema.sql` 是可执行 schema。领域规则在 markdown。
+- `app/src/main/resources/schema.sql` 是唯一的可执行 schema（幂等，每次启动执行；旧表缺的列由 `SchemaInitializer.REQUIRED_COLUMNS` 补上，见 docs/auth.md「Schema upgrades」）。领域规则在 markdown。
 - 分层：`web` DTO + `ResponseEntity` → MapStruct → `service` → `repo` → `repo.jdbc`。
 - Domain 是 class（`BaseEntity.id`），字段用 Spring Data JDBC 的 `@Table` / `@Column` / `@MappedCollection`。外键留 `Long` + `AggregateReference` helper。SQL 仍手写（SQLite `strftime`），没有上 Hibernate。
 - Bean 注入用 Lombok `@RequiredArgsConstructor`（一行，不手写构造器）。

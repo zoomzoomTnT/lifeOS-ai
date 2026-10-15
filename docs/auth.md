@@ -245,12 +245,21 @@ Callers after a rollback: the old image ignores `Authorization` and needs `X-Lif
 (without it writes are attributed to the owner). Keys stay in the database and work again after
 rolling forward.
 
-Migration `0005_auth` is additive: new tables plus nullable columns, nothing dropped. The old image
-ignores them.
+The auth schema is additive: new tables plus nullable columns on `events` / `http_requests`, nothing
+dropped. The old image ignores them.
+
+### Schema upgrades
+
+`app/src/main/resources/schema.sql` is the only schema file (no numbered migrations). On every start
+`SchemaInitializer` adds any of its `REQUIRED_COLUMNS` (the six auth columns above) that an existing
+table lacks (SQLite has no `ADD COLUMN IF NOT EXISTS`), then applies `schema.sql`, which is idempotent
+(`IF NOT EXISTS`, `INSERT OR IGNORE`). That brings prod's e2e4938 database to the current schema with
+its data intact (`UpgradeFromE2e4938Test`, on SQLite and sqld). A future column on an existing table
+goes into both `schema.sql` and `REQUIRED_COLUMNS`.
 
 ### Old 0005 databases
 
-`0005_auth` was rewritten in place before release (PR #29 was never merged), so a **dev/test**
+The auth schema (once migration `0005_auth`) was rewritten in place before release (PR #29 was never merged), so a **dev/test**
 database migrated by an earlier PR #29 build (e.g. `a4e5e7d`: passkey / one-time-token tables,
 `approval_requests` without `decided_by_client`, `api_clients` without kind `admin`) can't run this
 version. The app detects that at startup and stops with a message instead of crash-looping on a
