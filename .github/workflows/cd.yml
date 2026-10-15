@@ -28,6 +28,7 @@ env:
   IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
 
 jobs:
+  # image: verify, then build and push the image (skipped for a manual redeploy with skip_build).
   image:
     name: Build & push image
     runs-on: ubuntu-latest
@@ -58,6 +59,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # sha-<short> tag (what deploy pulls) and the version from the release/ branch name.
       - name: Image tags
         id: tags
         run: |
@@ -89,6 +91,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # deploy: copy compose + scripts to the server, then preflight, write .env, pull, check the
+  # image's auth label, compose up and probe that anonymous calls get 401. Fails closed.
   deploy:
     name: SSH docker compose up
     runs-on: ubuntu-latest
@@ -98,6 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Manual image_tag wins (rollback), else the tag just built, else latest.
       - name: Resolve image tag
         id: resolve
         run: |
@@ -112,6 +117,7 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:${TAG}"
 
+      # Files the server needs next to .env; scp only, nothing runs yet.
       - name: Copy compose + OpenClaw scripts
         uses: appleboy/scp-action@v0.1.7
         with:
