@@ -288,6 +288,39 @@ Create `options_expiry` / `earnings` / `dividend` / `custom`. Optional `memo_id`
 
 ---
 
+## Starlink (residential local reboot)
+
+Reboots the Starlink Wi-Fi router or dish over the unauthenticated local gRPC API.
+Requires the Life OS process (or Docker container) to be able to reach the LAN address.
+Default router: `192.168.1.1:9000`, dish: `192.168.100.1:9200`.
+Override with env `STARLINK_ROUTER_ADDR` / `STARLINK_DISH_ADDR` (Spring relaxed binding to `starlink.router.addr` / `starlink.dish.addr`).
+
+### `POST /api/starlink/reboot`
+
+Query or body `target=router` (default) or `target=dish`.
+
+```bash
+curl -s -X POST "$LIFE_API_BASE/api/starlink/reboot?target=router" \
+  -H "X-Life-Handle: $HANDLE"
+```
+
+Success (HTTP 200):
+```json
+{
+  "target": "router",
+  "address": "192.168.1.1:9000",
+  "ok": true,
+  "exitCode": 0,
+  "output": "..."
+}
+```
+
+Failure (HTTP 502): same shape with `"ok": false` and optional `"error"`.
+
+Router reboot is typically under a minute and does not drop the dish link. Dish reboot takes ~15 minutes to reacquire.
+
+---
+
 ## System
 
 ### `POST /api/backup`
