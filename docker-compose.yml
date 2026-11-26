@@ -27,6 +27,9 @@ services:
       OPENCLAW_HOOK_NAME: ${OPENCLAW_HOOK_NAME:-life-os}
       LIFE_OPENCLAW_HOME: /openclaw
       LIFE_OPENCLAW_FILE_LOG: ${LIFE_OPENCLAW_FILE_LOG:-}
+      # Local Starlink gRPC (container must be able to reach the LAN)
+      STARLINK_ROUTER_ADDR: ${STARLINK_ROUTER_ADDR:-192.168.4.1:9000}
+      STARLINK_DISH_ADDR: ${STARLINK_DISH_ADDR:-192.168.100.1:9200}
     volumes:
       # OPENCLAW_HOME may be unset when OpenClaw is off; an empty local dir is mounted instead.
       - ${OPENCLAW_HOME:-./openclaw-disabled}:/openclaw:ro
