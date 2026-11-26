@@ -12,14 +12,14 @@ import java.util.concurrent.TimeUnit;
 /**
  * Reboots a residential Starlink router or dish via the unauthenticated local gRPC API.
  * <p>
- * Router default: 192.168.1.1:9000<br>
+ * Router default: 192.168.4.1:9000<br>
  * Dish default: 192.168.100.1:9200<br>
  * Uses {@code grpcurl} (installed in the Docker image). The process must be able to reach the LAN address.
  */
 @Service
 public class StarlinkService {
 
-    @Value("${starlink.router.addr:192.168.1.1:9000}")
+    @Value("${starlink.router.addr:192.168.4.1:9000}")
     private String routerAddr;
 
     @Value("${starlink.dish.addr:192.168.100.1:9200}")
