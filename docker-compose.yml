@@ -19,6 +19,9 @@ services:
       LIFE_PROACTIVE_MODEL: ${LIFE_PROACTIVE_MODEL:-}
       LIFE_OPENCLAW_HOME: /openclaw
       LIFE_OPENCLAW_FILE_LOG: ${LIFE_OPENCLAW_FILE_LOG:-}
+      # Local Starlink gRPC (container must be able to reach the LAN)
+      STARLINK_ROUTER_ADDR: ${STARLINK_ROUTER_ADDR:-192.168.1.1:9000}
+      STARLINK_DISH_ADDR: ${STARLINK_DISH_ADDR:-192.168.100.1:9200}
     volumes:
       - ${LIFE_DATA:-./data}:/data
       - ${OPENCLAW_HOME:-${HOME}/.openclaw}:/openclaw:ro
