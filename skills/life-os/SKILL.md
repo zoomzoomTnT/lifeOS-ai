@@ -54,6 +54,18 @@ If `people.handle` is still `owner`, the first real WeChat peer id will auto-cre
 | 持仓, 期权, ticker | `references/stocks.md` |
 | 主动找我, 到期提醒 | `references/proactive.md` |
 | 用量, token, 花费模型, ops, 日志 | `references/ops.md` |
+| 重启星链, reboot starlink, starlink router | `POST /api/starlink/reboot` (see below) |
+
+### Starlink reboot
+
+Residential kit only (local gRPC, no cloud credentials). Default reboots the Wi-Fi router.
+
+```bash
+curl -s -X POST "$LIFE_API_BASE/api/starlink/reboot?target=router" \
+  -H "X-Life-Handle: $HANDLE"
+```
+
+`target=dish` reboots the terminal (longer outage). Confirm with the user before calling — it drops connectivity. On success reply with a short Chinese confirmation; on 502 report the error and suggest checking LAN reachability from the API container (host network mode if needed).
 
 ## Install (OpenClaw workspace)
 
