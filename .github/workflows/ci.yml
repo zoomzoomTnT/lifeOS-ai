@@ -116,13 +116,19 @@ jobs:
             '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
             > "$HOME/.openclaw/agents/main/sessions/ci.jsonl"
           docker compose up -d --wait --wait-timeout 90
-          curl -fsS http://localhost:8787/actuator/health | grep -q '"status":"UP"'
-          curl -fsS http://localhost:8787/actuator/health | grep -q '"life"'
-          curl -fsS http://localhost:8787/actuator/db | grep -q ownerTimezone
-          curl -fsS http://localhost:8787/actuator/info | grep -q life-os-app
-          curl -fsS http://localhost:8787/v3/api-docs/api | grep -q '"openapi"'
-          curl -fsS http://localhost:8787/swagger-ui/index.html | grep -qi swagger
-          curl -fsS http://localhost:8787/ops/index.html | grep -q "Life OS ops"
+          health=$(curl -fsS http://localhost:8787/actuator/health)
+          echo "$health" | grep -q '"status":"UP"'
+          echo "$health" | grep -q '"life"'
+          db=$(curl -fsS http://localhost:8787/actuator/db)
+          echo "$db" | grep -q ownerTimezone
+          info=$(curl -fsS http://localhost:8787/actuator/info)
+          echo "$info" | grep -q life-os-app
+          docs=$(curl -fsS http://localhost:8787/v3/api-docs/api)
+          echo "$docs" | grep -q '"openapi"'
+          swagger=$(curl -fsS http://localhost:8787/swagger-ui/index.html)
+          echo "$swagger" | grep -qi swagger
+          ops=$(curl -fsS http://localhost:8787/ops/index.html)
+          echo "$ops" | grep -q "Life OS ops"
           AI=$(curl -fsS -X POST http://localhost:8787/api/ops/ai \
             -H 'Content-Type: application/json' \
             -H 'X-Life-Handle: owner' \
@@ -141,7 +147,8 @@ jobs:
             -H 'Content-Type: application/json' \
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
-          curl -fsS http://localhost:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
+          http=$(curl -fsS http://localhost:8787/api/ops/http?limit=10)
+          echo "$http" | grep -q '/api/receipts/lookup'
           ING=$(curl -fsS -X POST http://localhost:8787/api/ops/logs/ingest)
           echo "$ING"
           echo "$ING" | grep -q 'session_rows'
