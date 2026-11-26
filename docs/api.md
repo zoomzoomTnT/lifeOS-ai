@@ -292,7 +292,7 @@ Create `options_expiry` / `earnings` / `dividend` / `custom`. Optional `memo_id`
 
 Reboots the Starlink Wi-Fi router or dish over the unauthenticated local gRPC API.
 Requires the Life OS process (or Docker container) to be able to reach the LAN address.
-Default router: `192.168.1.1:9000`, dish: `192.168.100.1:9200`.
+Default router: `192.168.4.1:9000`, dish: `192.168.100.1:9200`.
 Override with env `STARLINK_ROUTER_ADDR` / `STARLINK_DISH_ADDR` (Spring relaxed binding to `starlink.router.addr` / `starlink.dish.addr`).
 
 ### `POST /api/starlink/reboot`
@@ -308,7 +308,7 @@ Success (HTTP 200):
 ```json
 {
   "target": "router",
-  "address": "192.168.1.1:9000",
+  "address": "192.168.4.1:9000",
   "ok": true,
   "exitCode": 0,
   "output": "..."
