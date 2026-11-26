@@ -27,6 +27,7 @@ class OpenClawSwitchOnTest extends AbstractSwitchTest {
         r.add("spring.datasource.url", () -> "jdbc:sqlite:" + DB);
         r.add("life.openclaw.enabled", () -> "false"); // cron wake off, so nothing is sent
         r.add("life.openclaw.hook-token", () -> "secret");
+        r.add("life.openclaw.base-url", () -> "http://127.0.0.1:9"); // nothing listens: the wake fails, nothing sent
     }
 
     @Test
@@ -50,5 +51,26 @@ class OpenClawSwitchOnTest extends AbstractSwitchTest {
         assertEquals(200, ingest.statusCode(), ingest.body());
         assertTrue(ingest.body().contains("session_rows"), ingest.body());
         assertTrue(get("/actuator/health").body().contains("\"openclaw\":\"enabled\""));
+    }
+
+    HttpResponse<String> ping(String header, String value) throws Exception {
+        return http.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + port + "/api/ops/webhook/ping"))
+                        .header("Content-Type", "application/json").header(header, value)
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{}")).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** The hook token as a Bearer value reaches the controller (it used to be a 401 invalid_token from the API-key filter). */
+    @Test
+    void webhookPingAcceptsTheHookTokenAsBearer() throws Exception {
+        HttpResponse<String> ok = ping("Authorization", "Bearer secret");
+        assertEquals(200, ok.statusCode(), ok.body());
+        assertTrue(ok.body().contains("\"ok\":false"), ok.body()); // reached the gateway call (nothing listening)
+        HttpResponse<String> alt = ping("x-openclaw-token", "secret");
+        assertEquals(200, alt.statusCode(), alt.body());
+        HttpResponse<String> wrong = ping("Authorization", "Bearer nope");
+        assertEquals(401, wrong.statusCode(), wrong.body());
+        assertTrue(wrong.body().contains("OPENCLAW_HOOK_TOKEN"), wrong.body()); // the controller's answer
+        assertTrue(!wrong.body().contains("invalid_token"), wrong.body());
     }
 }

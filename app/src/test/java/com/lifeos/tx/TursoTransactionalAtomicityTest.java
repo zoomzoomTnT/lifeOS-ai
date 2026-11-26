@@ -35,7 +35,7 @@ class TursoTransactionalAtomicityTest extends TursoSpringTestBase {
     void holdingUpsertFailingAtTheEventInsertLeavesNoHolding() throws Exception {
         // holding INSERT (JPA) succeeds, then the events INSERT (JDBC) fails via test trigger
         assertThrows(RuntimeException.class, () -> holdings.upsert(
-                new HoldingUpsertRequest("BOOMSYM", Market.US, "Boom Inc", 1.0, 10.0, "USD", null), "owner"));
+                new HoldingUpsertRequest("BOOMSYM", Market.US, "Boom Inc", 1.0, 10.0, "USD", null), 1L));
         assertEquals(0, count("SELECT COUNT(*) FROM holdings WHERE symbol = 'BOOMSYM'"));
         assertEquals(0, count("SELECT COUNT(*) FROM events WHERE payload_json = 'BOOMSYM'"));
     }
@@ -43,7 +43,7 @@ class TursoTransactionalAtomicityTest extends TursoSpringTestBase {
     @Test
     void holdingUpsertCommitsHoldingAndEventTogether() throws Exception {
         String sym = "S" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
-        HoldingWriteResponse w = holdings.upsert(new HoldingUpsertRequest(sym, Market.US, "X", 2.0, 5.0, "USD", null), "owner");
+        HoldingWriteResponse w = holdings.upsert(new HoldingUpsertRequest(sym, Market.US, "X", 2.0, 5.0, "USD", null), 1L);
         assertEquals(1, count("SELECT COUNT(*) FROM holdings WHERE id = ? AND symbol = ?", w.id(), sym));
         assertEquals(1, count("SELECT COUNT(*) FROM events WHERE entity_table = 'holdings' AND entity_id = ?", w.id()));
     }

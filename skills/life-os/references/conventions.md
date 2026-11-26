@@ -22,7 +22,7 @@ Expense owner = `receipts.payer_id`. Household split / viewing = `receipt_claims
 Pass current handle with every mutating call:
 
 ```
--H "X-Life-Handle: <handle>"
+-H "Authorization: Bearer $LIFE_API_KEY"
 ```
 
 ## Dedup

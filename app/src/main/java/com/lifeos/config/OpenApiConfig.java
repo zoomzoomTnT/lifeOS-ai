@@ -25,17 +25,18 @@ public class OpenApiConfig {
                         .title("lifeOS-ai")
                         .version(version)
                         .description("Life OS REST. Money = integer cents. Times = UTC ISO with Z. "
-                                + "Mutations need header X-Life-Handle ("
-                                + (openclawEnabled ? "WeChat peer id" : "the caller's people.handle") + ")."
+                                + "Every /api call needs Authorization: Bearer <lifeOS API key> (lok_...), scoped per "
+                                + "client (finance/fridge/memos/stocks/ops :read/:write). The acting person comes from the "
+                                + "key; X-Life-Handle is ignored. Risky calls answer 403 approval_required: ask zoomzoom "
+                                + "in chat; once the admin client approves, repeat the request with Life-Approval: <id>. "
+                                + "/api/admin/** and tier-3 actions: the admin client (lifeOS Admin bot) only. "
+                                + "See docs/auth.md."
                                 + (openclawEnabled ? "" : " OpenClaw integration is off (OPENCLAW_ENABLED=false).")))
-                .addSecurityItem(new SecurityRequirement().addList("X-Life-Handle"))
-                .components(new Components().addSecuritySchemes("X-Life-Handle",
+                .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
+                .components(new Components().addSecuritySchemes("bearerAuth",
                         new SecurityScheme()
-                                .type(SecurityScheme.Type.APIKEY)
-                                .in(SecurityScheme.In.HEADER)
-                                .name("X-Life-Handle")
-                                .description(openclawEnabled
-                                        ? "people.handle / OpenClaw WeChat peer id"
-                                        : "people.handle of the caller")));
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .description("lifeOS API key: lok_<key_id>_<secret> (minted by the admin client via /api/admin)")));
     }
 }

@@ -75,7 +75,7 @@ class ContextWiringTest {
             }
             List<String> t = tables(ctx);
             assertTrue(t.containsAll(List.of("people", "merchants", "receipts", "ai_calls", "app_logs")), t.toString());
-            assertTrue(turso.executed.stream().anyMatch(s -> s.startsWith("CREATE TABLE merchants")));
+            assertTrue(turso.executed.stream().anyMatch(s -> s.startsWith("CREATE TABLE IF NOT EXISTS merchants")));
         }
     }
 

@@ -9,9 +9,9 @@ import com.lifeos.web.dto.FridgeWriteResponse;
 import java.util.List;
 
 public interface FridgeService {
-    FridgeWriteResponse add(FridgeAddRequest request, String handle);
+    FridgeWriteResponse add(FridgeAddRequest request, long personId);
 
-    List<FridgeItemResponse> list(FridgeStatus status, Integer expiringWithinHours, String handle);
+    List<FridgeItemResponse> list(FridgeStatus status, Integer expiringWithinHours, long personId);
 
-    FridgeWriteResponse resolve(long id, FridgeResolveRequest request, String handle);
+    FridgeWriteResponse resolve(long id, FridgeResolveRequest request, long personId);
 }

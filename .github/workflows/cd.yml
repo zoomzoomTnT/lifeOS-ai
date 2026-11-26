@@ -28,6 +28,7 @@ env:
   IMAGE: ghcr.io/zoomzoomtnt/lifeos-ai
 
 jobs:
+  # image: verify, then build and push the image (skipped for a manual redeploy with skip_build).
   image:
     name: Build & push image
     runs-on: ubuntu-latest
@@ -58,6 +59,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # sha-<short> tag (what deploy pulls) and the version from the release/ branch name.
       - name: Image tags
         id: tags
         run: |
@@ -89,6 +91,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # deploy: copy compose + scripts to the server, then preflight, write .env, pull, check the
+  # image's auth label, compose up and probe that anonymous calls get 401. Fails closed.
   deploy:
     name: SSH docker compose up
     runs-on: ubuntu-latest
@@ -98,6 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Manual image_tag wins (rollback), else the tag just built, else latest.
       - name: Resolve image tag
         id: resolve
         run: |
@@ -112,13 +117,14 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:${TAG}"
 
+      # Files the server needs next to .env; scp only, nothing runs yet.
       - name: Copy compose + OpenClaw scripts
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
-          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh
+          source: docker-compose.yml,docker/ensure-hook-token.sh,docker/openclaw-config.sh,docker/Caddyfile
           target: /tmp/lifeos-cd
           overwrite: true
 
@@ -129,7 +135,7 @@ jobs:
           username: ${{ secrets.SERVER_UN }}
           key: ${{ secrets.SERVER_PK }}
           command_timeout: 15m
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE,DEPLOY_TAG,TURSO_DATABASE_URL,TURSO_AUTH_TOKEN,OPENCLAW_ENABLED,LIFE_KEY_PEPPER,LIFE_ADMIN_KEY_ID,LIFE_ADMIN_KEY_SHA256,LIFE_DOMAIN,LIFE_ACME_EMAIL,EXPLICIT_IMAGE
           script: |
             set -euo pipefail
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/lifeos}"
@@ -139,6 +145,9 @@ jobs:
             # Empty secret -> fall back to TURSO_* in $DEPLOY_DIR/.env
             [ -n "${TURSO_DATABASE_URL:-}" ] || unset TURSO_DATABASE_URL
             [ -n "${TURSO_AUTH_TOKEN:-}" ] || unset TURSO_AUTH_TOKEN
+            [ -n "${LIFE_KEY_PEPPER:-}" ] || unset LIFE_KEY_PEPPER
+            [ -n "${LIFE_ADMIN_KEY_ID:-}" ] || unset LIFE_ADMIN_KEY_ID
+            [ -n "${LIFE_ADMIN_KEY_SHA256:-}" ] || unset LIFE_ADMIN_KEY_SHA256
 
             # Preflight: fail loudly (a bare `command -v docker` under set -e exits 1 with no output).
             echo "preflight: host=$(hostname) user=$(id -un) groups=$(id -Gn)"
@@ -165,8 +174,35 @@ jobs:
               exit 1
             fi
 
-            mkdir -p "$DEPLOY_DIR/data/backups" "$DEPLOY_DIR/openclaw-disabled"
+            # Preflight: API auth (Spring Security) refuses to start without the key-hash pepper.
+            # GitHub secret LIFE_KEY_PEPPER, else LIFE_KEY_PEPPER= in $DEPLOY_DIR/.env.
+            PEPPER_LEN=0
+            if [ -n "${LIFE_KEY_PEPPER:-}" ]; then
+              PEPPER_LEN=${#LIFE_KEY_PEPPER}
+            elif [ -r "$DEPLOY_DIR/.env" ]; then
+              P="$(sed -n 's/^LIFE_KEY_PEPPER=//p' "$DEPLOY_DIR/.env" | tail -n 1)"; PEPPER_LEN=${#P}; unset P
+            fi
+            if [ "$PEPPER_LEN" -lt 32 ]; then
+              echo "::error::LIFE_KEY_PEPPER is missing or shorter than 32 chars. zoomzoom: add the GitHub secret LIFE_KEY_PEPPER (generate with: openssl rand -base64 48) and re-run. See docs/auth.md#cutover. Nothing on the host was changed."
+              exit 1
+            fi
+            echo "preflight: LIFE_KEY_PEPPER present (${PEPPER_LEN} chars)"
+
+            # Preflight: the admin key (lifeOS Admin bot) as key id + SHA-256 of its secret. The app
+            # refuses to start without them. GitHub secrets of the same names, else $DEPLOY_DIR/.env.
+            envval() { [ -r "$DEPLOY_DIR/.env" ] || return 0; sed -n "s/^$1=//p" "$DEPLOY_DIR/.env" | tail -n 1; }
+            ADMIN_ID="${LIFE_ADMIN_KEY_ID:-$(envval LIFE_ADMIN_KEY_ID)}"
+            ADMIN_SHA="${LIFE_ADMIN_KEY_SHA256:-$(envval LIFE_ADMIN_KEY_SHA256)}"
+            if ! printf '%s' "$ADMIN_ID" | grep -Eqx '[a-z2-7]{12}' || ! printf '%s' "$ADMIN_SHA" | grep -Eqx '[0-9a-f]{64}'; then
+              echo "::error::LIFE_ADMIN_KEY_ID / LIFE_ADMIN_KEY_SHA256 missing or malformed. zoomzoom: add both GitHub secrets (the lifeOS Admin bot generates them; see docs/auth.md#admin-key) and re-run. Nothing on the host was changed."
+              exit 1
+            fi
+            echo "preflight: admin key id ${ADMIN_ID}"
+            unset ADMIN_SHA
+
+            mkdir -p "$DEPLOY_DIR/data/backups" "$DEPLOY_DIR/openclaw-disabled" "$DEPLOY_DIR/docker"
             cp /tmp/lifeos-cd/docker-compose.yml "$DEPLOY_DIR/compose.yaml"
+            cp /tmp/lifeos-cd/docker/Caddyfile "$DEPLOY_DIR/docker/Caddyfile"
             cp /tmp/lifeos-cd/docker/ensure-hook-token.sh "$DEPLOY_DIR/ensure-hook-token.sh"
             cp /tmp/lifeos-cd/docker/openclaw-config.sh "$DEPLOY_DIR/openclaw-config.sh"
             chmod +x "$DEPLOY_DIR/ensure-hook-token.sh" "$DEPLOY_DIR/openclaw-config.sh"
@@ -184,6 +220,28 @@ jobs:
               echo "OPENCLAW_ENABLED=$OC" >> .env
             fi
             echo "OPENCLAW_ENABLED=$OC"
+
+            # Auth settings into .env (mode 600) so restarts and manual deploys see the same values.
+            # Written with awk, never echoed.
+            upsert_env() {
+              local k="$1" v="$2" tmp
+              tmp="$(mktemp "$DEPLOY_DIR/.env.XXXXXX")"
+              awk -v k="$k" -v v="$v" 'BEGIN{d=0} $0 ~ "^"k"=" {print k"="v; d=1; next} {print} END{if(!d) print k"="v}' .env > "$tmp"
+              chmod 600 "$tmp"; mv "$tmp" .env
+            }
+            if [ -n "${LIFE_KEY_PEPPER:-}" ]; then upsert_env LIFE_KEY_PEPPER "$LIFE_KEY_PEPPER"; fi
+            if [ -n "${LIFE_ADMIN_KEY_ID:-}" ]; then upsert_env LIFE_ADMIN_KEY_ID "$LIFE_ADMIN_KEY_ID"; fi
+            if [ -n "${LIFE_ADMIN_KEY_SHA256:-}" ]; then upsert_env LIFE_ADMIN_KEY_SHA256 "$LIFE_ADMIN_KEY_SHA256"; fi
+            upsert_env LIFE_DOMAIN "${LIFE_DOMAIN:-}"
+            upsert_env LIFE_ACME_EMAIL "${LIFE_ACME_EMAIL:-}"
+            chmod 600 .env
+            PROFILES=""
+            if [ -n "${LIFE_DOMAIN:-}" ]; then
+              PROFILES="--profile proxy"
+              echo "LIFE_DOMAIN=${LIFE_DOMAIN}: Caddy HTTPS proxy on 80/443"
+            else
+              echo "LIFE_DOMAIN not set: no HTTPS proxy; API on 127.0.0.1:8787 only"
+            fi
 
             MINTED=0
             if [ "$OC" = "true" ]; then
@@ -218,14 +276,36 @@ jobs:
               openclaw config validate
             fi
 
-            docker compose -f compose.yaml pull || true
+            if ! docker compose -f compose.yaml $PROFILES pull; then
+              echo "::error::docker compose pull failed; not deploying"; exit 1
+            fi
+            # Fail closed: the image must be inspectable, and only an explicit rollback (manual run with
+            # image_tag) may deploy a pre-auth image (no lifeos.auth=1 label, e.g. sha-e2e4938). That one
+            # has NO API authentication: never behind the public proxy, never on a public bind.
+            if ! AUTH_IMAGE="$(docker image inspect "$LIFE_IMAGE" --format '{{ index .Config.Labels "lifeos.auth" }}')"; then
+              echo "::error::cannot inspect $LIFE_IMAGE (pull failed?); not deploying"; exit 1
+            fi
+            if [ "$AUTH_IMAGE" != "1" ]; then
+              if [ "${EXPLICIT_IMAGE:-0}" != "1" ]; then
+                echo "::error::$LIFE_IMAGE has no lifeos.auth=1 label and this is not an explicit rollback (workflow_dispatch with image_tag); not deploying"; exit 1
+              fi
+              echo "::warning::rollback to pre-auth image $LIFE_IMAGE: unauthenticated API. Caddy stays off and the API binds 127.0.0.1 only."
+              PROFILES=""
+              export LIFE_API_BIND=127.0.0.1
+              docker compose -f compose.yaml --profile proxy rm -sf caddy || true
+            fi
             if [ "$MINTED" = "1" ]; then
-              docker compose -f compose.yaml up -d --no-build --force-recreate
+              docker compose -f compose.yaml $PROFILES up -d --no-build --force-recreate --remove-orphans
             else
-              docker compose -f compose.yaml up -d --no-build
+              docker compose -f compose.yaml $PROFILES up -d --no-build --remove-orphans
             fi
             if [ "$OC" = "true" ]; then
               docker compose -f compose.yaml run --rm skill-sync
+            fi
+            # what is actually running must be what was checked above
+            RUNNING="$(docker inspect lifeos-api --format '{{ index .Config.Labels "lifeos.auth" }}' 2>/dev/null || echo '?')"
+            if [ "$RUNNING" != "$AUTH_IMAGE" ]; then
+              echo "::error::lifeos-api runs an image with lifeos.auth='$RUNNING', expected '$AUTH_IMAGE'"; exit 1
             fi
 
             ok=0
@@ -242,7 +322,24 @@ jobs:
               docker compose -f compose.yaml logs --no-color --tail=200 api || docker logs --tail=200 lifeos-api || true
               exit 1
             fi
-            curl -fsS http://127.0.0.1:8787/actuator/info || true
+            if [ "$AUTH_IMAGE" = "1" ]; then
+              # Auth is on: data and admin endpoints refuse anonymous callers.
+              for p in /api/ops/summary /actuator/info /actuator/db; do
+                c="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8787$p")"
+                if [ "$c" != "401" ]; then
+                  echo "::error::$p answered $c without credentials (expected 401)"; exit 1
+                fi
+              done
+              echo "auth check: anonymous /api and /actuator -> 401"
+            fi
+            if [ "$AUTH_IMAGE" = "1" ] && [ -n "${LIFE_DOMAIN:-}" ]; then
+              # first certificate can take a minute; warn only
+              for i in $(seq 1 12); do
+                curl -fsS "https://${LIFE_DOMAIN}/actuator/health" >/dev/null 2>&1 && { echo "https://${LIFE_DOMAIN} OK"; break; }
+                [ "$i" = 12 ] && echo "::warning::https://${LIFE_DOMAIN}/actuator/health not reachable yet (DNS, security group 80/443, or certificate still issuing)"
+                sleep 5
+              done
+            fi
             docker compose -f compose.yaml ps || true
             docker image inspect "$LIFE_IMAGE" --format 'deployed {{.RepoTags}} {{.Id}}' || true
             if [ "$OC" = "true" ]; then
@@ -258,3 +355,10 @@ jobs:
           TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL || secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           OPENCLAW_ENABLED: ${{ vars.OPENCLAW_ENABLED || 'true' }}
+          LIFE_KEY_PEPPER: ${{ secrets.LIFE_KEY_PEPPER }}
+          LIFE_ADMIN_KEY_ID: ${{ secrets.LIFE_ADMIN_KEY_ID }}
+          LIFE_ADMIN_KEY_SHA256: ${{ secrets.LIFE_ADMIN_KEY_SHA256 }}
+          LIFE_DOMAIN: ${{ vars.LIFE_DOMAIN }}
+          LIFE_ACME_EMAIL: ${{ vars.LIFE_ACME_EMAIL }}
+          # Only a manual run naming an image (rollback) may deploy a pre-auth image.
+          EXPLICIT_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' && '1' || '0' }}

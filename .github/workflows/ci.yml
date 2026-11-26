@@ -14,32 +14,34 @@ permissions:
   contents: read
 
 jobs:
+  # schema: schema.sql (the only schema file) builds a fresh DB and re-applies cleanly.
+  # Plain sqlite3, no Java.
   schema:
     name: Validate schema
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Canonical schema copies must match
-        run: diff -u schema/schema.sql app/src/main/resources/schema.sql
+      - name: Apply schema.sql to a fresh SQLite database (twice, it is idempotent)
+        run: |
+          sqlite3 /tmp/life-ci.db < app/src/main/resources/schema.sql
+          sqlite3 /tmp/life-ci.db < app/src/main/resources/schema.sql
 
-      - name: Apply schema.sql to a fresh SQLite database
-        run: sqlite3 /tmp/life-ci.db < schema/schema.sql
-
+      # Spot-check the tables the app relies on (and that removed ones stay gone).
       - name: Required tables exist
         run: |
           sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -E '^(people|receipts|fridge_items|memos|holdings|http_requests|ai_calls|model_prices|settings|app_logs|ai_session_logs)$'
+          for t in api_clients api_keys security_events approval_requests; do
+            sqlite3 /tmp/life-ci.db ".tables" | tr ' ' '\n' | grep -qx "$t" || { echo "missing table $t"; exit 1; }
+          done
+          # no human web login: no passkey / one-time-token tables
+          test "$(sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('user_entities','user_credentials','one_time_tokens');")" = 0
+          sqlite3 /tmp/life-ci.db "SELECT client_id, credential_id, approval_id FROM events LIMIT 0;"
           sqlite3 /tmp/life-ci.db "SELECT handle, role FROM people WHERE id = 1;"
-          sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;" | grep -v '^0$'
+          test "$(sqlite3 /tmp/life-ci.db "SELECT COUNT(*) FROM model_prices;")" = 7
           sqlite3 /tmp/life-ci.db "SELECT name FROM sqlite_master WHERE type='view' AND name='v_ai_daily';"
 
-      - name: Additive migration applies to an old database
-        run: |
-          sqlite3 /tmp/life-old.db "CREATE TABLE people (id INTEGER PRIMARY KEY, handle TEXT); INSERT INTO people VALUES (1,'owner');"
-          sqlite3 /tmp/life-old.db < schema/migrations/0002_ops.sql
-          sqlite3 /tmp/life-old.db < schema/migrations/0003_logs.sql
-          sqlite3 /tmp/life-old.db "SELECT COUNT(*) FROM ai_session_logs; SELECT COUNT(*) FROM app_logs;"
-
+  # build: mvn verify against a real sqld service, then keep the jar as an artifact.
   build:
     name: Maven test & package
     runs-on: ubuntu-latest
@@ -61,6 +63,7 @@ jobs:
           java-version: "21"
           cache: maven
 
+      # The service container can report started before sqld accepts HTTP.
       - name: Wait for sqld
         run: |
           for i in $(seq 1 30); do
@@ -82,6 +85,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # docker: build the image, validate the compose renderings, run the auth and OpenClaw-off
+  # smoke tests, and push to GHCR on main only.
   docker:
     name: Docker build, compose smoke, GHCR
     runs-on: ubuntu-latest
@@ -95,13 +100,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Renders docker-compose.yml per profile and checks auth/actuator/Caddy settings.
+      # ops@ci.example.org is a dummy address on the reserved example.org domain (RFC 2606), used
+      # only to check that LIFE_ACME_EMAIL reaches Caddy; nothing is ever sent to it.
       - name: Validate compose file
         run: |
           mkdir -p "$OPENCLAW_HOME"
           docker compose -f docker-compose.yml config --quiet
+          LIFE_DOMAIN=ci.example.com docker compose -f docker-compose.yml --profile proxy config --quiet
+          docker compose -f docker-compose.yml config | grep -q 'host_ip: 127.0.0.1'
+          # prod compose (no profile): local-open must render false, even if the shell exports true
+          docker compose -f docker-compose.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?false"?$'
+          LIFE_AUTH_LOCAL_OPEN=true docker compose -f docker-compose.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?false"?$'
+          docker compose -f docker-compose.yml -f docker-compose.local.yml config | grep -Eq 'LIFE_AUTH_LOCAL_OPEN: "?true"?$'
+          # prod: diagnostic actuator endpoints (db, ...) are opt-in
+          docker compose -f docker-compose.yml config | grep -Eq 'LIFE_ACTUATOR_ENDPOINTS: "?health,info,metrics"?$'
+          # the admin key's id + hash reach the app; nothing passkey-related is left
+          LIFE_ADMIN_KEY_ID=abcdefghijkl LIFE_ADMIN_KEY_SHA256=00ff docker compose -f docker-compose.yml config --format json \
+            | jq -e '.services.api.environment | .LIFE_ADMIN_KEY_ID == "abcdefghijkl" and .LIFE_ADMIN_KEY_SHA256 == "00ff" and (has("LIFE_PUBLIC_URL") or has("LIFE_DOMAIN") | not)'
+          docker run --rm -e LIFE_DOMAIN=ci.example.com -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          # with LIFE_ACME_EMAIL, as compose renders it (global "email" option)
+          EMAIL_LINE="$(LIFE_ACME_EMAIL=ops@ci.example.org LIFE_DOMAIN=1-2-3-4.sslip.io docker compose -f docker-compose.yml --profile proxy config --format json | jq -r '.services.caddy.environment.CADDY_EMAIL_LINE')"
+          test "$EMAIL_LINE" = "email ops@ci.example.org"
+          docker run --rm -e LIFE_DOMAIN=1-2-3-4.sslip.io -e CADDY_EMAIL_LINE="$EMAIL_LINE" -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile | grep -q '"email":"ops@ci.example.org"'
 
       - uses: docker/setup-buildx-action@v3
 
+      # Image tags and labels for the build (pushed to GHCR only from main).
       - name: Image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -124,6 +151,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Real auth end to end in the built image: keys, scopes, approvals, tier 3, no secret leaks.
       - name: Compose smoke test
         run: |
           set -euo pipefail
@@ -138,37 +166,102 @@ jobs:
             '{"type":"session","timestamp":"2026-08-26T00:00:00Z","id":"ci-sess"}' \
             '{"type":"message","timestamp":"2026-08-26T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"秘密对话"}]}}' \
             > "$OPENCLAW_HOME/agents/main/sessions/ci.jsonl"
+          # Real auth inside the image (local profile, but local-open off). Like CD: a throwaway admin
+          # key generated here; the app only gets its key id + SHA-256. Agent keys are minted over REST.
+          export LIFE_AUTH_LOCAL_OPEN=false
+          export LIFE_KEY_PEPPER="ci-pepper-$(openssl rand -hex 24)"
+          b32() { python3 -c "import secrets,sys;a='abcdefghijklmnopqrstuvwxyz234567';print(''.join(secrets.choice(a) for _ in range(int(sys.argv[1]))))" "$1"; }
+          ADMIN_ID="$(b32 12)"; ADMIN_SECRET="$(b32 52)"
+          ADMIN="lok_${ADMIN_ID}_${ADMIN_SECRET}"
+          export LIFE_ADMIN_KEY_ID="$ADMIN_ID"
+          export LIFE_ADMIN_KEY_SHA256="$(printf '%s' "$ADMIN_SECRET" | sha256sum | cut -d' ' -f1)"
+          test "$(docker image inspect lifeos-ai:ci --format '{{ index .Config.Labels "lifeos.auth" }}')" = 1  # CD's proxy guard
           docker compose up -d --wait --wait-timeout 90
-          curl -fsS http://localhost:8787/actuator/health | grep -q '"status":"UP"'
-          curl -fsS http://localhost:8787/actuator/health | grep -q '"life"'
-          curl -fsS http://localhost:8787/actuator/db | grep -q ownerTimezone
-          curl -fsS http://localhost:8787/actuator/info | grep -q life-os-app
-          curl -fsS http://localhost:8787/v3/api-docs/api | grep -q '"openapi"'
-          curl -fsS http://localhost:8787/swagger-ui/index.html | grep -qi swagger
-          curl -fsS http://localhost:8787/ops/index.html | grep -q "Life OS ops"
-          AI=$(curl -fsS -X POST http://localhost:8787/api/ops/ai \
+          B=http://localhost:8787
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          J='Content-Type: application/json'
+
+          # public: health status only, docs; no login page of any kind
+          curl -fsS $B/actuator/health | grep -q '"status":"UP"'
+          ! curl -fsS $B/actuator/health | grep -q '"components"'
+          curl -fsS $B/v3/api-docs/api | grep -q '"openapi"'
+          curl -fsS $B/swagger-ui/index.html | grep -qi swagger
+          test "$(code $B/login)" = 403
+          test "$(code $B/ops/index.html)" = 403
+
+          # no credential / bad credential
+          test "$(code $B/api/ops/summary)" = 401
+          test "$(code -H 'Authorization: Bearer lok_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' $B/api/ops/summary)" = 401
+          test "$(code -H 'X-Life-Handle: owner' $B/api/ops/summary)" = 401
+          test "$(code $B/actuator/db)" = 401
+          test "$(code -X POST -H "$J" -d '{"client_id":"x","kind":"agent","max_scopes":["memos:read"]}' $B/api/admin/clients)" = 401
+
+          # the admin key (from the hash in env) works; it mints Grok Bot's two keys over REST
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/api/admin/credentials | grep -q lifeos-admin
+          mint() {
+            curl -fsS -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d "{\"client_id\":\"$1\",\"kind\":\"agent\",\"max_scopes\":$2}" $B/api/admin/clients >/dev/null
+            curl -fsS -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d '{}' -D /tmp/mint.h "$B/api/admin/clients/$1/keys" | jq -r .key
+          }
+          CHAT="$(mint grokbot-chat '["finance:write","fridge:write","memos:write","stocks:write","ops:read","ops:write"]')"
+          grep -qi '^cache-control: no-store' /tmp/mint.h
+          ROUTINE="$(mint grokbot-routine '["memos:read","ops:read"]')"
+          case "$CHAT" in lok_*) ;; *) echo "mint failed"; exit 1 ;; esac
+          # never ops:admin for an agent
+          test "$(code -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d '{"client_id":"ci-evil","kind":"agent","max_scopes":["ops:admin"]}' $B/api/admin/clients)" = 400
+          # agent keys can't use the admin API
+          test "$(code -H "Authorization: Bearer $CHAT" $B/api/admin/credentials)" = 403
+          # secrets never reach the container log
+          ! docker compose logs api | grep -qF "${CHAT#lok_*_}"
+          ! docker compose logs api | grep -qF "$ADMIN_SECRET"
+
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/actuator/health | grep -q '"life"'
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/actuator/db | grep -q ownerTimezone   # local profile exposes all
+          curl -fsS -H "Authorization: Bearer $ADMIN" $B/actuator/info | grep -q life-os-app
+          test "$(code -H "Authorization: Bearer $CHAT" $B/actuator/db)" = 403
+
+          AI=$(curl -fsS -X POST $B/api/ops/ai \
+            -H "Authorization: Bearer $CHAT" \
             -H 'Content-Type: application/json' \
-            -H 'X-Life-Handle: owner' \
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"provider":"xai","model":"grok-4","purpose":"heartbeat","source":"app","prompt_tokens":1000,"completion_tokens":0}')
           echo "$AI"
           echo "$AI" | grep -q '0.003000'
-          SW=$(curl -fsS 'http://localhost:8787/api/ops/should-wake?lead_minutes=10')
+          SW=$(curl -fsS -H "Authorization: Bearer $ROUTINE" "$B/api/ops/should-wake?lead_minutes=10")
           echo "$SW"
           echo "$SW" | grep -qi 'heartbeat_ok'
-          RUN=$(curl -fsS -X POST http://localhost:8787/api/ops/proactive/run \
+          # routine key: reads only
+          test "$(code -X POST -H "Authorization: Bearer $ROUTINE" -H 'Content-Type: application/json' -d '{}' $B/api/ops/proactive/run)" = 403
+          RUN=$(curl -fsS -X POST $B/api/ops/proactive/run -H "Authorization: Bearer $CHAT" \
             -H 'Content-Type: application/json' -d '{}')
           echo "$RUN"
           echo "$RUN" | grep -qi 'skipped\|wake'
-          curl -fsS -X POST http://localhost:8787/api/receipts/lookup \
+          curl -fsS -X POST $B/api/receipts/lookup \
+            -H "Authorization: Bearer $CHAT" \
             -H 'Content-Type: application/json' \
             -H 'X-Request-Id: ci-smoke-1' \
             -d '{"barcode":"nope","printed_at":"x"}' >/dev/null
-          curl -fsS http://localhost:8787/api/ops/http?limit=10 | grep -q '/api/receipts/lookup'
-          ING=$(curl -fsS -X POST http://localhost:8787/api/ops/logs/ingest)
+          curl -fsS -H "Authorization: Bearer $ROUTINE" "$B/api/ops/http?limit=10" | grep -q '/api/receipts/lookup'
+          # tier 2: the agent's big receipt confirm waits for an approval the admin key decides
+          RID="$(curl -fsS -X POST $B/api/receipts/preview -H "Authorization: Bearer $CHAT" -H "$J" \
+            -d '{"merchant_name":"CI Store","barcode":"ci-big","printed_at":"2026-10-11 10:00:00","currency":"JPY","total_cents":6000000,"items":[{"name":"big","qty":1,"amount_cents":6000000}]}' | jq -r .receipt_id)"
+          APR="$(curl -s -X POST "$B/api/receipts/$RID/confirm" -H "Authorization: Bearer $CHAT" -H "$J" -d '{}' | jq -r 'select(.error=="approval_required") | .approval_id')"
+          test -n "$APR"
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" "$B/api/admin/approvals/$APR/approve")" = 403
+          curl -fsS -X POST -H "Authorization: Bearer $ADMIN" "$B/api/admin/approvals/$APR/approve" | grep -q '"decided_by_client":"lifeos-admin"'
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d '{}' "$B/api/receipts/$RID/confirm")" = 200
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" -H "$J" -H "Life-Approval: $APR" -d '{}' "$B/api/receipts/$RID/confirm")" = 403
+          # tier 3: price changes only with the admin key
+          PRICE='{"provider":"xai","model":"ci","input_usd_micros_per_mtok":1,"output_usd_micros_per_mtok":1}'
+          test "$(code -X PUT -H "Authorization: Bearer $CHAT" -H "$J" -d "$PRICE" $B/api/ops/prices)" = 403
+          test "$(code -X PUT -H "Authorization: Bearer $ADMIN" -H "$J" -d "$PRICE" $B/api/ops/prices)" = 200
+          # tier 3: purge only with the admin key
+          test "$(code -X POST -H "Authorization: Bearer $CHAT" -H "$J" -d '{}' $B/api/ops/purge)" = 403
+          test "$(code -X POST -H "Authorization: Bearer $ADMIN" -H "$J" -d '{"older_than_days":3650}' $B/api/ops/purge)" = 200
+          rm -f /tmp/mint.h
+          ING=$(curl -fsS -X POST -H "Authorization: Bearer $CHAT" http://localhost:8787/api/ops/logs/ingest)
           echo "$ING"
           echo "$ING" | grep -q 'session_rows'
-          META=$(curl -fsS 'http://localhost:8787/api/ops/logs/sessions?limit=5')
+          META=$(curl -fsS -H "Authorization: Bearer $ROUTINE" 'http://localhost:8787/api/ops/logs/sessions?limit=5')
           echo "$META"
           echo "$META" | grep -q 'openclaw_session'
           echo "$META" | grep -qv '秘密对话'
@@ -177,6 +270,7 @@ jobs:
           test -f "$OPENCLAW_HOME/workspace/HEARTBEAT.md"
           docker compose down
 
+      # The API must run without any OpenClaw configuration and never call it.
       - name: Compose smoke test (OPENCLAW_ENABLED=false, no OPENCLAW_* vars)
         run: |
           set -euo pipefail
@@ -203,6 +297,7 @@ jobs:
           docker compose logs api | grep -qi 'OpenClaw webhook' && { echo "unexpected OpenClaw call"; exit 1; } || true
           docker compose down
 
+      # Publishing happens only for pushes to main.
       - name: Login to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3

@@ -12,6 +12,9 @@ public interface MemoRepository {
 
     List<Memo> dueForWake(long ownerId, int leadMinutes, boolean nightPriorityOnly);
 
+    /** owner_id of the memo, empty if it does not exist. */
+    java.util.Optional<Long> ownerOf(long id);
+
     void updateStatus(long id, MemoStatus status);
 
     void updateDueAt(long id, String dueAt);

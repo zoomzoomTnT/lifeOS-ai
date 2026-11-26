@@ -6,7 +6,6 @@ import com.lifeos.mapper.HoldingMapper;
 import com.lifeos.repo.EventRepository;
 import com.lifeos.repo.HoldingRepository;
 import com.lifeos.service.HoldingService;
-import com.lifeos.service.PersonService;
 import com.lifeos.web.NotFoundException;
 import com.lifeos.web.dto.HoldingResponse;
 import com.lifeos.web.dto.HoldingUpsertRequest;
@@ -26,23 +25,22 @@ public class HoldingServiceImpl implements HoldingService {
 
     private final HoldingRepository holdings;
     private final EventRepository events;
-    private final PersonService people;
     private final HoldingMapper holdingMapper;
 
     @Override
-    public List<HoldingResponse> list(String handle) {
-        return holdingMapper.toResponseList(holdings.listByOwner(people.resolveId(handle)));
+    public List<HoldingResponse> list(long personId) {
+        return holdingMapper.toResponseList(holdings.listByOwner(personId));
     }
 
     @Override
-    public HoldingResponse get(long id, String handle) {
-        return holdingMapper.toResponse(requireOwned(id, people.resolveId(handle)), holdings.listEvents(id));
+    public HoldingResponse get(long id, long personId) {
+        return holdingMapper.toResponse(requireOwned(id, personId), holdings.listEvents(id));
     }
 
     @Override
     @Transactional
-    public HoldingWriteResponse upsert(HoldingUpsertRequest request, String handle) {
-        long ownerId = people.resolveId(handle);
+    public HoldingWriteResponse upsert(HoldingUpsertRequest request, long personId) {
+        long ownerId = personId;
         Holding incoming = holdingMapper.toNewHolding(request, ownerId);
         Optional<Holding> existing = holdings.findByOwnerSymbolMarket(ownerId, incoming.getSymbol(), incoming.getMarket());
         boolean created;
@@ -66,8 +64,8 @@ public class HoldingServiceImpl implements HoldingService {
 
     @Override
     @Transactional
-    public StockEventResponse addEvent(long holdingId, StockEventRequest request, String handle) {
-        long ownerId = people.resolveId(handle);
+    public StockEventResponse addEvent(long holdingId, StockEventRequest request, long personId) {
+        long ownerId = personId;
         requireOwned(holdingId, ownerId);
         StockEvent event = holdingMapper.toNewEvent(request, holdingId);
         holdings.insertEvent(event);

@@ -58,7 +58,7 @@ class ReceiptAtomicTursoTest extends AbstractReceiptAtomicTest {
     void eachReceiptWriteIsOneServerTransaction() {
         int before = TURSO.executed.size();
         ReceiptPreviewResponse p = receipts.preview(
-                request("One-" + uniq(), uniq(), List.of(food("egg", 100), food("rice", 200))), "owner");
+                request("One-" + uniq(), uniq(), List.of(food("egg", 100), food("rice", 200))), 1L);
         List<String> sql = TURSO.executed.subList(before, TURSO.executed.size());
         assertEquals(1, sql.stream().filter(s -> s.startsWith("BEGIN")).count(), "one BEGIN: " + sql);
         assertEquals("BEGIN IMMEDIATE", sql.stream().filter(s -> s.startsWith("BEGIN")).findFirst().orElseThrow());
@@ -66,7 +66,7 @@ class ReceiptAtomicTursoTest extends AbstractReceiptAtomicTest {
         assertTrue(sql.stream().anyMatch(s -> s.contains("INSERT INTO receipt_items")));
 
         before = TURSO.executed.size();
-        receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), "owner");
+        receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), 1L);
         sql = TURSO.executed.subList(before, TURSO.executed.size());
         assertEquals(1, sql.stream().filter(s -> s.startsWith("BEGIN")).count(), "one BEGIN: " + sql);
         assertEquals("COMMIT", sql.get(sql.size() - 1));

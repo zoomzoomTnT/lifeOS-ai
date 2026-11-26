@@ -10,13 +10,15 @@ import com.lifeos.web.dto.ReceiptPreviewRequest;
 import com.lifeos.web.dto.ReceiptPreviewResponse;
 import com.lifeos.web.dto.ReceiptResponse;
 import jakarta.validation.Valid;
+import com.lifeos.security.LifePrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,24 +32,28 @@ public class ReceiptController {
 
     private final ReceiptService receiptService;
 
+    @PreAuthorize("hasAuthority('SCOPE_finance:write')")
     @PostMapping("/preview")
     public ResponseEntity<ReceiptPreviewResponse> preview(@Valid @RequestBody ReceiptPreviewRequest body,
-                                                          @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return ResponseEntity.ok(receiptService.preview(body, handle));
+                                                          @AuthenticationPrincipal LifePrincipal actor) {
+        return ResponseEntity.ok(receiptService.preview(body, actor.personId()));
     }
 
+    @PreAuthorize("hasAuthority('SCOPE_finance:write')")
     @PostMapping("/{id}/confirm")
     public ResponseEntity<ReceiptConfirmResponse> confirm(@PathVariable long id,
                                                           @RequestBody(required = false) ReceiptConfirmRequest body,
-                                                          @RequestHeader(value = "X-Life-Handle", required = false) String handle) {
-        return ResponseEntity.ok(receiptService.confirm(id, body, handle));
+                                                          @AuthenticationPrincipal LifePrincipal actor) {
+        return ResponseEntity.ok(receiptService.confirm(id, body, actor.personId()));
     }
 
+    @PreAuthorize("hasAuthority('SCOPE_finance:read')")
     @PostMapping("/lookup")
     public ResponseEntity<ReceiptLookupResponse> lookup(@RequestBody ReceiptLookupRequest body) {
         return ResponseEntity.ok(receiptService.lookup(body));
     }
 
+    @PreAuthorize("hasAuthority('SCOPE_finance:read')")
     @GetMapping
     public ResponseEntity<List<ReceiptResponse>> list(@RequestParam(required = false) ReceiptStatus status,
                                                       @RequestParam(defaultValue = "20") int limit) {

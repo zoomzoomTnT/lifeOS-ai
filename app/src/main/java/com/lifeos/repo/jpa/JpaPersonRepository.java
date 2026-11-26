@@ -39,14 +39,12 @@ public class JpaPersonRepository implements PersonRepository {
     }
 
     @Override
-    public long insertMember(String handle, String displayName) {
-        Person person = new Person();
-        person.setHandle(handle);
-        person.setDisplayName(displayName);
-        person.setRole(PersonRole.MEMBER);
-        person.setTimezone("Asia/Tokyo");
-        em.persist(person);
-        em.flush();
-        return person.getId();
+    public Optional<Long> findOwnerId() {
+        List<Long> rows = em.createQuery(
+                        "select p.id from Person p where p.role = :role order by p.id", Long.class)
+                .setParameter("role", PersonRole.OWNER)
+                .setMaxResults(1)
+                .getResultList();
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 }

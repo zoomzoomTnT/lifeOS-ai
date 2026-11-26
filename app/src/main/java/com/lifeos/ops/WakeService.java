@@ -4,7 +4,6 @@ import com.lifeos.domain.Memo;
 import com.lifeos.domain.Receipt;
 import com.lifeos.repo.MemoRepository;
 import com.lifeos.repo.ReceiptRepository;
-import com.lifeos.service.PersonService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -21,11 +20,10 @@ public class WakeService {
 
     private final MemoRepository memos;
     private final ReceiptRepository receipts;
-    private final PersonService people;
 
-    public Map<String, Object> shouldWake(String handle, int leadMinutes) {
+    public Map<String, Object> shouldWake(long personId, int leadMinutes) {
         int minutes = Math.max(0, Math.min(leadMinutes, 72 * 60));
-        long ownerId = people.resolveId(handle);
+        long ownerId = personId;
         boolean night = isTokyoNight();
 
         List<Memo> due = memos.dueForWake(ownerId, minutes, night);

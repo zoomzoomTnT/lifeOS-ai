@@ -28,7 +28,7 @@ class SchemaInitializerLibSqlTest {
             SchemaInitializer init = new SchemaInitializer(jdbc, new DefaultResourceLoader());
             ReflectionTestUtils.setField(init, "schemaPath", "classpath:schema.sql");
             ReflectionTestUtils.setField(init, "datasourceUrl", server.url());
-            init.run(null);
+            init.apply();
 
             assertThat(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('people','merchants')",

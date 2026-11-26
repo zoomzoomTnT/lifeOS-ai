@@ -1,5 +1,10 @@
 package com.lifeos.ops;
 
+import com.lifeos.security.PrincipalAttributeFilter;
+
+import com.lifeos.security.AuditContext;
+import com.lifeos.security.CurrentActor;
+import com.lifeos.security.LifePrincipal;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,12 +20,20 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
+/**
+ * One http_requests row per request, including the ones Spring Security refuses (401/403/429/400):
+ * runs before the security filter chain. The caller comes from {@link PrincipalAttributeFilter}'s
+ * request attribute (the security context is already cleared when the chain returns).
+ * /api/admin/** (key secrets, approvals): {@code Cache-Control: no-store} and no body excerpt.
+ */
 @Component
+@org.springframework.core.annotation.Order(org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties.DEFAULT_FILTER_ORDER - 10)
 @RequiredArgsConstructor
 @Slf4j
 public class HttpAccessFilter extends OncePerRequestFilter {
 
     private static final int BODY_CAP = 4096;
+    static final String ADMIN_PREFIX = "/api/admin/";
 
     private final OpsService opsService;
 
@@ -44,6 +57,11 @@ public class HttpAccessFilter extends OncePerRequestFilter {
         String corr = request.getHeader("X-Request-Id");
         if (corr == null || corr.isBlank()) corr = UUID.randomUUID().toString();
         response.setHeader("X-Request-Id", corr);
+        boolean admin = request.getRequestURI().startsWith(ADMIN_PREFIX);
+        if (admin) {
+            response.setHeader("Cache-Control", "no-store");
+            response.setHeader("Pragma", "no-cache");
+        }
 
         ContentCachingRequestWrapper req = request instanceof ContentCachingRequestWrapper r
                 ? r : new ContentCachingRequestWrapper(request, BODY_CAP);
@@ -53,6 +71,7 @@ public class HttpAccessFilter extends OncePerRequestFilter {
         long t0 = System.currentTimeMillis();
         String error = null;
         try {
+            req.setAttribute(AuditContext.REQUEST_ID_ATTR, corr);
             filterChain.doFilter(req, res);
         } catch (Exception e) {
             error = e.getClass().getSimpleName() + ": " + e.getMessage();
@@ -60,11 +79,15 @@ public class HttpAccessFilter extends OncePerRequestFilter {
         } finally {
             long ms = System.currentTimeMillis() - t0;
             try {
-                String excerpt = excerpt(req);
+                String excerpt = admin ? null : excerpt(req);
                 Integer reqBytes = req.getContentLength() >= 0 ? req.getContentLength() : req.getContentAsByteArray().length;
+                LifePrincipal actor = CurrentActor.get().orElseGet(() ->
+                        req.getAttribute(PrincipalAttributeFilter.ATTR) instanceof LifePrincipal p ? p : null);
                 opsService.recordHttp(
                         corr,
-                        req.getHeader("X-Life-Handle"),
+                        actor == null ? null : actor.personId(),
+                        actor == null ? null : actor.clientId(),
+                        actor == null ? null : actor.credentialId(),
                         req.getMethod(),
                         req.getRequestURI(),
                         req.getQueryString(),

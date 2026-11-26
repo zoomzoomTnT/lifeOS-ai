@@ -8,11 +8,11 @@ import com.lifeos.web.dto.MemoWriteResponse;
 import java.util.List;
 
 public interface MemoService {
-    List<MemoResponse> due(int withinHours, String handle);
+    List<MemoResponse> due(int withinHours, long personId);
 
-    MemoWriteResponse create(MemoCreateRequest request, String handle);
+    MemoWriteResponse create(MemoCreateRequest request, long personId);
 
-    MemoWriteResponse patch(long id, MemoPatchRequest request);
+    MemoWriteResponse patch(long id, MemoPatchRequest request, long personId);
 
-    MemoWriteResponse markFired(long id);
+    MemoWriteResponse markFired(long id, long personId);
 }

@@ -62,7 +62,7 @@ abstract class AbstractReceiptAtomicTest {
     void previewWritesEverythingAndReturnsIds() {
         String m = "Shop-" + uniq();
         ReceiptPreviewResponse r = receipts.preview(
-                request(m, uniq(), List.of(food("milk", 200), other("soap", 300))), "owner");
+                request(m, uniq(), List.of(food("milk", 200), other("soap", 300))), 1L);
         assertEquals("create_pending", r.action());
         assertNotNull(r.receiptId());
         assertEquals(r.receiptId(), count("SELECT id FROM receipts WHERE fingerprint = ?", r.fingerprint()));
@@ -75,13 +75,13 @@ abstract class AbstractReceiptAtomicTest {
         assertEquals(true, r.sumOk());
 
         // same merchant again: reused, not duplicated
-        ReceiptPreviewResponse r2 = receipts.preview(request(m, uniq(), List.of(other("tea", 100))), "owner");
+        ReceiptPreviewResponse r2 = receipts.preview(request(m, uniq(), List.of(other("tea", 100))), 1L);
         assertEquals(r.merchantId(), r2.merchantId());
         assertEquals(1, count("SELECT COUNT(*) FROM merchants WHERE name = ?", m));
 
         // same receipt again: duplicate, nothing written
         ReceiptPreviewResponse dup = receipts.preview(
-                request(m, extractBarcode(r), List.of(food("milk", 200), other("soap", 300))), "owner");
+                request(m, extractBarcode(r), List.of(food("milk", 200), other("soap", 300))), 1L);
         assertEquals("duplicate", dup.action());
         assertEquals(r.receiptId(), dup.existingReceiptId());
     }
@@ -98,7 +98,7 @@ abstract class AbstractReceiptAtomicTest {
         long itemsBefore = count("SELECT COUNT(*) FROM receipt_items");
         long eventsBefore = count("SELECT COUNT(*) FROM events");
         assertThrows(RuntimeException.class, () -> receipts.preview(
-                request(m, barcode, List.of(food("milk", 100), other("BOOM", 100), other("after", 100))), "owner"));
+                request(m, barcode, List.of(food("milk", 100), other("BOOM", 100), other("after", 100))), 1L));
         assertEquals(0, count("SELECT COUNT(*) FROM merchants WHERE name = ?", m), "merchant rolled back");
         assertEquals(receiptsBefore, count("SELECT COUNT(*) FROM receipts"), "receipt rolled back");
         assertEquals(itemsBefore, count("SELECT COUNT(*) FROM receipt_items"), "items rolled back");
@@ -108,9 +108,8 @@ abstract class AbstractReceiptAtomicTest {
     @Test
     void confirmWithFridgeIsAtomicAndReturnsFridgeIds() {
         ReceiptPreviewResponse p = receipts.preview(
-                request("Mart-" + uniq(), uniq(), List.of(food("yogurt", 150), other("bag", 5), food("cheese", 400))),
-                "owner");
-        ReceiptConfirmResponse c = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), "owner");
+                request("Mart-" + uniq(), uniq(), List.of(food("yogurt", 150), other("bag", 5), food("cheese", 400))), 1L);
+        ReceiptConfirmResponse c = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), 1L);
         assertEquals(ReceiptStatus.CONFIRMED, c.status());
         assertNull(c.error());
         assertEquals(2, c.fridgeItemIds().size());
@@ -123,15 +122,15 @@ abstract class AbstractReceiptAtomicTest {
                 "SELECT status FROM receipts WHERE id = ?", String.class, p.receiptId()));
         assertEquals(1, count("SELECT COUNT(*) FROM events WHERE action = 'confirm' AND entity_id = ?", p.receiptId()));
 
-        ReceiptConfirmResponse again = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), "owner");
+        ReceiptConfirmResponse again = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), 1L);
         assertEquals("not_pending", again.error());
     }
 
     @Test
     void confirmWithoutFridge() {
         ReceiptPreviewResponse p = receipts.preview(
-                request("Kiosk-" + uniq(), uniq(), List.of(food("juice", 120))), "owner");
-        ReceiptConfirmResponse c = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(false), "owner");
+                request("Kiosk-" + uniq(), uniq(), List.of(food("juice", 120))), 1L);
+        ReceiptConfirmResponse c = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(false), 1L);
         assertEquals(List.of(), c.fridgeItemIds());
         assertEquals(0, count("SELECT COUNT(*) FROM fridge_items WHERE source_receipt_id = ?", p.receiptId()));
         assertEquals("confirmed", db().queryForObject(
@@ -141,10 +140,9 @@ abstract class AbstractReceiptAtomicTest {
     @Test
     void confirmFailureMidBatchLeavesReceiptPending() {
         ReceiptPreviewResponse p = receipts.preview(
-                request("Deli-" + uniq(), uniq(), List.of(food("ham", 300), food("BOOMFOOD", 100), food("bread", 200))),
-                "owner");
+                request("Deli-" + uniq(), uniq(), List.of(food("ham", 300), food("BOOMFOOD", 100), food("bread", 200))), 1L);
         assertThrows(RuntimeException.class,
-                () -> receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), "owner"));
+                () -> receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), 1L));
         assertEquals("pending_confirm", db().queryForObject(
                 "SELECT status FROM receipts WHERE id = ?", String.class, p.receiptId()));
         assertEquals(0, count("SELECT COUNT(*) FROM fridge_items WHERE source_receipt_id = ?", p.receiptId()));

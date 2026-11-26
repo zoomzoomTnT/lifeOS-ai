@@ -90,9 +90,9 @@ class RealSqldAppTest {
 
     @Test
     void receiptPreviewAndConfirm() {
-        ReceiptPreviewResponse p = receipts.preview(request("Real-" + uniq(), List.of(food("milk", 100), food("egg", 50))), "owner");
+        ReceiptPreviewResponse p = receipts.preview(request("Real-" + uniq(), List.of(food("milk", 100), food("egg", 50))), 1L);
         assertEquals(2, count("SELECT COUNT(*) FROM receipt_items WHERE receipt_id = ?", p.receiptId()));
-        ReceiptConfirmResponse c = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), "owner");
+        ReceiptConfirmResponse c = receipts.confirm(p.receiptId(), new ReceiptConfirmRequest(true), 1L);
         assertEquals(2, c.fridgeItemIds().size());
         assertEquals(c.fridgeItemIds(), jdbc.queryForList(
                 "SELECT id FROM fridge_items WHERE source_receipt_id = ? ORDER BY id", Long.class, p.receiptId()));
@@ -102,14 +102,14 @@ class RealSqldAppTest {
     void receiptFailureMidWayLeavesNothing() {
         String m = "RealBoom-" + uniq();
         assertThrows(RuntimeException.class, () -> receipts.preview(
-                request(m, List.of(food("milk", 100), food("BOOM", 100))), "owner"));
+                request(m, List.of(food("milk", 100), food("BOOM", 100))), 1L));
         assertEquals(0, count("SELECT COUNT(*) FROM merchants WHERE name = ?", m));
     }
 
     @Test
     void holdingFailureAtEventLeavesNoHolding() {
         assertThrows(RuntimeException.class, () -> holdings.upsert(
-                new HoldingUpsertRequest("BOOMSYM", Market.US, "Boom", 1.0, 1.0, "USD", null), "owner"));
+                new HoldingUpsertRequest("BOOMSYM", Market.US, "Boom", 1.0, 1.0, "USD", null), 1L));
         assertEquals(0, count("SELECT COUNT(*) FROM holdings WHERE symbol = 'BOOMSYM'"));
     }
 
@@ -117,7 +117,7 @@ class RealSqldAppTest {
     void recordAiReturnsTheRowId() {
         String corr = "it-" + uniq();
         Map<String, Object> out = ops.recordAi(Map.of("provider", "xai", "model", "grok-4",
-                "prompt_tokens", 1, "correlation_id", corr), "owner");
+                "prompt_tokens", 1, "correlation_id", corr), 1L);
         assertEquals(((Number) out.get("id")).longValue(),
                 count("SELECT id FROM ai_calls WHERE correlation_id = ?", corr));
     }

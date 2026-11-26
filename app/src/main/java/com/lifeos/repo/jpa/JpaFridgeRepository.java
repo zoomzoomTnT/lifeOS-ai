@@ -75,6 +75,12 @@ public class JpaFridgeRepository implements FridgeRepository {
     }
 
     @Override
+    public java.util.Optional<Long> ownerOf(long id) {
+        FridgeItem item = em.find(FridgeItem.class, id);
+        return item == null ? java.util.Optional.empty() : java.util.Optional.ofNullable(item.getOwnerId());
+    }
+
+    @Override
     public void updateStatus(long id, FridgeStatus status) {
         FridgeItem item = em.find(FridgeItem.class, id);
         if (item != null) {

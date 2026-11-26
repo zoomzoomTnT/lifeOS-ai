@@ -21,9 +21,9 @@ class OpsServiceRecordAiTest extends TursoSpringTestBase {
     void recordAiReturnsTheReturningId() throws Exception {
         int before = TURSO.executed.size();
         Map<String, Object> first = ops.recordAi(Map.of("provider", "xai", "model", "grok-4",
-                "prompt_tokens", 1000, "completion_tokens", 0, "correlation_id", "t-1"), "owner");
+                "prompt_tokens", 1000, "completion_tokens", 0, "correlation_id", "t-1"), 1L);
         Map<String, Object> second = ops.recordAi(Map.of("provider", "xai", "model", "grok-4",
-                "prompt_tokens", 10, "correlation_id", "t-2"), "owner");
+                "prompt_tokens", 10, "correlation_id", "t-2"), 1L);
 
         long id1 = ((Number) first.get("id")).longValue();
         long id2 = ((Number) second.get("id")).longValue();
@@ -40,7 +40,7 @@ class OpsServiceRecordAiTest extends TursoSpringTestBase {
     @Test
     void missingProviderIsRejectedWithoutWriting() throws Exception {
         long before = count("SELECT COUNT(*) FROM ai_calls");
-        assertEquals("provider_and_model_required", ops.recordAi(Map.of("model", "m"), "owner").get("error"));
+        assertEquals("provider_and_model_required", ops.recordAi(Map.of("model", "m"), 1L).get("error"));
         assertEquals(before, count("SELECT COUNT(*) FROM ai_calls"));
     }
 }

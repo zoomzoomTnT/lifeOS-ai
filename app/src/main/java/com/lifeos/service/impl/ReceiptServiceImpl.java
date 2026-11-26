@@ -10,7 +10,6 @@ import com.lifeos.mapper.FridgeMapper;
 import com.lifeos.mapper.ReceiptMapper;
 import com.lifeos.repo.ReceiptRepository;
 import com.lifeos.repo.batch.ReceiptBatchWriter;
-import com.lifeos.service.PersonService;
 import com.lifeos.service.ReceiptService;
 import com.lifeos.web.dto.ReceiptConfirmRequest;
 import com.lifeos.web.dto.ReceiptConfirmResponse;
@@ -19,6 +18,7 @@ import com.lifeos.web.dto.ReceiptLookupResponse;
 import com.lifeos.web.dto.ReceiptPreviewRequest;
 import com.lifeos.web.dto.ReceiptPreviewResponse;
 import com.lifeos.web.dto.ReceiptResponse;
+import com.lifeos.web.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +32,6 @@ import java.util.Optional;
 public class ReceiptServiceImpl implements ReceiptService {
 
     private final ReceiptRepository receipts;
-    private final PersonService people;
     private final ReceiptMapper receiptMapper;
     private final FridgeMapper fridgeMapper;
     private final ReceiptBatchWriter batchWriter;
@@ -44,7 +43,7 @@ public class ReceiptServiceImpl implements ReceiptService {
 
     @Override
     @Transactional
-    public ReceiptPreviewResponse preview(ReceiptPreviewRequest request, String handle) {
+    public ReceiptPreviewResponse preview(ReceiptPreviewRequest request, long personId) {
         String fp = Fingerprints.receipt(
                 request.barcode(), request.merchantName(), request.printedAt(), request.totalCents());
         Optional<Receipt> existing = findExisting(request);
@@ -52,7 +51,7 @@ public class ReceiptServiceImpl implements ReceiptService {
             return receiptMapper.toDuplicate(existing.get());
         }
 
-        long payerId = people.resolveId(handle);
+        long payerId = personId;
         String merchantName = request.merchantName() == null || request.merchantName().isBlank()
                 ? "未知商户" : request.merchantName();
         List<ReceiptPreviewRequest.Line> items = request.items() == null ? List.of() : request.items();
@@ -88,12 +87,13 @@ public class ReceiptServiceImpl implements ReceiptService {
 
     @Override
     @Transactional
-    public ReceiptConfirmResponse confirm(long id, ReceiptConfirmRequest request, String handle) {
-        Receipt r = receipts.findById(id).orElseThrow(() -> new IllegalArgumentException("receipt not found: " + id));
+    public ReceiptConfirmResponse confirm(long id, ReceiptConfirmRequest request, long personId) {
+        Receipt r = receipts.findById(id).filter(x -> x.getPayerId() != null && x.getPayerId() == personId)
+                .orElseThrow(() -> new NotFoundException("receipt not found: " + id)); // or someone else's
         if (r.getStatus() != ReceiptStatus.PENDING_CONFIRM) {
             return receiptMapper.toNotPending(r);
         }
-        long actorId = people.resolveId(handle);
+        long actorId = personId;
         boolean alsoFridge = request != null && Boolean.TRUE.equals(request.alsoFridge());
         List<FridgeItem> toFridge = alsoFridge ? fridgeFromReceipt(id, actorId) : List.of();
         // One atomic write: status + fridge rows + event (one request on Turso).

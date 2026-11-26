@@ -1,6 +1,5 @@
 package com.lifeos.ops;
 
-import com.lifeos.service.PersonService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -15,25 +14,24 @@ import java.util.Map;
 public class OpsService {
 
     private final JdbcTemplate jdbc;
-    private final PersonService personService;
 
-    public void recordHttp(String correlationId, String handle, String method, String path,
+    public void recordHttp(String correlationId, Long actorId, String clientId, String credentialId,
+                           String method, String path,
                            String query, Integer status, long latencyMs,
                            Integer requestBytes, Integer responseBytes,
                            String bodyExcerpt, String error) {
-        Long actorId = resolveOptional(handle);
         jdbc.update("""
                 INSERT INTO http_requests (
                   correlation_id, actor_id, method, path, query, status, latency_ms,
-                  request_bytes, response_bytes, body_excerpt, error)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                  request_bytes, response_bytes, body_excerpt, error, client_id, credential_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 correlationId, actorId, method, path, query, status, latencyMs,
-                requestBytes, responseBytes, bodyExcerpt, error);
+                requestBytes, responseBytes, bodyExcerpt, error, clientId, credentialId);
     }
 
     @Transactional
-    public Map<String, Object> recordAi(Map<String, Object> body, String handle) {
+    public Map<String, Object> recordAi(Map<String, Object> body, Long actorId) {
         String provider = str(body.get("provider"));
         String model = str(body.get("model"));
         if (provider == null || provider.isBlank() || model == null || model.isBlank()) {
@@ -56,7 +54,6 @@ public class OpsService {
             }
         }
 
-        Long actorId = resolveOptional(handle);
         String source = str(body.getOrDefault("source", "skill"));
         String purpose = str(body.getOrDefault("purpose", "other"));
         String status = str(body.getOrDefault("status", "ok"));
@@ -233,10 +230,6 @@ public class OpsService {
         }
     }
 
-    private Long resolveOptional(String handle) {
-        if (handle == null || handle.isBlank()) return null;
-        return personService.resolveId(handle);
-    }
 
     private static String str(Object o) { return o == null ? null : o.toString(); }
 

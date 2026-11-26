@@ -64,6 +64,12 @@ public class JpaMemoRepository implements MemoRepository {
     }
 
     @Override
+    public java.util.Optional<Long> ownerOf(long id) {
+        Memo memo = em.find(Memo.class, id);
+        return memo == null ? java.util.Optional.empty() : java.util.Optional.ofNullable(memo.getOwnerId());
+    }
+
+    @Override
     public void updateStatus(long id, MemoStatus status) {
         Memo memo = em.find(Memo.class, id);
         if (memo != null) {
